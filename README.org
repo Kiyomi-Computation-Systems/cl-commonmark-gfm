@@ -1,8 +1,6 @@
 * cl-commonmark-gfm
 
-
-[[https://github.com/Kiyomi-Computation-Systems/cl-commonmark-gfm/actions/workflows/ci.yml][https://github.com/Kiyomi-Computation-Systems/cl-commonmark-gfm/actions/workflows/ci.yml/badge.svg]]
-
+[CI bage goes here]
 
 GitHub Flavored Markdown for Common Lisp (via =cmark-gfm=)
 
