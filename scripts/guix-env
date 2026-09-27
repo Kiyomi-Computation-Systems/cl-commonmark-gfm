@@ -1,0 +1,41 @@
+#!/bin/sh
+# The pinned Guix development container (ADR-0004).
+#
+#   scripts/guix-env                an interactive bash
+#   scripts/guix-env CMD [ARG...]   run CMD, e.g. `make check-guix-inside`
+#
+# The container holds the toolchain and nothing of yours: no git config,
+# no agents, no tokens. Edit, commit and push on the host; send builds and
+# tests through here.
+#
+# GUIX_ENV_DRY_RUN=1 prints `cd <dir>` and the guix command, one argument
+# per line, instead of running it: tests/guix-env-launcher.sh asserts on
+# that.
+set -eu
+
+die() { printf 'guix-env: %s\n' "$*" >&2; exit 2; }
+
+if [ -n "${GUIX_ENVIRONMENT:-}" ]; then
+  die "already inside a Guix environment (GUIX_ENVIRONMENT=$GUIX_ENVIRONMENT); run the command directly"
+fi
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$root"
+
+if [ $# -eq 0 ]; then
+  set -- bash
+fi
+
+# --network: `make ocicl` clones ocicl, and ocicl fetches systems.
+# scripts/guix-env-enter points ocicl's state and ASDF's fasl cache at
+# .guix-env/, which outlives the container; the container's own HOME does not.
+set -- time-machine -C channels.scm -- shell -m manifest.scm \
+  --container --network '--preserve=^(TERM|COLORTERM|LANG)$' \
+  -- sh scripts/guix-env-enter "$@"
+
+if [ -n "${GUIX_ENV_DRY_RUN:-}" ]; then
+  printf 'cd %s\n' "$PWD"
+  printf '%s\n' guix "$@"
+  exit 0
+fi
+exec guix "$@"

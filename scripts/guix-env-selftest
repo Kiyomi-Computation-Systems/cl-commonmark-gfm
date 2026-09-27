@@ -1,0 +1,108 @@
+#!/bin/sh
+# Runs INSIDE the pinned container, as `make check-guix-inside`. Not a
+# launcher: `make check-guix` runs tests/guix-env-launcher.sh on the host,
+# then this through scripts/guix-env. Asserts what the environment exists
+# for (ADR-0004). Each failure names its assertion.
+set -u
+
+if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
+  echo "check-guix: FAILED not-in-environment: this is the self-test, not the launcher; use make check-guix" >&2
+  exit 2
+fi
+
+fail=0
+ok()  { echo "check-guix: ok $*"; }
+bad() { echo "check-guix: FAILED $*" >&2; fail=1; }
+
+# Assertion 1: nothing of the host's HOME is visible. The container's HOME
+# holds at most the directories leading down to the repository, which it
+# shares; anything else (a dotfile, a key, a host tool's config) means the
+# isolation this environment exists for is gone.
+home_ok=1
+for e in "$HOME"/* "$HOME"/.[!.]* "$HOME"/..?*; do
+  [ -e "$e" ] || continue
+  case "$PWD/" in
+    "$e"/*) ;;
+    *) bad "isolated-home: $e is visible inside the container"; home_ok=0 ;;
+  esac
+done
+[ "$home_ok" -eq 1 ] && ok "isolated-home ($HOME holds only the path to $PWD)"
+
+# Assertion 2: however a login shell finds a tool, it runs the pinned
+# binary. Both forms, since rc files branch on $-. Compared by resolved path.
+for mode in -lc -lic; do
+  for tool in sbcl ecl ccl make git gcc pkg-config; do
+    p=$(bash "$mode" "command -v $tool" 2>/dev/null | tail -n 1)
+    want=$(readlink -f "$GUIX_ENVIRONMENT/bin/$tool")
+    got=
+    [ -n "$p" ] && got=$(readlink -f "$p")
+    if [ -n "$got" ] && [ "$got" = "$want" ]; then
+      ok "tool-path[$mode] ($tool: $p)"
+    else
+      bad "tool-path[$mode]: $tool resolves to '${got:-nothing}' (via '${p:-nothing}'), expected $want"
+    fi
+  done
+done
+
+# Assertion 3: the cmark-gfm in the profile is the pinned release (ADR-0002),
+# from the store, core and extensions both.
+want=${CMARK_GFM_VERSION:?CMARK_GFM_VERSION unset: run through make check-guix-inside}
+got=$(pkg-config --modversion libcmark-gfm 2>/dev/null)
+if [ "$got" = "$want" ]; then
+  ok "cmark-gfm-version ($got)"
+else
+  bad "cmark-gfm-version: pkg-config reports '${got:-nothing}', pinned $want"
+fi
+for lib in libcmark-gfm libcmark-gfm-extensions; do
+  f=$(readlink -f "$GUIX_ENVIRONMENT/lib/$lib.so.$want" 2>/dev/null)
+  case "$f" in
+    /gnu/store/*) ok "cmark-gfm-library ($lib: $f)" ;;
+    *) bad "cmark-gfm-library: no $lib.so.$want in the profile" ;;
+  esac
+done
+
+# Assertion 4: state that must outlive the container is in the repository,
+# not in the container's throwaway HOME.
+for v in XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME OCICL_PREFIX; do
+  eval "val=\${$v:-}"
+  case "$val" in
+    "$PWD/.guix-env"*) ok "state-dir ($v=$val)" ;;
+    *) bad "state-dir: $v is '${val:-unset}', expected under $PWD/.guix-env" ;;
+  esac
+done
+
+# Assertion 5: ocicl is the pinned release, built by `make ocicl`, and it is
+# the one on PATH (ADR-0003).
+want=${OCICL_TAG:?OCICL_TAG unset: run through make check-guix-inside}
+p=$(command -v ocicl)
+if [ "$p" = "$PWD/.guix-env/bin/ocicl" ]; then
+  ok "ocicl-path ($p)"
+else
+  bad "ocicl-path: ocicl is '${p:-missing}', expected $PWD/.guix-env/bin/ocicl (run make ocicl)"
+fi
+got=$(ocicl version </dev/null 2>/dev/null | sed -n 's/^ocicl version: *//p')
+if [ "$got" = "$want" ]; then
+  ok "ocicl-version ($got)"
+else
+  bad "ocicl-version: ocicl reports '${got:-nothing}', pinned $want"
+fi
+
+# Assertion 6: a CFFI-style load by bare name finds the profile's libraries.
+# ocicl's TLS depends on it; so will the conventional-name cmark-gfm lookup.
+if sbcl --non-interactive --no-userinit \
+     --eval '(sb-alien:load-shared-object "libcmark-gfm.so")' >/dev/null 2>&1; then
+  ok "dlopen-by-name (libcmark-gfm.so)"
+else
+  bad "dlopen-by-name: sbcl cannot load libcmark-gfm.so by bare name; is LD_LIBRARY_PATH set?"
+fi
+
+for target in check-help check-vocabulary; do
+  if ! make --no-print-directory "$target"; then
+    bad "$target"
+  fi
+done
+
+if [ "$fail" -eq 0 ]; then
+  echo "check-guix: ALL CHECKS PASSED"
+fi
+exit "$fail"

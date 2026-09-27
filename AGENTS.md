@@ -6,22 +6,37 @@
 
 * Use the functional core / imperative shell pattern
 * Follow the 12 Factor Apps philosophy
-* Project is built for Chez Scheme
-* Project should be portable across macos (darwin), linux, and windows
+* Project is built in Common Lisp for SBCL, CCL and ECL, through CFFI
+* Project should be portable across macos (darwin) and linux. No Windows.
 * Project should be portable across amd64 and arm64
-* **DO NOT** setup macos CI runners: linux only!
+* **DO NOT** setup macos CI runners: linux only! macOS is verified by hand on
+  the maintainer's laptop (ADR-0001)
 * Use ocicl (https://github.com/ocicl/ocicl) for package management and distribution
 
 ### Dependencies
 
-* cmark-gfm https://github.com/github/cmark-gfm
+* cmark-gfm https://github.com/github/cmark-gfm, pinned to 0.29.0.gfm.13
+  (ADR-0002)
+* `NOTICE` reproduces cmark-gfm's `COPYING`; update it with the pin
+
+### Guix development container
+
+* **On a Guix host, run every build and test through `scripts/guix-env`**,
+  e.g. `scripts/guix-env make check-vocabulary`. Batch commands with
+  `scripts/guix-env sh -c 'make a && make b'`: each call takes seconds to
+  start.
+* Edit, commit and push on the host. The container has no git identity,
+  agents or tokens (ADR-0004).
+* First time: `scripts/guix-env make ocicl`. Verify with `make check-guix`.
+* Never pass `ocicl` a terminal it can block on in scripts: redirect stdin
+  from `/dev/null`.
 
 ### Layout, process & libraries
 
 * Plans live in `/.plans`, decision records in `/.plans/decisions`
-* The subagent-driven development ledger lives in `/.superpowers/sdd/` —
-  `progress.md` is the spine and `global-constraints.md` binds every task
-  brief. Read both before starting slice work; close-outs are recorded there.
+* `/.plans/progress.md` is the spine: milestone status, the global
+  constraints that bind every task brief, manual macOS runs, and close-outs.
+  Read it before starting slice work; record close-outs there.
 * Add entries to `CHANGELOG.md` for each release
 * `/docs` is for user facing documentation only.
 * Documentation should be very concise, focused, to the point, ELI5 style.

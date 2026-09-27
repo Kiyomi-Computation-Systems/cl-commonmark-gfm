@@ -1,0 +1,31 @@
+#!/bin/sh
+# Runs INSIDE the container, as the first command scripts/guix-env starts
+# (ADR-0004). Points everything that would write under HOME at .guix-env/
+# in the repository instead, so it survives between container runs:
+#
+#   .guix-env/bin     the ocicl binary `make ocicl` builds
+#   .guix-env/share   ocicl's runtime (XDG_DATA_HOME)
+#   .guix-env/config  XDG_CONFIG_HOME
+#   .guix-env/cache   ASDF's compiled fasls (XDG_CACHE_HOME)
+#
+# It also puts the profile's lib/ on LD_LIBRARY_PATH. Guix's glibc searches
+# no FHS directory, so without it a CFFI load by bare name (ocicl's
+# libcrypto, the plan's conventional-name lookup of cmark-gfm) finds nothing.
+set -eu
+
+if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
+  echo "guix-env-enter: not inside a Guix environment; use scripts/guix-env" >&2
+  exit 2
+fi
+
+state=$PWD/.guix-env
+mkdir -p "$state/bin" "$state/share" "$state/config" "$state/cache"
+
+export XDG_DATA_HOME="$state/share"
+export XDG_CONFIG_HOME="$state/config"
+export XDG_CACHE_HOME="$state/cache"
+export OCICL_PREFIX="$state/"
+export PATH="$state/bin:$PATH"
+export LD_LIBRARY_PATH="$GUIX_ENVIRONMENT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+exec "$@"
