@@ -1,7 +1,7 @@
 # M0 close: native boundary, HTML tree contract, Linux CI — design
 
 - **Date:** 2026-09-27
-- **Status:** Draft for review
+- **Status:** Approved 2026-09-27
 - **Milestone:** closes M0 (design freeze)
 - **Inputs:** [project plan](cl-commonmark-gfm.org), ADR-0001…0007, and
   chez-cmark-gfm's ADR-0005, 0011, 0012, 0015 and 0016 (prior art on this
