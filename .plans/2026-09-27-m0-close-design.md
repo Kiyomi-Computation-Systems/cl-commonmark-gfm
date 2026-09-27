@@ -1,4 +1,4 @@
-# M0 close: native boundary, SXML contract, Linux CI — design
+# M0 close: native boundary, HTML tree contract, Linux CI — design
 
 - **Date:** 2026-09-27
 - **Status:** Draft for review
@@ -12,8 +12,8 @@
 Freeze the three interfaces later milestones build on:
 
 1. **The native boundary:** how Lisp finds, loads and calls cmark-gfm.
-2. **The SXML contract:** the shape of every node, the raw-HTML and
-   link policies, and how shapes are tested.
+2. **The HTML tree contract:** the shape of every node, the raw-HTML and
+   link policies, the public serializer, and how shapes are tested.
 3. **Linux CI:** what runs, where, and on which toolchain.
 
 Once this is approved and written into the plan and ADRs, M1 (pure core) and
@@ -29,9 +29,11 @@ condition. Never a crash, an unresolved symbol, or a silent second core.
 |---|----------|----------|
 | D1 | Keep the C shim? | **No. Bind libcmark-gfm directly.** Add a shim later only if a concrete need appears. |
 | D2 | Library discovery | **The exact pinned pair, loaded by absolute path.** Override or fixed directory search; no bare-name `dlopen`. |
-| D3 | How SXML is tested | **cmark's HTML is the oracle**, byte for byte, over the pinned spec corpus. |
+| D3 | How the tree is tested | **cmark's HTML is the oracle**, byte for byte, over the pinned spec corpus. |
 | D4 | Raw-HTML policies | **`:omit` (default) and `:text` only.** No trusted mode. |
 | D5 | CI toolchain | **One amd64 job in a `debian:trixie` container.** |
+| D6 | Tree format | **LHTML shape (closure-html's convention), not SXML.** Attributes are always the second element. |
+| D7 | Serializer | **Ship `html-tree->string` publicly.** It is the same serializer the oracle tests. |
 
 Found while checking facts:
 
@@ -190,38 +192,66 @@ ADR entry that says what the test cannot catch.
    `:uint8` and tested against zero, so only the defined byte is read. The
    vocabulary fixture has both a checked and an unchecked item.
 
-## 4. SXML contract
+## 4. HTML tree contract
 
-### 4.1 Tree shape
+### 4.1 Why not SXML
 
-- Element names are keywords: `(:p …)`.
-- The attribute marker is **`:@`**, as in `(:a (:@ (:href "…")) "text")`. A
-  bare `@` symbol is interned in whatever package the reader is using, so two
-  trees could hold different `@` symbols and fail to compare equal.
-- Text is Lisp strings. Escaping is the serializer's job.
-- Comments are `(:*comment* " text ")`.
-- A document yields a **list** of top-level nodes. `:document-wrapper` (an
-  element keyword, default `nil`) wraps them.
+The plan called this projection "SXML". A survey on 2026-09-27 found that
+Common Lisp has no shared HTML-tree convention, and that SXML's `@` marker
+does not survive the move from Scheme:
+
+- **The package trap.** Scheme symbols are global. CL symbols belong to
+  packages, so a bare `@` read in one package is not `eq` to one read in
+  another, and the comparison fails silently. `cl-sxml`, the only SXML
+  library in ocicl, interns `@` into the caller's package, and interns its
+  comment nodes into whatever package is current at the time. It is
+  GPL-licensed and documented as not working on ECL.
+- **No consumer expects it.** The same fragment, in each library's own
+  format:
+  - closure-html (LHTML): `(:p ((:class "x")) "hi " (:a ((:href "u")) "l"))`;
+  - xmls: structs with string names;
+  - Spinneret: `(:p :class "x" …)`, and it rejects `:@` as an unknown tag;
+  - cl-who and hsx: compile-time macros only, no runtime trees.
+- **LHTML is the nearest thing to a convention.** Its attributes are always
+  the second element, so every element destructures the same way. We use its
+  shape.
+- **Spinneret's format was rejected.** It would tie our contract to
+  Spinneret's parsing and output, which re-indents content.
+- **Serializing LHTML with closure-html was rejected.** closure-html prints
+  HTML 4 style (`<P>`, `<BR>`) and cannot represent comments. We ship our own
+  serializer instead (§4.5).
+
+### 4.2 Tree shape
+
+- **Element:** `(tag attrs &rest children)`.
+  - `tag` is a keyword.
+  - `attrs` is `nil` or a list of `(:name "value")` two-element lists, in the
+    order cmark emits them.
+  - Each child is a string (text) or an element.
+- **Omitted raw HTML** is `(:*comment* nil " raw HTML omitted ")`, the same
+  three-part form.
+- **Document:** a list of top-level nodes. `:document-wrapper` (an element
+  keyword, default `nil`) wraps them as `(wrapper nil …)`.
 - **No source positions and no `data-*` metadata** beyond what cmark's own
   HTML emits. Source positions live in the AST.
+- Text is unescaped Lisp strings. Escaping is the serializer's job.
 
-### 4.2 Mapping
+### 4.3 Mapping
 
 Each node takes the shape cmark 0.29.0.gfm.13's `html.c` and extension
-renderers produce, under the options in effect. The oracle (§4.4) settles
+renderers produce, under the options in effect. The oracle (§4.6) settles
 every detail.
 
 - **Links and images:** `href` and `src` values carry cmark's percent-encoding
-  (houdini's `HREF_SAFE` set). Any ordinary HTML serializer then reproduces
-  cmark's output after entity-escaping. An image's `alt` is the plain text of
-  its children.
-- **Task items:** `(:li (:input (:@ (:type "checkbox") (:disabled ""))) " text")`,
+  (houdini's `HREF_SAFE` set). The serializer then only entity-escapes them.
+  An image's `alt` is the plain text of its children.
+- **Task items:** `(:li nil (:input ((:type "checkbox") (:disabled ""))) " text")`,
   with `(:checked "")` before `(:disabled "")` when ticked. There is **no
-  `task-list-item` class**; this corrects the plan's SXML table.
+  `task-list-item` class**; this corrects the plan.
 - **Footnote references:**
-  `(:sup (:@ (:class "footnote-ref")) (:a (:@ (:href "#fn-1") (:id "fnref-1") (:data-footnote-ref "")) "1"))`.
+  `(:sup ((:class "footnote-ref")) (:a ((:href "#fn-1") (:id "fnref-1") (:data-footnote-ref "")) "1"))`.
 - **Footnote definitions** are collected at the end of the document:
-  `(:section (:@ (:class "footnotes") (:data-footnotes "")) (:ol (:li (:@ (:id "fn-1")) … backref …)))`.
+  `(:section ((:class "footnotes") (:data-footnotes "")) (:ol nil (:li ((:id "fn-1")) … backref …)))`.
   Numbering, ids for repeated references, and the back-reference `aria-label`
   follow cmark exactly. They are computed in Lisp from the AST's labels, in
   order of first reference.
@@ -229,32 +259,50 @@ every detail.
   the `align` attributes come from each cell's `:align`.
 - **Tight lists** unwrap their paragraphs, as cmark does.
 
-### 4.3 Options
+### 4.4 Options
 
-`ast->sxml` validates its options before converting anything. An unknown key
-or value signals `invalid-render-option`.
+`ast->html-tree` validates its options before converting anything. An
+unknown key or value signals `invalid-render-option`.
 
 | Option | Values (default first) | cmark equivalent (oracle) |
 |--------|------------------------|---------------------------|
-| `:raw-html` | `:omit`: `(:*comment* " raw HTML omitted ")` for each `html_inline`/`html_block`<br>`:text`: the literal as an ordinary string | `:omit` = default safe HTML; `:text` has none, so it gets direct tests |
-| `:softbreak` | `:newline` → `"\n"`<br>`:space` → `" "`<br>`:br` → `(:br)` | default, `CMARK_OPT_NOBREAKS`, `CMARK_OPT_HARDBREAKS` |
+| `:raw-html` | `:omit`: `(:*comment* nil " raw HTML omitted ")` for each `html_inline`/`html_block`<br>`:text`: the literal as an ordinary string | `:omit` = default safe HTML; `:text` has none, so it gets direct tests |
+| `:softbreak` | `:newline` → `"\n"`<br>`:space` → `" "`<br>`:br` → `(:br nil)` | default, `CMARK_OPT_NOBREAKS`, `CMARK_OPT_HARDBREAKS` |
 | `:link-policy` (link `href` and image `src`) | `:safe`: blank the URL when it starts, case-insensitively, with `javascript:`, `vbscript:`, `file:` or `data:`, except `data:image/png`, `data:image/gif`, `data:image/jpeg` and `data:image/webp` (cmark's `_scan_dangerous_url`)<br>`:unsafe`: keep every URL | default; `CMARK_OPT_UNSAFE` for links only |
 | `:document-wrapper` | `nil` or an element keyword | none |
 
 There is **no trusted raw-HTML mode**. A caller who needs the markup reads
 `:literal` from the AST's `:html-inline` / `:html-block` nodes.
 
-### 4.4 The oracle
+### 4.5 Serializer: `html-tree->string`
 
-- A **test-only** serializer, `tests/sxml-html-serializer.lisp`, turns SXML
-  into HTML. It is written against `html.c`. It maps element names to tags
-  and attributes to attributes, and consults static tables for void elements
-  and newline placement. It never looks at Markdown.
+A pure, public function from a tree (an element, or a list of nodes) to a
+string.
+
+- **cmark-exact on our trees.** Static tables of void elements and of where
+  cmark places newlines make its output equal cmark's HTML (§4.6).
+- **Always escapes.** Text and attribute values are entity-escaped (`&`, `<`,
+  `>`, `"`) exactly as houdini's HTML escaper does. Nothing is emitted raw.
+- **Validates what it is given.** These signal `invalid-html-tree`, naming
+  the offending node:
+  - a tag or attribute name not matching `[a-z][a-z0-9-]*`, so a keyword can
+    never smuggle in markup (e.g. a name containing `onclick="…"`);
+  - a non-string attribute value;
+  - comment text containing `--`;
+  - a malformed element.
+- **Unknown but valid tags are allowed** and print inline, since custom
+  elements are legitimate.
+- **It does not sanitize URLs.** `:link-policy` applies inside
+  `ast->html-tree`. A URL a user adds to the tree afterwards is escaped but
+  not checked; the user docs say so.
+
+### 4.6 The oracle
+
 - For every example in the pinned corpus (`test/spec.txt`,
   `test/extensions.txt`, `test/regression.txt` and the other `test/*.txt`
-  files), `(serialize (ast->sxml (parse md)))` must equal
+  files), `(html-tree->string (ast->html-tree (parse md)))` must equal
   `(markdown->html md)` byte for byte, under each oracle-backed option in
-  §4.3.
+  §4.4. The serializer under test is the public one.
 - `:link-policy :unsafe` is compared with `CMARK_OPT_UNSAFE` output only on
   examples whose AST has no `:html-inline` or `:html-block` node. That option
   also emits raw HTML verbatim, which `:omit` deliberately does not.
@@ -262,11 +310,10 @@ There is **no trusted raw-HTML mode**. A caller who needs the markup reads
   - M2 runs it for the node families M2 copies;
   - M3 runs it over the whole corpus.
 
-  M1's pure SXML tests use hand-built ASTs with expected SXML written out.
-- The serializer is not public API. Whether to ship one is a later
-  decision.
+  M1's pure tests use hand-built ASTs with the expected trees written out,
+  and direct serializer tests, including every `invalid-html-tree` case.
 
-### 4.5 Corpus source
+### 4.7 Corpus source
 
 `vendor/cmark-gfm` is a git submodule pinned to commit
 `587a12bb54d95ac37241377e6ddc93ea0e45439b` (tag `0.29.0.gfm.13`). It is a
@@ -315,7 +362,7 @@ Each step comes into use as its milestone arrives.
 | `make check-pins` | now |
 | `make check-purity`: the pure suites on each Lisp with `CL_COMMONMARK_GFM_LIBS=/nonexistent:/nonexistent` must pass | M1 |
 | The native suites on each Lisp, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
-| The corpus oracle (§4.4) | M2 (partial) / M3 (full) |
+| The corpus oracle (§4.6) | M2 (partial) / M3 (full) |
 
 ### 5.4 Left out on purpose
 
@@ -337,8 +384,8 @@ Each step comes into use as its milestone arrives.
 | ADR-0001 | CCL is amd64-only: Linux amd64 (CI), macOS amd64 (Intel or Rosetta, manual) |
 | ADR-0004 | The container sets `CL_COMMONMARK_GFM_LIBS`; `LD_LIBRARY_PATH` is for ocicl only |
 | ADR-0005 | "Decision" on `cl_cmark_node_kind` superseded by §3.4; findings stand |
-| Plan | Remove the shim sections, suggested C ABI and shim risk rows; replace the library-resolution order with §3.2; SXML table per §4.2; raw-HTML policies per §4.3; tests and CI per §4.4–5; support matrix per ADR-0001's fix; decision log entries 14–18 |
-| Plan conditions | `native-abi-mismatch` now means "runtime version ≠ pin"; the others are unchanged |
+| Plan | Remove the shim sections, suggested C ABI and shim risk rows; replace the library-resolution order with §3.2; rename SXML to "HTML tree" throughout (systems table: `cl-commonmark-gfm/html-tree`; API: `ast->html-tree`, `markdown->html-tree`, `html-tree->string`; M1; risks); mapping table per §4.3; policies per §4.4; tests and CI per §4.6–5; support matrix per ADR-0001's fix; decision log entries 14–19 |
+| Plan conditions | `native-abi-mismatch` now means "runtime version ≠ pin"; add `invalid-html-tree` (§4.5); the others are unchanged |
 
 New ADRs:
 
@@ -346,13 +393,14 @@ New ADRs:
 |-----|---------|
 | 0008 | Bind libcmark-gfm directly; no shim for now (§3.1, §3.5) |
 | 0009 | Pinned pair, absolute-path discovery (§3.2) |
-| 0010 | cmark's HTML is the SXML oracle; `vendor/cmark-gfm` submodule (§4.1, §4.2, §4.4, §4.5) |
-| 0011 | Raw-HTML `:omit`/`:text`, softbreak and link policies (§4.3) |
-| 0012 | Linux CI in a Debian trixie container (§5) |
+| 0010 | LHTML-shaped HTML tree, not SXML; public `html-tree->string` (§4.1, §4.2, §4.5) |
+| 0011 | cmark's HTML is the tree's oracle; `vendor/cmark-gfm` submodule (§4.3, §4.6, §4.7) |
+| 0012 | Raw-HTML `:omit`/`:text`, softbreak and link policies (§4.4) |
+| 0013 | Linux CI in a Debian trixie container (§5) |
 
 ## 7. Out of scope
 
 - Writing any library code: that starts in M1/M2.
-- A public SXML→HTML serializer.
+- Adapters to other tree formats (SXML, Spinneret, xmls).
 - Property-based testing (M3, ADR-0007).
 - Supporting any cmark-gfm version but the pin.
