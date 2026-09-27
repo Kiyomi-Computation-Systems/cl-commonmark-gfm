@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linux:
+    name: linux
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 20
+    steps:
+      # actions/checkout needs git and HTTPS certs already in the container:
+      # without git, a checkout with submodules: true FAILS outright (it
+      # cannot fall back to the REST API download for submodules) (ADR-0013).
+      # ci/install-toolchain.sh runs later, after checkout, and installs the
+      # rest of the toolchain (it re-installs these two harmlessly).
+      - name: Install git for checkout
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      # The container runs as root, and git (>= 2.35.2) refuses to operate
+      # on a repository it doesn't own unless told to trust it. Without
+      # this, `git ls-files` inside `make check-pins` fails.
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/cmark-gfm"
+
+      - name: Install toolchain
+        run: sh ci/install-toolchain.sh
+
+      - name: make info
+        run: make info
+
+      - name: make check-help
+        run: make check-help
+
+      - name: guix-env-launcher (dry run; needs no Guix)
+        run: sh tests/guix-env-launcher.sh
+
+      - name: make check-vocabulary
+        run: make check-vocabulary
+
+      - name: make check-pins
+        run: make check-pins
+
+      - name: make check-notice
+        run: make check-notice
+
+      # No dependency cache yet: there is no ocicl.csv until the first Lisp
+      # dependency lands (M1). Then cache ./ocicl/, keyed on a hash of
+      # ocicl.csv, alongside the checkout step above.

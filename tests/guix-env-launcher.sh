@@ -89,5 +89,58 @@ check "T5 subdirectory: runs from the repo root" [ "$(lines 1p)" = "cd $root|" ]
 status=$?
 check "T6 enter on host: exit 2" [ "$status" -eq 2 ]
 
+# T7: scripts/guix-env-enter's library resolution (ADR-0009), called
+# directly (not through the launcher) so each case controls exactly what
+# $GUIX_ENVIRONMENT/lib holds. A fake GUIX_ENVIRONMENT and a scratch cwd
+# are both needed: the script mkdirs $PWD/.guix-env.
+enter=$root/scripts/guix-env-enter
+enter_env=$tmp/fake-guix-environment
+enter_cwd=$tmp/enter-cwd
+
+reset_enter_env() {
+  rm -rf "$enter_env" "$enter_cwd"
+  mkdir -p "$enter_env/lib" "$enter_cwd"
+}
+
+run_enter() {
+  status=999
+  ( cd "$enter_cwd" && env -i PATH="$PATH" GUIX_ENVIRONMENT="$enter_env" \
+      sh "$enter" sh -c 'printf %s "$CL_COMMONMARK_GFM_LIBS"' ) \
+    >"$tmp/out" 2>"$tmp/err"
+  status=$?
+}
+
+# T7a: one core file and one extensions file resolve to their absolute
+# paths, core first.
+reset_enter_env
+core=$enter_env/lib/libcmark-gfm.so.0.29.0.gfm.13
+ext=$enter_env/lib/libcmark-gfm-extensions.so.0.29.0.gfm.13
+: >"$core"
+: >"$ext"
+run_enter
+check "T7a one core + one ext: exit 0" [ "$status" -eq 0 ]
+check "T7a one core + one ext: CL_COMMONMARK_GFM_LIBS" \
+  [ "$(cat "$tmp/out")" = "$core:$ext" ]
+
+# T7b: two core matches refuse rather than guess, naming both in stderr.
+reset_enter_env
+core1=$enter_env/lib/libcmark-gfm.so.0.29.0.gfm.13
+core2=$enter_env/lib/libcmark-gfm.so.0.30.0.gfm.1
+ext=$enter_env/lib/libcmark-gfm-extensions.so.0.29.0.gfm.13
+: >"$core1"
+: >"$core2"
+: >"$ext"
+run_enter
+check "T7b two core matches: exit 2" [ "$status" -eq 2 ]
+check "T7b two core matches: names first" grep -Fq "$core1" "$tmp/err"
+check "T7b two core matches: names second" grep -Fq "$core2" "$tmp/err"
+
+# T7c: no extensions file refuses.
+reset_enter_env
+core=$enter_env/lib/libcmark-gfm.so.0.29.0.gfm.13
+: >"$core"
+run_enter
+check "T7c no extensions file: exit 2" [ "$status" -eq 2 ]
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -61,7 +61,49 @@ for lib in libcmark-gfm libcmark-gfm-extensions; do
   esac
 done
 
-# Assertion 4: state that must outlive the container is in the repository,
+# Assertion 4: CL_COMMONMARK_GFM_LIBS, which guix-env-enter exports
+# (ADR-0009), is exactly the pinned pair by absolute path: two
+# colon-separated entries, each an existing regular file whose basename
+# exactly matches the pinned core or extensions filename (so order
+# matters: core first, extensions second), each resolving under
+# /gnu/store.
+check_override_entry() {
+  # $1 = label ("core"/"ext"), $2 = path, $3 = expected basename
+  label=$1; path=$2; expected_base=$3
+  case "$path" in
+    /*) ;;
+    *) bad "cmark-override: $label path '$path' is not absolute"; return 1 ;;
+  esac
+  if [ ! -f "$path" ]; then
+    bad "cmark-override: $label path '$path' is not a regular file"
+    return 1
+  fi
+  base=${path##*/}
+  if [ "$base" != "$expected_base" ]; then
+    bad "cmark-override: $label path '$path' has basename '$base', expected $expected_base"
+    return 1
+  fi
+  resolved=$(readlink -f "$path" 2>/dev/null)
+  case "$resolved" in
+    /gnu/store/*) return 0 ;;
+    *) bad "cmark-override: $label path '$path' resolves to '${resolved:-nothing}', expected under /gnu/store"; return 1 ;;
+  esac
+}
+
+val=${CL_COMMONMARK_GFM_LIBS:-}
+colons=$(printf '%s' "$val" | tr -cd ':' | wc -c | tr -d ' ')
+if [ -z "$val" ] || [ "$colons" -ne 1 ]; then
+  bad "cmark-override: CL_COMMONMARK_GFM_LIBS is '${val:-unset}', expected exactly two colon-separated paths"
+else
+  core=${val%%:*}
+  ext=${val#*:}
+  if check_override_entry core "$core" "libcmark-gfm.so.$want" \
+     && check_override_entry ext "$ext" "libcmark-gfm-extensions.so.$want"; then
+    ok "cmark-override ($core:$ext)"
+  fi
+fi
+
+# Assertion 5: state that must outlive the container is in the repository,
 # not in the container's throwaway HOME.
 for v in XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME OCICL_PREFIX; do
   eval "val=\${$v:-}"
@@ -71,7 +113,7 @@ for v in XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME OCICL_PREFIX; do
   esac
 done
 
-# Assertion 5: ocicl is the pinned release, built by `make ocicl`, and it is
+# Assertion 6: ocicl is the pinned release, built by `make ocicl`, and it is
 # the one on PATH (ADR-0003).
 want=${OCICL_TAG:?OCICL_TAG unset: run through make check-guix-inside}
 p=$(command -v ocicl)
@@ -87,16 +129,19 @@ else
   bad "ocicl-version: ocicl reports '${got:-nothing}', pinned $want"
 fi
 
-# Assertion 6: a CFFI-style load by bare name finds the profile's libraries.
-# ocicl's TLS depends on it; so will the conventional-name cmark-gfm lookup.
+# Assertion 7: a CFFI-style load by bare name finds the profile's
+# libraries. cmark-gfm itself is loaded by absolute path only, never by
+# bare name (ADR-0009, cmark-override above); what this dlopen-by-name
+# check guards is LD_LIBRARY_PATH staying set for ocicl's own libcrypto,
+# whose TLS depends on it.
 if sbcl --non-interactive --no-userinit \
-     --eval '(sb-alien:load-shared-object "libcmark-gfm.so")' >/dev/null 2>&1; then
-  ok "dlopen-by-name (libcmark-gfm.so)"
+     --eval '(sb-alien:load-shared-object "libcrypto.so")' >/dev/null 2>&1; then
+  ok "dlopen-by-name (libcrypto.so)"
 else
-  bad "dlopen-by-name: sbcl cannot load libcmark-gfm.so by bare name; is LD_LIBRARY_PATH set?"
+  bad "dlopen-by-name: sbcl cannot load libcrypto.so by bare name; is LD_LIBRARY_PATH set?"
 fi
 
-for target in check-help check-vocabulary; do
+for target in check-help check-vocabulary check-pins check-notice; do
   if ! make --no-print-directory "$target"; then
     bad "$target"
   fi

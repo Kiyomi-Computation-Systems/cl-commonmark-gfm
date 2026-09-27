@@ -1,7 +1,8 @@
 # M0 close: native boundary, HTML tree contract, Linux CI — design
 
 - **Date:** 2026-09-27
-- **Status:** Approved 2026-09-27
+- **Status:** Approved 2026-09-27; amended 2026-09-27 (check-notice added
+  to §5.3; review fixes)
 - **Milestone:** closes M0 (design freeze)
 - **Inputs:** [project plan](cl-commonmark-gfm.org), ADR-0001…0007, and
   chez-cmark-gfm's ADR-0005, 0011, 0012, 0015 and 0016 (prior art on this
@@ -37,10 +38,9 @@ condition. Never a crash, an unresolved symbol, or a silent second core.
 
 Found while checking facts:
 
-- **CCL 1.13 has no arm64 build** on any OS. Its releases are `darwinx86`,
-  `linuxx86` and 32-bit `linuxarm`. ADR-0001 wrongly says CCL on arm64 is
-  checked on the Mac. On Apple Silicon, CCL runs as x86_64 under Rosetta and
-  needs an x86_64 cmark-gfm.
+- **CCL 1.13 has no arm64 build on any OS** (ADR-0001). ADR-0001, before
+  this design, wrongly said CCL on arm64 is checked on the Mac. On Apple
+  Silicon, CCL runs as x86_64 under Rosetta and needs an x86_64 cmark-gfm.
 - **Debian trixie ships exactly the pin:** cmark-gfm 0.29.0.gfm.13-4, with
   SBCL 2.5.2 and ECL 24.5.10.
 - **The repository is private.** CI minutes are billed, and the free arm64
@@ -323,8 +323,10 @@ from it. It supplies:
 - `src/cmark-gfm.h`, for the core type-code and option-bit checks;
 - `COPYING`, for a check that `NOTICE` reproduces it verbatim.
 
-A `make check-pins` target fails if the submodule's commit differs from
-ADR-0002.
+A `make check-pins` target compares the submodule's recorded gitlink (and
+its checked-out `HEAD`, when checked out) against the Makefile's
+`CMARK_GFM_COMMIT`, and that hash against ADR-0002. It fails on any
+mismatch.
 
 ## 5. Linux CI
 
@@ -359,7 +361,7 @@ Each step comes into use as its milestone arrives.
 | `make info`: Lisp versions, architecture, cmark-gfm version | now |
 | `make check-help`; `sh tests/guix-env-launcher.sh` (dry run, needs no Guix) | now |
 | `make check-vocabulary` against Debian's CLI | now |
-| `make check-pins` | now |
+| `make check-pins`; `make check-notice` | now |
 | `make check-purity`: the pure suites on each Lisp with `CL_COMMONMARK_GFM_LIBS=/nonexistent:/nonexistent` must pass | M1 |
 | The native suites on each Lisp, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
 | The corpus oracle (§4.6) | M2 (partial) / M3 (full) |

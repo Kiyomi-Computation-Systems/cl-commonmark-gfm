@@ -10,7 +10,9 @@
 (specifications->manifest
  '(;; The three Lisps the plan targets. Guix builds them for x86_64-linux.
    "sbcl" "ecl" "ccl"
-   ;; The pinned native dependency (ADR-0002) and what builds the shim.
+   ;; The pinned native dependency (ADR-0002). No C shim (ADR-0008):
+   ;; gcc-toolchain is what ECL compiles Lisp through, and pkg-config is
+   ;; what the self-test's cmark-gfm-version assertion queries.
    "cmark-gfm" "gcc-toolchain" "pkg-config"
    ;; ocicl's TLS loads libcrypto through CFFI by bare name, which resolves
    ;; only because scripts/guix-env-enter sets LD_LIBRARY_PATH.
