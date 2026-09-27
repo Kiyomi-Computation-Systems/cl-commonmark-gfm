@@ -665,9 +665,11 @@ binding (ADR-0008), discovery (ADR-0009), HTML tree and serializer
 (ADR-0010), the oracle and corpus submodule (ADR-0011), tree policies
 (ADR-0012), Linux CI design (ADR-0013).
 
-Exit: met once the m0-close CI run is green, and has also been seen to fail
-on a deliberate break, both recorded in =.plans/progress.md=.  Not yet met:
-CI has not run green.
+Exit: the m0-close CI steps are green and have been seen to fail on a
+deliberate break, recorded in =.plans/progress.md=.  Met on 2026-09-27 by a
+local =debian:trixie= run of the workflow's steps, because the GitHub
+Actions minutes are exhausted until October.  The GitHub run itself is
+deferred to October and tracked in =progress.md=.
 
 *** M1 — pure core
 
