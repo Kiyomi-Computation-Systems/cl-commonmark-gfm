@@ -7,33 +7,40 @@
 
 Create =cl-commonmark-gfm=: a Common Lisp library that parses GitHub Flavored
 Markdown (GFM) through [[https://github.com/github/cmark-gfm][cmark-gfm]], copies its native tree into a detached Lisp AST,
-converts that AST to SXML, and exposes cmark-gfm HTML and plain-text rendering.
-The initial implementation targets SBCL, CCL, and ECL on Linux and macOS,
-amd64 and arm64 (ADR-0001).  It is pinned to cmark-gfm 0.29.0.gfm.13
-(ADR-0002).
+converts that AST to an HTML tree, and exposes cmark-gfm HTML and plain-text
+rendering.  The initial implementation targets SBCL, CCL, and ECL on Linux and
+macOS, amd64 and arm64 (CCL amd64 only; ADR-0001).  arm64 Linux is currently
+unverified: CI is amd64-only (ADR-0013) and the maintainer's laptop is
+macOS, so SBCL and ECL on arm64 are verified on the Mac only.  It is pinned
+to cmark-gfm 0.29.0.gfm.13 (ADR-0002).
 
 cmark-gfm is the syntax authority.  Lisp owns the durable AST, pure tree
-operations, SXML conversion, and public API.  This is not a Markdown parser
-written in Lisp.
+operations, HTML-tree conversion, and public API.  This is not a Markdown
+parser written in Lisp.
 
 ** Success criteria
 
+- A user with only a system cmark-gfm package, a Lisp and ocicl can load the
+  library and either get working results or a named project condition.  Never
+  a crash, an unresolved symbol, or a silently loaded second core.
 - Parse UTF-8 GFM to a Lisp value containing no native pointer; it remains valid
   after native resources are released.
-- Preserve source positions and all semantic data needed for SXML, including
-  core GFM extensions.
+- Preserve source positions and all semantic data needed for the HTML tree,
+  including core GFM extensions.
 - Render HTML and plaintext with the same enabled extension set used to parse.
 - Share portable Lisp sources across SBCL, CCL, and ECL.
 - Keep foreign calls, library loading, allocation, and cleanup in a small
-  imperative shell; keep AST manipulation and SXML conversion functional.
+  imperative shell; keep AST manipulation and HTML-tree conversion functional.
 
 ** Non-goals for version 1
 
 - Writing or registering custom cmark syntax extensions from Lisp.
 - Exposing mutable =cmark_node *= values through the ordinary API.
 - A lossless Markdown formatter/editor model.
-- Reimplementing cmark-gfm HTML rendering in Lisp.
-- Downloading or compiling C dependencies when the Lisp system is loaded.
+- Replacing cmark-gfm's HTML renderer: =markdown->html= stays native.  The
+  HTML tree is tested against it (ADR-0011), not substituted for it.
+- Downloading or compiling C dependencies when the Lisp system is loaded.  The
+  project compiles no C at all (ADR-0008).
 - Windows (ADR-0001).
 
 * Core architectural decision
@@ -47,7 +54,7 @@ Markdown
 imperative shell: encode -> parse -> traverse/copy -> release
    |
    v
-functional core: AST -> transform AST -> SXML
+functional core: AST -> transform AST -> HTML tree -> string
    |
    +--> imperative shell: parse -> render -> copy -> free
 #+end_example
@@ -67,14 +74,14 @@ concentrates all effects in one reviewable place.
 | System/package | Role | Public |
 |----------------+------+--------|
 | =cl-commonmark-gfm/ast= | AST constructors, predicates, queries, pure rewrites | yes |
-| =cl-commonmark-gfm/sxml= | pure AST-to-SXML conversion | yes |
-| =cl-commonmark-gfm/ffi= | CFFI declarations and raw private handles | no |
-| =cl-commonmark-gfm/native= | native loading, initialization, resource scopes | no |
+| =cl-commonmark-gfm/html-tree= | pure AST-to-HTML-tree conversion and =html-tree->string=; no FFI | yes |
+| =cl-commonmark-gfm/ffi= | CFFI declarations for libcmark-gfm and raw private handles | no |
+| =cl-commonmark-gfm/native= | library discovery, loading, initialization, resource scopes | no |
 | =cl-commonmark-gfm= | convenient parse/render API | yes |
 | =cl-commonmark-gfm/tests= | pure and native integration tests | test only |
 
-The AST and SXML systems must load and pass their tests without any C library
-present.  This requirement is the mechanical enforcement of the
+The AST and HTML-tree systems must load and pass their tests without any C
+library present.  This requirement is the mechanical enforcement of the
 functional-core boundary.
 
 ** Lisp dependencies and development environment
@@ -161,98 +168,86 @@ children that start before their parent.  cmark's columns are bytes; the API
 must not imply Unicode grapheme-column semantics.
 
 Unknown extension nodes must not disappear.  Represent a recognized but
-otherwise unsupported extension as =:extension= with its extension name, type
-string, source position, safely copied attributes, and children.  If even that
-cannot be represented safely, signal =unsupported-extension-node=.
+otherwise unsupported extension as =:extension= with its type string, source
+position, safely copied attributes, and children.  cmark has no public getter
+for an extension's name, so =:extension-name= is =nil=; since only the five
+core extensions are ever attached, this node cannot occur under the pin
+(ADR-0008).  If even that cannot be represented safely, signal
+=unsupported-extension-node=.
 
 * FFI architecture
 
 ** CFFI is the portable Lisp frontend
 
-CFFI is the one Lisp FFI API used by the project.  cmark-gfm's public API is
-well suited to it: opaque pointers, scalar integers, =size_t=, and byte
-strings.  No version-1 operation needs a callback, a variadic function, or a C
-structure passed or returned by value.
+CFFI is the one Lisp FFI API used by the project.  It binds cmark-gfm's public
+API directly (next section); the project compiles no C.  That API is well
+suited to CFFI: opaque pointers, scalar integers, =size_t=, and byte strings.
+No version-1 operation needs a callback, a variadic function, or a C structure
+passed or returned by value.  The one structure read from Lisp is the default
+allocator, as an array of function pointers (ADR-0008).
 
 Use exact ABI types:
 
 - =size_t= becomes CFFI =:size=.
 - C option bitsets use an explicit unsigned 32-bit CFFI type.
 - C boolean-like =int= is explicitly decoded to Lisp =t=/=nil=.
+- A C =bool= return is declared =:uint8= and tested against zero, so only its
+  defined byte is read (ADR-0008).
 - UTF-8 source is an octet vector plus its byte length, never a Lisp character
   count.
 - The portable sources do not use =sb-alien=, CCL-specific foreign APIs, or
   ECL's =ffi:= package.
 
-** A narrow C shim
+** Direct binding
 
-Bind a small project-owned library, =libcl-commonmark-gfm-shim=.  It is compiled
-against one pinned cmark-gfm header set and linked with cmark-gfm's core and
-extension libraries.  It is an ABI adapter, not another Markdown parser.
+=cl-commonmark-gfm/native= binds =libcmark-gfm= and =libcmark-gfm-extensions=
+through CFFI, with no project C library in between (ADR-0008).  Every job needs
+a public entry point of 0.29.0.gfm.13:
 
-The shim owns the parts that are needlessly hazardous to expose through CFFI:
+| Job | Public API |
+|-----+------------|
+| Register core extensions | =cmark_gfm_core_extensions_ensure_registered=, once per process, under a lock |
+| Attach the selected extensions | =cmark_find_syntax_extension= + =cmark_parser_attach_syntax_extension= |
+| Extension list for HTML rendering | =cmark_parser_get_syntax_extensions(parser)=; the parser outlives rendering |
+| Free render output | the =free= slot of =cmark_get_default_mem_allocator()= |
+| Classify nodes | pure Lisp over the type code, extension identity and type string |
+| Table and task metadata | =cmark_gfm_extensions_get_table_alignments=, =…_get_table_columns=, =…_get_table_row_is_header=, =…_get_tasklist_item_checked= |
+| Version probe | =cmark_version_string()= |
 
-- registration/attachment of cmark-gfm core extensions;
-- construction and retention of the HTML renderer extension list;
-- disposal of cmark-owned renderer buffers through the correct allocator;
-- classifying each node into a stable project kind (ADR-0005);
-- wrapping the GFM metadata accessors (public in
-  =cmark-gfm-core-extensions.h=) for table alignment and task state;
-- cmark-version and build-compatibility probes.
+The default =:gfm= profile attaches tables, strikethrough, autolinks, tag
+filter, and task lists, plus the =CMARK_OPT_FOOTNOTES= option (ADR-0006).  Tag
+filter changes HTML rendering only; the AST still holds the filtered raw HTML
+(ADR-0005).
 
-Classification uses =cmark_node_get_type= for nodes without an extension and
-the extension name plus type string only for extension nodes.  Type strings
-alone are not enough: in 0.29.0.gfm.13 =cmark_node_get_type_string= returns
+*Classification.*  The shell reads three facts per node and hands them to the
+pure =classify-node (type-code extension type-string)=:
+
+1. =cmark_node_get_type=, an integer;
+2. which cached core-extension pointer (=table=, =strikethrough=, =autolink=,
+   =tagfilter=, =tasklist=) equals =cmark_node_get_syntax_extension=, or =nil=;
+3. =cmark_node_get_type_string=.
+
+No extension: the core type code decides (the constants are transcribed from
+=cmark-gfm.h= and checked against the pinned header in =vendor/cmark-gfm=,
+ADR-0011).  =table=: the type string decides the four table kinds.
+=strikethrough=: =:strikethrough=.  =tasklist= on =CMARK_NODE_ITEM=:
+=:task-item=.  Any other extension node: =:extension=.  Type strings alone are
+not enough: in 0.29.0.gfm.13 =cmark_node_get_type_string= returns
 ="<unknown>"= for both footnote kinds.
 
-This avoids exposing =cmark_llist=, allocator structures, extension private
-data, dynamically assigned extension node IDs, and C callbacks in Lisp.  Do
-not bind cmark internal headers or inspect C structure fields from Lisp.
+*Two ABI beliefs* replace checks a C compiler would have made; each has a test
+and ADR-0008 says what the test cannot catch:
 
-Suggested ABI:
+1. The allocator's =free= is its third function pointer, read as
+   =(cffi:mem-aref allocator :pointer 2)=.  A test asserts the three slots are
+   non-null and distinct; that misses a reordering, which render stress and
+   GC-pressure cycles would expose.
+2. The tasklist accessor's C =bool= is one byte (see ABI types above).
 
-#+begin_src c
-typedef struct cl_cmark_document cl_cmark_document;
-typedef struct cl_cmark_bytes cl_cmark_bytes;
-
-int cl_cmark_initialize(void);
-const char *cl_cmark_version(void);
-const char *cl_cmark_build_version(void);
-
-int cl_cmark_parse_gfm(const uint8_t *source, size_t length,
-                       uint32_t options, uint32_t extensions,
-                       cl_cmark_document **out);
-void cl_cmark_document_free(cl_cmark_document *document);
-
-void *cl_cmark_document_root(cl_cmark_document *document);
-void *cl_cmark_node_first_child(void *node);
-void *cl_cmark_node_next(void *node);
-int cl_cmark_node_kind(void *node);           /* stable CL_CMARK_KIND_* */
-const char *cl_cmark_node_extension_name(void *node); /* NULL if none */
-const char *cl_cmark_node_type_string(void *node);    /* for :extension */
-/* Scalar/string accessors for every copied AST attribute. */
-
-int cl_cmark_render_html(cl_cmark_document *, uint32_t options,
-                         cl_cmark_bytes **out);
-int cl_cmark_render_plaintext(cl_cmark_document *, uint32_t options,
-                              int width, cl_cmark_bytes **out);
-const uint8_t *cl_cmark_bytes_data(const cl_cmark_bytes *);
-size_t cl_cmark_bytes_length(const cl_cmark_bytes *);
-void cl_cmark_bytes_free(cl_cmark_bytes *);
-#+end_src
-
-The document handle owns the finished cmark root and its renderer extension
-list.  Lisp frees the document once rather than freeing a root and a list
-separately.  This makes double-free and mismatched-renderer-extension bugs
-harder to express.
-
-The shim must explicitly register the core GFM extensions and attach the
-selected set to each parser.  The default =:gfm= profile comprises tables,
-strikethrough, autolinks, tag filter, and task lists, plus the
-=CMARK_OPT_FOOTNOTES= option (ADR-0006).  An extension selection is
-also retained for HTML rendering.  Tag filter changes HTML rendering only; the
-AST still holds the filtered raw HTML (ADR-0005).
-
+Do not bind cmark internal headers, =cmark_llist= internals or extension
+private data, and do not use dynamically assigned extension node IDs.  A shim
+comes back only for a need no public entry point meets, or a failed ABI
+belief, and is recorded in an ADR first (ADR-0008).
 
 ** Ownership protocol
 
@@ -271,62 +266,93 @@ The normal parse path is:
 =make-parse-options= is the pure validation step described under "Option
 objects"; invalid choices fail before any native call.
 
-=with-native-document= is an internal =unwind-protect= resource scope.  It
-releases the document exactly once on success, condition, and non-local exit.
+A =native-document= handle owns one =cmark_parser *= and its finished root,
+together:
+
+- *Parse:* =cmark_parser_new(options)=; attach the selected extensions;
+  =cmark_parser_feed(bytes, length)= with the octet vector pinned for the
+  call; =cmark_parser_finish= → root.  A null root signals
+  =native-parse-error=.
+- *Render:* =cmark_render_html= (passing
+  =cmark_parser_get_syntax_extensions(parser)=) or =cmark_render_plaintext=,
+  while the handle is alive.
+- *Release:* =with-native-document= is an internal =unwind-protect= resource
+  scope.  It calls =cmark_node_free(root)=, then =cmark_parser_free(parser)=,
+  exactly once, on success, condition, and non-local exit.
+
 =copy-native-tree= eagerly copies every string and scalar, then returns a pure
 AST.
 
 Ownership rules:
 
 - A native node is borrowed from its document and dies with that document.
-- A C string returned from cmark/shim is borrowed; convert it before freeing
-  the document or issuing an operation that may invalidate it.
-- A returned renderer buffer is owned by its =cl_cmark_bytes= handle.  Copy the
-  reported length, then call only =cl_cmark_bytes_free=.
+- A C string returned by a cmark accessor is borrowed; convert it before
+  freeing the document or issuing an operation that may invalidate it.
+- A render result (=cmark_render_*=) is owned by the caller.  Copy it, then
+  free it only through the =free= slot of =cmark_get_default_mem_allocator()=.
 - Never call =cffi:foreign-free= on cmark-owned output.  The wrong allocator
   can corrupt the heap.
 - Retain the UTF-8 octet vector for the entire foreign call.  A raw address may
   not outlive its dynamic pointer scope.
-- Null is an optional value only where the shim contract says so; elsewhere it
+- Null is an optional value only where =cmark-gfm.h= documents it; elsewhere it
   becomes a typed condition before any accessor call.
+- The native layer counts live parsers, roots and render buffers.  Every
+  native test suite asserts all three are zero when it ends; this is the leak
+  check.
 - A finalizer may be an emergency leak backstop, never normal cleanup.
 
-** Initialization and loading
+** Library discovery and initialization
 
-Initialization is process-global, idempotent, and guarded by a lock around its
-first call.  It completes before constructing a parser.
+Discovery loads the exact pinned pair by absolute path; there is no bare-name
+=dlopen= (ADR-0009).  =resolve-cmark-libraries= is pure: its filesystem access
+is passed in, so every branch is tested against synthetic listings.
 
-Library-resolution order:
+1. *Override.*  =*cmark-gfm-libraries*= if non-=nil=, else the environment
+   variable =CL_COMMONMARK_GFM_LIBS=.  The value is two absolute paths
+   (=core:extensions= in the variable, a two-element list in the special),
+   used verbatim; both must exist as regular files.  There is no fallback: a
+   wrong override, including an empty-but-set variable, signals
+   =native-library-not-found= naming the override and the failing path.
+2. *Directory search.*  Otherwise walk a fixed list; the first directory
+   holding *both* pinned files wins.  A directory holding only one is
+   skipped, never paired with another, so the extensions library cannot pull
+   a second core into the process.
 
-1. application-supplied =*native-library-pathname*=;
-2. documented environment configuration;
-3. ASDF-relative packaged artifacts, if supplied;
-4. CFFI platform conventional names.
+   | OS | Directories, in order | Core / extensions filenames |
+   |----+-----------------------+-----------------------------|
+   | Linux | =/usr/lib/<multiarch>=, =/usr/lib64=, =/usr/lib=, =/usr/local/lib= | =libcmark-gfm.so.0.29.0.gfm.13= / =libcmark-gfm-extensions.so.0.29.0.gfm.13= |
+   | macOS | =/opt/homebrew/lib=, =/usr/local/lib= | =libcmark-gfm.0.29.0.gfm.13.dylib= / =libcmark-gfm-extensions.0.29.0.gfm.13.dylib= |
 
-Load cmark-gfm core, cmark-gfm extensions, then the shim.  Link the shim with
-appropriate runtime search-path metadata so it resolves the exact core/extension
-pair it was built against.
+   =<multiarch>= is =x86_64-linux-gnu= or =aarch64-linux-gnu=.  Only the
+   versioned names match (on Debian the unversioned symlinks come only with
+   the =-dev= packages).  Nothing found signals =native-library-not-found=,
+   listing every directory searched and the override variable's name.
+3. *Load and verify.*  Load the core, then the extensions, by absolute path.
+   =cmark_version_string()= must equal ="0.29.0.gfm.13"=, else
+   =native-abi-mismatch= with both versions.  Register the core extensions.
+   Smoke-parse a table, a checked task item and a footnote under =:gfm=; they
+   must classify to =:table=, =:task-item= and =:footnote-reference=, else
+   =native-initialization-error=.
 
-Guix's glibc searches no FHS directory, so on a Guix host step 4 resolves
-only with =LD_LIBRARY_PATH= set; the development container sets it
+Initialization is process-global, idempotent, and runs once under a lock
+before the first parser is constructed.
+
+The Guix container sets =CL_COMMONMARK_GFM_LIBS= to its profile's two
+versioned paths; its =LD_LIBRARY_PATH= is for ocicl's =libcrypto= only
 (ADR-0004).
-
-At startup, compare the shim build version with the runtime cmark-gfm version.
-Reject an out-of-range combination.  Then run a small smoke parse containing a
-table and task item; this verifies extension linkage/registration rather than
-merely proving a similarly named core library loaded.
 
 * Runtime-specific CFFI behavior
 
 ** Shared policy
 
 Do not make CFFI Groveler a required user load-time dependency in version 1.
-It would require a C toolchain and headers merely to load Lisp.  The narrow shim
-is compiled against pinned headers; version probes plus integration tests guard
-against ABI drift.  A Groveler-based developer check may be added later.
+It would require a C toolchain and headers merely to load Lisp.  The project
+compiles no C; the runtime version check, the smoke parse, the ABI-belief
+tests and the header-constant check against =vendor/cmark-gfm= guard against
+ABI drift.  A Groveler-based developer check may be added later.
 
-No reader conditionals belong in AST or SXML code.  If a loader workaround is
-needed, confine it to =native= and cover it with an integration test.
+No reader conditionals belong in AST or HTML-tree code.  If a loader workaround
+is needed, confine it to =native= and cover it with an integration test.
 
 ** SBCL
 
@@ -342,13 +368,15 @@ deployment, but that is an application delivery mode, not a library assumption.
 ** CCL
 
 CCL uses CFFI through its implementation backend; it needs no separate FFI
-definitions for this API.  The major practical risk is dynamic-loader
-configuration, especially macOS install names and extension-library discovery.
+definitions for this API.  CCL 1.13 has no arm64 build on any OS, so it runs
+on amd64 only: Linux in CI, and macOS by hand on Intel or under Rosetta with an
+x86_64 cmark-gfm (ADR-0001).  The major practical risk is dynamic-loader
+configuration on macOS.
 
-- Exercise both CFFI's name lookup and explicit absolute shim pathname, in
-  Linux CI and in the manual macOS run (ADR-0001).
+- Exercise both the override and the directory search, in Linux CI and in the
+  manual macOS run.
 - Do not retain implementation-owned string storage across a foreign call.
-- Keep all loader branches inside the native shell; AST/SXML code stays
+- Keep all loader branches inside the native shell; AST/HTML-tree code stays
   completely shared.
 
 ** ECL
@@ -356,12 +384,13 @@ configuration, especially macOS install names and extension-library discovery.
 ECL supports CFFI dynamic loading when =:dffi= is present.  On ECL builds
 without it, CFFI's normal =load-foreign-library= route cannot load a library.
 
-- Detect missing =:dffi= and signal =dynamic-ffi-unavailable= with static-link
-  instructions rather than a generic unresolved-library failure.
-- Document a deployment path that links the shim and cmark-gfm into the ECL
-  application, then uses ECL's supported static foreign-library mechanism.
-- Maintain a dynamic ECL integration job and, after it stabilizes, a compiled
-  static-link smoke test.
+- Detect missing =:dffi= and signal =dynamic-ffi-unavailable=, before
+  discovery, with static-link instructions rather than a generic
+  unresolved-library failure.
+- Document a deployment path that links cmark-gfm into the ECL application,
+  then uses ECL's supported static foreign-library mechanism.
+- Maintain the dynamic-FFI ECL step in CI's one job (ADR-0013) and, after it
+  stabilizes, a compiled static-link smoke test.
 - The pure core continues to load and test with no ECL FFI configuration.
 
 ** Initial support matrix
@@ -369,69 +398,82 @@ without it, CFFI's normal =load-foreign-library= route cannot load a library.
 | Runtime | Linux (CI) | macOS (manual, maintainer's laptop) |
 |---------+------------+-------------------------------------|
 | SBCL | required | required |
-| CCL | required on amd64 | required |
+| CCL | required, amd64 only | required, amd64 only (Intel, or Rosetta with an x86_64 cmark-gfm) |
 | ECL with dynamic FFI | required | required |
 | ECL static deployment | documented/tested | documented/tested |
 
-Windows is not supported (ADR-0001).  CI runs on Linux only; there are no
-macOS runners.  The macOS column is verified by hand before each release and
-recorded in =.plans/progress.md=.
+Windows is not supported (ADR-0001).  CI runs on Linux amd64 only; there are
+no macOS or arm64 runners (ADR-0013).  The macOS column is verified by hand
+before each release and recorded in =.plans/progress.md=.  arm64 Linux is
+currently unverified by either path: CI does not reach it, and the
+maintainer's laptop is macOS, not Linux (ADR-0001).
 
-Do not call a release portable until each required cell builds the same pinned
-core/extensions/shim set and passes native integration tests.
+Do not call a release portable until each required cell loads the same pinned
+core/extensions pair and passes native integration tests.
 
 * C safety and security
 
 ** ABI and memory safety rules
 
-- Pin a cmark-gfm release/source revision and build shim, core, and extensions
-  together.  Do not call an arbitrary system cmark library supported.
-- No Lisp dereference of a cmark structure: all C structures remain opaque.
+- Load only the pinned core/extensions pair, from one directory, by absolute
+  path (ADR-0009).  Any other runtime version signals =native-abi-mismatch=.
+  Do not call an arbitrary system cmark library supported.
+- No Lisp dereference of a cmark structure, except the default allocator's
+  =free= slot (ADR-0008): every other C structure remains opaque.
 - Check every status and pointer result before access.
 - Use =size_t= end-to-end and reject an encoded input that cannot fit it.
-- Copy output through explicit buffer lengths where the shim provides one.
+- Copy render output before freeing it through the allocator's =free= slot.
 - Do not allow C callbacks into Lisp in v1: that avoids foreign-thread entry,
   callback rooting/lifetime, and exceptions crossing C frames.
 - Do not expose cmark mutation functions in v1.  The AST is a read model; C
   mutation creates aliasing and ownership cases without serving the goal.
-- Run an AddressSanitizer/UndefinedBehaviorSanitizer native build in CI where
-  supported.
+- There is no sanitizer or Valgrind gate: the project compiles no C, and the
+  Lisp runtimes' collectors use signals and memory protection.  Native memory
+  safety is checked by the live-handle counters, parse/render cycles under GC
+  pressure, and render stress tests (ADR-0013).
 
 ** Rendering policy
 
 cmark-gfm's default HTML behavior treats raw HTML and unsafe link schemes
 safely; =CMARK_OPT_UNSAFE= deliberately turns that off.  The Lisp API exposes
-this only as =:unsafe-html nil= and never enables it by default.
+this only as =:unsafe-html= and never enables it by default.
 
-SXML is a separate security boundary.  It must make raw HTML explicit:
+The HTML tree is a separate security boundary.  =ast->html-tree= applies these
+policies (ADR-0012):
 
-- =:raw-html :preserve= yields a tagged non-executable value for a downstream
-  renderer that knowingly handles it.
-- =:raw-html :drop= omits it.
-- =:raw-html :text= emits literal text.
+- =:raw-html :omit= (default) replaces each =:html-inline= / =:html-block= with
+  =(:*comment* nil " raw HTML omitted ")=.
+- =:raw-html :text= emits the literal as an ordinary, escaped string.
+- =:link-policy :safe= (default) blanks a link =href= or image =src= that
+  starts, case-insensitively, with =javascript:=, =vbscript:=, =file:= or
+  =data:=, except =data:image/png=, =gif=, =jpeg= and =webp=, as cmark does.
+  =:unsafe= keeps every URL.
 
-Never inject raw HTML as ordinary SXML.  Apply a separately configurable URL
-policy during SXML conversion; a copied AST is not a sanitized AST.  The
+There is no trusted raw-HTML mode: a caller who needs the markup reads
+=:literal= from the AST.  A copied AST is not a sanitized AST.  The
 =tagfilter= extension does not help here: it changes cmark's HTML output only,
-and the AST keeps =<script>= blocks verbatim.
+and the AST keeps =<script>= blocks verbatim.  =html-tree->string= always
+escapes, but does not check URLs added to a tree after conversion.
 
 ** Conditions
 
 | Condition | Meaning |
 |-----------+---------|
-| =native-library-not-found= | core/extensions/shim could not be loaded |
-| =native-abi-mismatch= | shim and runtime cmark-gfm versions disagree |
+| =native-library-not-found= | the pinned core/extensions pair could not be found or loaded |
+| =native-abi-mismatch= | the runtime cmark-gfm version is not the pin |
 | =dynamic-ffi-unavailable= | ECL requires its static deployment route |
 | =native-initialization-error= | registration or extension smoke parse failed |
 | =native-parse-error= | a document could not be produced |
 | =native-render-error= | a renderer could not produce a buffer |
 | =unsupported-extension-node= | no safe semantic AST mapping exists |
 | =invalid-render-option= | options are incompatible or in the wrong API |
+| =invalid-html-tree= | =html-tree->string= was given a malformed node |
 
-These conditions include operation, library versions, and shim diagnostics.
-Raw CFFI errors are implementation details, not the routine public vocabulary.
+These conditions include the operation, library versions, and the paths or
+directories tried.  Raw CFFI errors are implementation details, not the
+routine public vocabulary.
 
-* Functional AST and SXML
+* Functional AST and HTML tree
 
 ** Option objects
 
@@ -446,37 +488,69 @@ can distinguish syntax that did not match from an extension that was disabled.
 ** Native-to-Lisp copier
 
 =copy-native-tree= is the sole impure AST stage.  It walks the native tree
-depth-first through shim accessors, copies values, normalizes the type string,
-and returns a pure tree.  It has a tested case for every supported cmark and
-core-GFM node type.
+depth-first through cmark's public accessors, copies values, classifies each
+node with the pure =classify-node= (ADR-0008), and returns a pure tree.  It has
+a tested case for every supported cmark and core-GFM node type.
 
 Its default behavior is not data loss: emit =:extension= if it can safely
 identify the foreign extension; otherwise signal =unsupported-extension-node=.
 
-** SXML contract
+** HTML tree contract
 
-=ast->sxml= is pure and does no FFI.  Use normal SXML shape:
+=ast->html-tree= is pure and does no FFI.  The tree has the LHTML shape
+(closure-html's convention), not SXML: attributes are always the second
+element (ADR-0010).
 
 #+begin_example
-(:tag (@ (:attribute "value")) child ...)
+(tag attrs child ...)          ; tag: keyword; attrs: nil or ((:name "value") ...)
+(:*comment* nil " text ")      ; comments use the same three-part form
 #+end_example
 
-A document yields a top-level list by default, avoiding an invented wrapper
-element.  =:document-wrapper= supplies one when desired.
+- Attributes appear in the order cmark emits them.  Each child is a string
+  (unescaped text) or an element.
+- A document yields a list of top-level nodes.  =:document-wrapper= (an
+  element keyword, default =nil=) wraps them as =(wrapper nil ...)=.
+- No source positions and no =data-*= metadata beyond what cmark's own HTML
+  emits; source positions live in the AST.
 
-| AST | SXML |
-|-----+------|
-| =:paragraph= | =(:p ...)= |
-| =:heading= | =(:h1 ...)= through =(:h6 ...)= |
-| =:link= | =(:a (@ (:href "...") (:title "...")) ...)= |
-| =:table= | =(:table ...)=: =:thead= wraps the =:table-header= row, =:tbody= the =:table-row= rows |
-| =:task-item= | =(:li (@ (:class "task-list-item")) ...)= |
-| footnotes | numbered in Lisp by first reference; shape settled in M1 |
-| =:softbreak= | explicit newline/space/=(:br)= policy |
-| raw HTML | one of the explicit raw-HTML policies |
+Each node takes the shape cmark 0.29.0.gfm.13's HTML renderers produce under
+the options in effect; the oracle settles every detail (ADR-0011).
 
-SXML is a structural conversion and need not byte-match cmark HTML.  Native
-HTML rendering is the compatibility route.
+| AST | HTML tree |
+|-----+-----------|
+| =:paragraph= | =(:p nil ...)=; unwrapped inside tight lists, as cmark does |
+| =:heading= | =(:h1 nil ...)= through =(:h6 nil ...)= |
+| =:link= | =(:a ((:href "...") (:title "...")) ...)=; =href= carries cmark's percent-encoding |
+| =:image= | =(:img ((:src "...") (:alt "...") ...))=; =alt= is the children's plain text |
+| =:table= | =(:table nil ...)=: =:thead= wraps the =:table-header= row, =:tbody= the =:table-row= rows; =align= from each cell's =:align= |
+| =:task-item= | =(:li nil (:input ((:type "checkbox") (:disabled ""))) " text")=, with =(:checked "")= before =(:disabled "")= when ticked; no =task-list-item= class |
+| =:footnote-reference= | =(:sup ((:class "footnote-ref")) (:a ((:href "#fn-1") (:id "fnref-1") (:data-footnote-ref "")) "1"))= |
+| footnote definitions | collected at the end: =(:section ((:class "footnotes") (:data-footnotes "")) (:ol nil (:li ((:id "fn-1")) ...)))=; numbering, repeat ids and back-reference =aria-label= follow cmark, computed in Lisp by first reference |
+| =:softbreak= | =:softbreak= policy: ="\n"=, =" "= or =(:br nil)= |
+| raw HTML | =:raw-html= policy (see Rendering policy) |
+
+=ast->html-tree= validates its options first; an unknown key or value signals
+=invalid-render-option=.
+
+| Option | Values (default first) | cmark equivalent (oracle) |
+|--------+------------------------+---------------------------|
+| =:raw-html= | =:omit=, =:text= | =:omit= = default safe HTML; =:text= has direct tests |
+| =:softbreak= | =:newline=, =:space=, =:br= | default, =CMARK_OPT_NOBREAKS=, =CMARK_OPT_HARDBREAKS= |
+| =:link-policy= | =:safe=, =:unsafe= | default; =CMARK_OPT_UNSAFE= for links only |
+| =:document-wrapper= | =nil= or an element keyword | none |
+
+=html-tree->string= is the public, pure serializer (ADR-0010):
+
+- *cmark-exact on our trees:* static tables of void elements and of where cmark
+  places newlines make its output equal cmark's HTML.
+- *Always escapes* text and attribute values (=&=, =<=, =>=, ="=) exactly as
+  houdini does; nothing is emitted raw.  URLs are only entity-escaped, since
+  the tree already carries cmark's percent-encoding.
+- *Validates* its input: a tag or attribute name not matching
+  =[a-z][a-z0-9-]*=, a non-string attribute value, comment text containing
+  =--=, or a malformed element signals =invalid-html-tree= naming the node.
+- Unknown but valid tags are allowed and print inline.
+- It does not sanitize URLs; =:link-policy= applies inside =ast->html-tree=.
 
 * Public API sketch
 
@@ -484,14 +558,17 @@ HTML rendering is the compatibility route.
 (parse markdown &key profile extensions sourcepos)
 ;; string -> document AST
 
-(ast->sxml document &key raw-html softbreak document-wrapper link-policy)
-;; AST -> SXML tree/list
+(ast->html-tree document &key raw-html softbreak link-policy document-wrapper)
+;; AST -> HTML tree (list of nodes, or one wrapper element)
 
-(markdown->sxml markdown &rest parse-and-sxml-keys)
-;; string -> SXML tree/list
+(markdown->html-tree markdown &rest parse-and-tree-keys)
+;; string -> HTML tree
+
+(html-tree->string tree)
+;; HTML tree -> string; cmark-exact on trees from ast->html-tree
 
 (markdown->html markdown &key profile extensions sourcepos unsafe-html)
-;; string -> string
+;; string -> string (native renderer)
 
 (markdown->plaintext markdown &key profile extensions width)
 ;; string -> string
@@ -502,23 +579,25 @@ HTML rendering is the compatibility route.
 ;; pure structural utilities
 #+end_src
 
-Do not silently ignore renderer options.  Passing SXML-only options to
+Do not silently ignore renderer options.  Passing HTML-tree-only options to
 =markdown->html= signals =invalid-render-option=.
 
 * Build, testing, and release
 
 ** Native dependency policy
 
-Phase 1 supports an externally installed cmark-gfm development package plus a
-project-built shim.  The package must report the pinned version (ADR-0002):
-the Guix container provides it on Linux; the maintainer's macOS install is
-checked by hand.  Build checks must verify headers, core library, extension
-library, and compatible version separately.  Failing clearly is preferable to
-silently linking plain cmark.
+Phase 1 supports an externally installed cmark-gfm runtime package: the two
+versioned shared libraries, no =-dev= package or C toolchain needed.  It must
+report the pinned version (ADR-0002): Debian trixie ships it; the Guix
+container provides it; the maintainer's macOS install is checked by hand.
+Loading verifies the core library, the extensions library and the runtime
+version separately (ADR-0009).  Failing clearly is preferable to silently
+loading plain cmark.
 
 Phase 2 may provide reproducible bundled-source artifacts, pinned to a specific
 upstream revision and recording compiler/architecture/library version.  It
-supplements; it does not replace; the external-library path.
+supplements; it does not replace; the external-library path.  Since the
+project compiles no C today, it needs its own ADR.
 
 ** Tests
 
@@ -529,52 +608,85 @@ the quiet reporter and turns the result into the process exit code, so CI and
 Pure tests:
 
 - AST construction/query/rewrite invariants and structural equality.
-- SXML snapshots for every standard and GFM node.
-- Raw HTML, soft-break, and URL-policy tests.
-- Repeated SXML conversion is =equal= and no public tree contains a foreign
-  pointer.
+- =classify-node= and =resolve-cmark-libraries= over synthetic inputs.
+- HTML-tree fixtures for every standard and GFM node: hand-built ASTs with the
+  expected trees written out.
+- Raw-HTML (=:text= directly), soft-break, and link-policy tests.
+- Direct =html-tree->string= tests, including every =invalid-html-tree= case.
+- Repeated HTML-tree conversion is =equal= and no public tree contains a
+  foreign pointer.
+- The pure suites pass with =CL_COMMONMARK_GFM_LIBS= set to
+  =/nonexistent:/nonexistent= (=make check-purity=).
 
 Native integration tests:
 
 - UTF-8 and source positions; boundary-sized sources and embedded NUL behavior.
 - Tables, strikethrough, autolinks, tag filtering, checked/unchecked task items.
 - HTML/plaintext rendering with the exact parsing extension profile.
-- Repeated parse/render cycles under GC pressure.
+- *The oracle* (ADR-0011): for every example in the pinned corpus
+  (=vendor/cmark-gfm/test/*.txt=),
+  =(html-tree->string (ast->html-tree (parse md)))= equals
+  =(markdown->html md)= byte for byte, under each oracle-backed option.
+  =:link-policy :unsafe= is compared with =CMARK_OPT_UNSAFE= only on examples
+  without raw HTML.  M2 runs it for the node families it copies; M3 over the
+  whole corpus.
+- The live-handle counters (parsers, roots, render buffers) are zero at the end
+  of every native suite.
+- The two ABI-belief tests; render stress; repeated parse/render cycles under
+  GC pressure.
 - Missing library, ABI mismatch, initialization, and unsupported-node conditions.
-- Sanitizer build for native code where available.
 
-Every Linux CI job, and the manual macOS run, must build/install the pinned
-core/extensions, build the shim, load through the normal CFFI path, run
-pure/native tests, and record Lisp implementation, architecture, shim build
-version, and runtime cmark version.
+There is no sanitizer or Valgrind gate (ADR-0013); revisit in M2 if the
+counters prove too weak.
+
+CI is one amd64 job on =ubuntu-latest= in a =debian:trixie= container
+(=.github/workflows/ci.yml=, ADR-0013), on pull requests and pushes to =main=.
+It installs SBCL 2.5.2, ECL 24.5.10 and cmark-gfm 0.29.0.gfm.13 from Debian
+(runtime packages only, so discovery sees what a user sees), and CCL 1.13 and
+ocicl 2.9.0 from checksummed release downloads.  The three Lisps run in
+sequence; each runs even if an earlier one fails.  Steps arrive with their
+milestone: =make info= (Lisp versions, architecture, cmark-gfm version),
+=check-help=, the launcher dry run, =check-vocabulary=, =check-pins= and
+=check-notice= now; =check-purity= from M1; the native suites with no override
+set, and the oracle, from M2.  The manual macOS run records the same facts.
 
 ** Milestones
 
 *** M0 — design freeze
 
 Finalize this plan into project documentation; choose a pinned cmark-gfm release;
-write the shim header and complete AST vocabulary table.
+settle the native boundary (the shim header this once called for was replaced
+by direct binding, ADR-0008) and complete the AST vocabulary table.
 
-Done so far (see =.plans/progress.md=): support matrix (ADR-0001), pinned
-release (ADR-0002), ocicl (ADR-0003), Guix container (ADR-0004), verified
-vocabulary (ADR-0005), footnotes on under =:gfm= (ADR-0006), Parachute
-(ADR-0007).
+Done (see =.plans/progress.md=): support matrix (ADR-0001), pinned release
+(ADR-0002), ocicl (ADR-0003), Guix container (ADR-0004), verified vocabulary
+(ADR-0005), footnotes on under =:gfm= (ADR-0006), Parachute (ADR-0007), direct
+binding (ADR-0008), discovery (ADR-0009), HTML tree and serializer
+(ADR-0010), the oracle and corpus submodule (ADR-0011), tree policies
+(ADR-0012), Linux CI design (ADR-0013).
 
-Exit: agreement on GFM defaults (footnotes on: ADR-0006), SXML/raw HTML policy,
-native distribution policy, and the shim header.
+Exit: the m0-close CI steps are green and have been seen to fail on a
+deliberate break, recorded in =.plans/progress.md=.  Met on 2026-09-27 by a
+local =debian:trixie= run of the workflow's steps, because the GitHub
+Actions minutes are exhausted until October.  The GitHub run itself is
+deferred to October and tracked in =progress.md=.
 
 *** M1 — pure core
 
-Implement AST/SXML with manually built fixtures and full pure tests.
+Implement the AST, =ast->html-tree= and =html-tree->string= with manually built
+fixtures and full pure tests.
 
-Exit: the core suite runs without CFFI, shim, or cmark-gfm.
+Exit: the core suite runs without CFFI or cmark-gfm (=make check-purity=).
 
 *** M2 — SBCL vertical slice
 
-Implement shim, deterministic resource scopes, one standard node family, tables,
-task items, and HTML/plaintext buffer disposal.
+Implement the direct bindings, library discovery, deterministic resource
+scopes, one standard node family, tables, task items, and HTML/plaintext buffer
+disposal.
 
-Exit: native ASTs remain valid after release and sanitizer smoke tests are clean.
+Exit: native ASTs remain valid after release, the live-handle counters are
+zero after every native suite, and the oracle passes for the node families M2
+copies.
 
 *** M3 — complete copier
 
@@ -583,18 +695,20 @@ and unknown-extension behavior.
 
 Evaluate property-based testing here (ADR-0007).  Candidate properties:
 copying any generated Markdown yields a tree with no foreign pointer; copy then
-=ast->sxml= is deterministic; parse/render cycles survive GC pressure.
+=ast->html-tree= is deterministic; parse/render cycles survive GC pressure.
 check-it (generators with shrinking) loads on all three Lisps through ocicl;
 cl-quickcheck is the fallback.  Adopting one needs its own ADR.
 
-Exit: every supported node kind has an integration fixture.
+Exit: every supported node kind has an integration fixture, and the oracle
+passes over the whole corpus.
 
 *** M4 — CCL and ECL
 
 Run the same test suite on CCL and ECL; add only loader/deployment branches
 justified by observed differences.
 
-Exit: required dynamic-FFI jobs pass and the ECL static-link recipe is exercised.
+Exit: the dynamic-FFI steps pass, in CI's one job (ADR-0013), and the ECL
+static-link recipe is exercised.
 
 *** M5 — release candidate
 
@@ -608,15 +722,16 @@ never an invalid-free crash or unexplained unresolved symbol.
 
 | Risk | Mitigation |
 |------+------------|
-| Core/extension mismatch | build and smoke-test them as a versioned pair |
-| Wrong renderer allocator | only shim frees renderer buffers |
+| Core/extension mismatch or a second core loaded | load the pinned pair from one directory by absolute path; version check and smoke parse (ADR-0009) |
+| Wrong renderer allocator | free render output only through the default allocator's =free= slot (ADR-0008) |
+| ABI belief wrong (allocator slot order, =bool= width) | slot and fixture tests; render stress and GC-pressure cycles (ADR-0008) |
 | Borrowed string retained | eager copy while document is alive |
-| Dynamic extension IDs | type names, shim metadata, pinned compatibility tests |
+| Dynamic extension IDs | identify extensions by cached pointer, never by ID (ADR-0008) |
 | ECL has no =:dffi= | early condition and static-link instructions |
-| Native handle leaks into API | internal packages; AST-only parse result |
-| Raw HTML treated as safe SXML | explicit raw-HTML and link policies |
-| Broad binding becomes ABI burden | narrow shim; no C structure layouts |
-| Type strings missing (footnotes → ="<unknown>"=) | shim classifies by type code first (ADR-0005) |
+| Native handle leaks into API | internal packages; AST-only parse result; live-handle counters |
+| Raw HTML treated as safe HTML-tree markup | =:omit= / =:text= only, no trusted mode; link policy; serializer always escapes and validates (ADR-0010, ADR-0012) |
+| Type strings missing (footnotes → ="<unknown>"=) | =classify-node= decides by type code first (ADR-0005, ADR-0008) |
+| Transcribed header constants drift | checked against =vendor/cmark-gfm/src/cmark-gfm.h= (ADR-0011) |
 | Pin bump changes node vocabulary | =make check-vocabulary= diffs the pinned CLI's XML |
 | macOS regression between manual runs | releases gated on the manual macOS run (ADR-0001) |
 
@@ -624,24 +739,36 @@ never an invalid-free crash or unexplained unresolved symbol.
 
 1. CFFI is the sole implementation-independent Lisp FFI surface.
 2. A narrow C shim is required for extension setup, extension metadata,
-   allocator disposal, and stable ABI adaptation.
+   allocator disposal, and stable ABI adaptation.  /Superseded by 14./
 3. The ordinary API returns detached AST values, never cmark nodes.
-4. SXML derives from the Lisp AST; native HTML/plaintext remain separate shell
-   operations.
+4. The HTML tree (first planned as SXML; see 16) derives from the Lisp AST;
+   native HTML/plaintext remain separate shell operations.
 5. Version 1 has neither Lisp callbacks nor custom cmark extensions.
 6. ECL's non-dynamic-FFI path is a documented deployment special case, not
    hidden non-portable reader-conditionals.
-7. Linux CI only; macOS verified by hand; no Windows (ADR-0001).
+7. Linux CI only; macOS verified by hand; no Windows (ADR-0001).  CCL is
+   amd64-only (amended 2026-09-27).
 8. cmark-gfm pinned to 0.29.0.gfm.13 (ADR-0002).
 9. ocicl for Lisp dependencies; ASDF finds them via =CL_SOURCE_REGISTRY=
    (ADR-0003).
 10. Builds and tests on Guix run in a pinned, toolchain-only container
     (ADR-0004).
-11. The shim classifies nodes by type code; vocabulary verified against the
-    pin (ADR-0005).
+11. Nodes are classified by type code first; vocabulary verified against the
+    pin (ADR-0005).  The shim that was to classify them is superseded by 14.
 12. The =:gfm= profile enables footnotes (ADR-0006).
 13. Parachute is the test framework; property-based testing is evaluated in
     M3 (ADR-0007).
+14. Bind libcmark-gfm directly; no shim for now; classification in Lisp; two
+    tested ABI beliefs (ADR-0008).
+15. Discover the pinned pair by absolute path: override or fixed directory
+    search, no bare-name =dlopen= (ADR-0009).
+16. An LHTML-shaped HTML tree, not SXML; public =html-tree->string=
+    (ADR-0010).
+17. cmark's HTML is the tree's oracle; =vendor/cmark-gfm= submodule supplies
+    the corpus (ADR-0011).
+18. Raw-HTML =:omit= / =:text=, softbreak and link policies; no trusted mode
+    (ADR-0012).
+19. Linux CI is one amd64 job in a Debian trixie container (ADR-0013).
 
 Full records live in =.plans/decisions/=.
 

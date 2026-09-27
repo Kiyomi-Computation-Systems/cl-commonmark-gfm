@@ -8,9 +8,12 @@
 #   .guix-env/config  XDG_CONFIG_HOME
 #   .guix-env/cache   ASDF's compiled fasls (XDG_CACHE_HOME)
 #
-# It also puts the profile's lib/ on LD_LIBRARY_PATH. Guix's glibc searches
-# no FHS directory, so without it a CFFI load by bare name (ocicl's
-# libcrypto, the plan's conventional-name lookup of cmark-gfm) finds nothing.
+# It also sets CL_COMMONMARK_GFM_LIBS to the profile's exact pinned pair
+# (ADR-0009: the library loads cmark-gfm from exactly these two absolute
+# paths, never by bare name). And it puts the profile's lib/ on
+# LD_LIBRARY_PATH, which now exists only for ocicl's libcrypto: Guix's
+# glibc searches no FHS directory, so without it a CFFI load of libcrypto
+# by bare name finds nothing.
 set -eu
 
 if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
@@ -27,5 +30,35 @@ export XDG_CACHE_HOME="$state/cache"
 export OCICL_PREFIX="$state/"
 export PATH="$state/bin:$PATH"
 export LD_LIBRARY_PATH="$GUIX_ENVIRONMENT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# The pinned pair, by absolute path (ADR-0009). Each glob must match
+# exactly one file; an unmatched glob stays literal in sh (word splitting
+# does not break it apart, since it has no whitespace of its own), so it
+# is simply a nonexistent path and matches zero files below.
+#
+# resolve_one GLOB -> prints the one matching regular file to stdout, or
+# dies naming the glob and what it actually found.
+resolve_one() {
+  glob=$1
+  n=0
+  found=
+  match=
+  for f in $glob; do
+    [ -f "$f" ] || continue
+    match=$f
+    found="$found$f "
+    n=$((n + 1))
+  done
+  if [ "$n" -ne 1 ]; then
+    echo "guix-env-enter: expected exactly one file matching $glob, found ${n} (${found:-none})" >&2
+    exit 2
+  fi
+  echo "$match"
+}
+
+core=$(resolve_one "$GUIX_ENVIRONMENT"/lib/libcmark-gfm.so.'[0-9]*')
+ext=$(resolve_one "$GUIX_ENVIRONMENT"/lib/libcmark-gfm-extensions.so.'[0-9]*')
+
+export CL_COMMONMARK_GFM_LIBS="$core:$ext"
 
 exec "$@"

@@ -1,8 +1,8 @@
-# ADR-0005: The shim classifies nodes by type code; vocabulary verified against 0.29.0.gfm.13
+# ADR-0005: Classify nodes by type code first; vocabulary verified against 0.29.0.gfm.13
 
-- **Status:** Accepted
+- **Status:** Accepted; the classification decision is superseded by ADR-0008
 - **Date:** 2026-09-27
-- **Scope:** shim ABI, AST vocabulary, copier
+- **Scope:** AST vocabulary, node classification
 - **Evidence:** `tests/fixtures/vocabulary.md` and cmark-gfm's XML for it,
   `tests/fixtures/vocabulary.xml`. `make check-vocabulary` re-derives the XML
   from the pinned CLI and diffs it. Source references are to the
@@ -53,6 +53,11 @@ the node kinds. None of this had been checked against a real release.
 
 ## Decision
 
+> **Superseded by ADR-0008** (spec §3.4): there is no shim; classification
+> is a pure Lisp function over the type code, extension pointer identity
+> and type string. The bullet below is the original decision text, kept
+> for the record.
+
 - **The shim classifies every node into a stable project kind**, exposed as
   `int cl_cmark_node_kind(void *node)`:
   - For a node **without an extension**, classify by `cmark_node_get_type`.
@@ -74,13 +79,16 @@ the node kinds. None of this had been checked against a real release.
 - **Source positions may be `nil`.** The AST stores what cmark reports and
   never repairs it.
 - **Footnote numbers are computed in Lisp** (first-reference order) during
-  SXML conversion. The AST carries labels only.
-- **The SXML raw-HTML policy is the only guard on raw HTML.** Tagfilter does
-  not sanitize the AST.
+  HTML-tree conversion. The AST carries labels only.
+- **The HTML-tree raw-HTML policy is the only guard on raw HTML.** Tagfilter
+  does not sanitize the AST.
 
 ## Consequences
 
-- Classification sits behind one shim function. A pin bump that renames a
-  type string, or adds a core type, fails `check-vocabulary` first and the
-  native kind tests second.
-- The Lisp side never sees cmark's dynamic extension type codes.
+- Classification is one pure Lisp function (ADR-0008), not shim code, so it
+  is fully unit-testable without cmark.
+- A pin bump that renames a type string, or adds a core type, fails
+  `check-vocabulary` first and the native kind tests second.
+- Lisp reads `cmark_node_get_type` for every node, but only interprets the
+  core codes directly. An extension node is identified by comparing its
+  cached extension pointer, not by its dynamic type code.

@@ -28,6 +28,9 @@
 * Edit, commit and push on the host. The container has no git identity,
   agents or tokens (ADR-0004).
 * First time: `scripts/guix-env make ocicl`. Verify with `make check-guix`.
+* The container exports `CL_COMMONMARK_GFM_LIBS`: the two absolute paths the
+  library loads cmark-gfm from (ADR-0009). Outside the container, discovery
+  searches system directories.
 * Never pass `ocicl` a terminal it can block on in scripts: redirect stdin
   from `/dev/null`.
 

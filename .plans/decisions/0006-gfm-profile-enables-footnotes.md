@@ -23,5 +23,6 @@ extensions, would not have matched GitHub.
 ## Consequences
 
 - `:footnote-definition` and `:footnote-reference` appear under the default
-  profile. M1 must settle their SXML shape.
+  profile. Their HTML-tree shape is settled by ADR-0010/0011 (cmark's
+  footnote HTML).
 - HTML rendering uses the same option set as parsing.
