@@ -1,0 +1,6 @@
+# Guix container state: ocicl binary, XDG dirs, fasl cache (ADR-0004)
+/.guix-env/
+# Systems ocicl installs; ocicl.csv is the committed lockfile (ADR-0003)
+/ocicl/
+/build/
+*.fasl

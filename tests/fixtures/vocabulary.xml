@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document sourcepos="1:1-29:15" xmlns="http://commonmark.org/xml/1.0">
+  <heading sourcepos="1:1-1:45" level="1">
+    <text sourcepos="1:3-1:10" xml:space="preserve">Heading </text>
+    <emph sourcepos="1:11-1:16">
+      <text sourcepos="1:12-1:15" xml:space="preserve">emph</text>
+    </emph>
+    <text sourcepos="1:17-1:17" xml:space="preserve"> </text>
+    <strong sourcepos="1:18-1:27">
+      <text sourcepos="1:20-1:25" xml:space="preserve">strong</text>
+    </strong>
+    <text sourcepos="1:28-1:28" xml:space="preserve"> </text>
+    <strikethrough sourcepos="1:29-1:38">
+      <text sourcepos="1:31-1:36" xml:space="preserve">strike</text>
+    </strikethrough>
+    <text sourcepos="1:39-1:39" xml:space="preserve"> </text>
+    <code sourcepos="1:41-1:44" xml:space="preserve">code</code>
+  </heading>
+  <block_quote sourcepos="3:1-5:5">
+    <paragraph sourcepos="3:3-5:5">
+      <text sourcepos="3:3-3:13" xml:space="preserve">quote with </text>
+      <html_inline sourcepos="3:14-3:19" xml:space="preserve">&lt;span&gt;</html_inline>
+      <text sourcepos="3:20-3:30" xml:space="preserve">inline html</text>
+      <html_inline sourcepos="3:31-3:37" xml:space="preserve">&lt;/span&gt;</html_inline>
+      <text sourcepos="3:38-3:39" xml:space="preserve"></text>
+      <linebreak />
+      <text sourcepos="4:3-4:21" xml:space="preserve">hard break and soft</text>
+      <softbreak />
+      <text sourcepos="5:3-5:7" xml:space="preserve">break</text>
+    </paragraph>
+  </block_quote>
+  <list sourcepos="7:1-9:0" type="ordered" start="1" delim="period" tight="true">
+    <item sourcepos="7:1-7:46">
+      <paragraph sourcepos="7:4-7:46">
+        <link sourcepos="7:4-7:27" destination="http://x.org" title="t">
+          <text sourcepos="7:5-7:8" xml:space="preserve">link</text>
+        </link>
+        <text sourcepos="7:28-7:28" xml:space="preserve"> </text>
+        <image sourcepos="7:29-7:46" destination="a.png" title="it">
+          <text sourcepos="7:31-7:33" xml:space="preserve">img</text>
+        </image>
+      </paragraph>
+    </item>
+    <item sourcepos="8:1-9:0">
+      <paragraph sourcepos="8:4-8:61">
+        <link sourcepos="8:3-8:18" destination="http://www.example.com" title="">
+          <text sourcepos="8:3-8:18" xml:space="preserve">www.example.com</text>
+        </link>
+        <text sourcepos="8:19-8:28" xml:space="preserve"> and </text>
+        <link sourcepos="8:20-8:42" destination="https://example.org" title="">
+          <text sourcepos="8:20-8:42" xml:space="preserve">https://example.org</text>
+        </link>
+        <text sourcepos="8:43-8:61" xml:space="preserve"> and </text>
+        <link destination="mailto:me@example.com" title="">
+          <text xml:space="preserve">me@example.com</text>
+        </link>
+        <text xml:space="preserve"></text>
+      </paragraph>
+    </item>
+  </list>
+  <list sourcepos="10:1-12:0" type="bullet" tight="true">
+    <tasklist sourcepos="10:1-10:15" completed="false">
+      <paragraph sourcepos="10:7-10:15">
+        <text sourcepos="10:7-10:15" xml:space="preserve">open task</text>
+      </paragraph>
+    </tasklist>
+    <tasklist sourcepos="11:1-12:0" completed="true">
+      <paragraph sourcepos="11:7-11:15">
+        <text sourcepos="11:7-11:15" xml:space="preserve">done task</text>
+      </paragraph>
+    </tasklist>
+  </list>
+  <table sourcepos="13:1-15:13">
+    <table_header sourcepos="13:1-13:13">
+      <table_cell sourcepos="13:2-13:4" align="left">
+        <text sourcepos="13:3-13:3" xml:space="preserve">a</text>
+      </table_cell>
+      <table_cell sourcepos="13:6-13:8" align="center">
+        <text sourcepos="13:7-13:7" xml:space="preserve">b</text>
+      </table_cell>
+      <table_cell sourcepos="13:10-13:12" align="right">
+        <text sourcepos="13:11-13:11" xml:space="preserve">c</text>
+      </table_cell>
+    </table_header>
+    <table_row sourcepos="15:1-15:13">
+      <table_cell sourcepos="15:2-15:4">
+        <text sourcepos="15:3-15:3" xml:space="preserve">1</text>
+      </table_cell>
+      <table_cell sourcepos="15:6-15:8">
+        <text sourcepos="15:7-15:7" xml:space="preserve">2</text>
+      </table_cell>
+      <table_cell sourcepos="15:10-15:12">
+        <text sourcepos="15:11-15:11" xml:space="preserve">3</text>
+      </table_cell>
+    </table_row>
+  </table>
+  <code_block sourcepos="17:1-19:3" info="lisp" xml:space="preserve">(+ 1 2)
+</code_block>
+  <html_block sourcepos="21:1-21:21" xml:space="preserve">&lt;div&gt;html block&lt;/div&gt;
+</html_block>
+  <html_block sourcepos="23:1-22:0" xml:space="preserve">&lt;script&gt;bad()&lt;/script&gt;
+</html_block>
+  <thematic_break sourcepos="25:1-26:0" />
+  <paragraph sourcepos="27:1-27:17">
+    <text sourcepos="27:1-27:12" xml:space="preserve">Footnote ref</text>
+    <<unknown> sourcepos="27:13-27:16" />
+    <text sourcepos="27:17-27:17" xml:space="preserve">.</text>
+  </paragraph>
+  <<unknown> sourcepos="29:7-29:15">
+    <paragraph sourcepos="29:7-29:15">
+      <text sourcepos="29:7-29:15" xml:space="preserve">The note.</text>
+    </paragraph>
+  </<unknown>>
+</document>
