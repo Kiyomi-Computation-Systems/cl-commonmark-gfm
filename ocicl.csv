@@ -1,0 +1,9 @@
+documentation-utils, ghcr.io/ocicl/documentation-utils@sha256:b2a1b3f3bcd1a738af85ae2b0168d408c177661eab6d6bbebb254e394d983f54, documentation-utils-20230511-98630dd/documentation-utils.asd
+form-fiddle, ghcr.io/ocicl/form-fiddle@sha256:58b6cdf3909911b876fb8b240ae4e2cfa274acd93d78e2fc65d1d981a295ce0a, form-fiddle-20260218-a4481cc/form-fiddle.asd
+multilang-documentation-utils, ghcr.io/ocicl/documentation-utils@sha256:b2a1b3f3bcd1a738af85ae2b0168d408c177661eab6d6bbebb254e394d983f54, documentation-utils-20230511-98630dd/multilang-documentation-utils.asd
+parachute, ghcr.io/ocicl/parachute@sha256:6e4c1f016ab99a958f78b65606792ee56a54c12d45d3acd07337f814888bb816, parachute-20260812-c704a92/parachute.asd
+parachute-fiveam, ghcr.io/ocicl/parachute@sha256:6e4c1f016ab99a958f78b65606792ee56a54c12d45d3acd07337f814888bb816, parachute-20260812-c704a92/compat/parachute-fiveam.asd
+parachute-lisp-unit, ghcr.io/ocicl/parachute@sha256:6e4c1f016ab99a958f78b65606792ee56a54c12d45d3acd07337f814888bb816, parachute-20260812-c704a92/compat/parachute-lisp-unit.asd
+parachute-prove, ghcr.io/ocicl/parachute@sha256:6e4c1f016ab99a958f78b65606792ee56a54c12d45d3acd07337f814888bb816, parachute-20260812-c704a92/compat/parachute-prove.asd
+trivial-custom-debugger, ghcr.io/ocicl/trivial-custom-debugger@sha256:b72a9d829d2635982c5d07604c24b22158cb550cd6b2915df2280ae59922be11, trivial-custom-debugger-20240503-802473c/trivial-custom-debugger.asd
+trivial-indent, ghcr.io/ocicl/trivial-indent@sha256:d6fbd17596902035519516d5a1dfb96e535cb8f1098dc1ba0753b975bdf5c21f, trivial-indent-20260912-7281fb0/trivial-indent.asd

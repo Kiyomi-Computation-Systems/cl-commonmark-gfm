@@ -1,6 +1,6 @@
 # ADR-0012: Raw-HTML, softbreak and link policies
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by ADR-0014 (2026-09-27)
 - **Date:** 2026-09-27
 - **Scope:** `ast->html-tree` options, HTML tree safety
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §4.4
@@ -25,9 +25,9 @@ unknown key or value signals `invalid-render-option`.
 | Option | Values (default first) | cmark equivalent (oracle) |
 |--------|------------------------|---------------------------|
 | `:raw-html` | `:omit`: `(:*comment* nil " raw HTML omitted ")` for each `html_inline` / `html_block`<br>`:text`: the literal as an ordinary string | `:omit` = default safe HTML; `:text` has none, so it gets direct tests |
-| `:softbreak` | `:newline` → `"\n"`<br>`:space` → `" "`<br>`:br` → `(:br nil)` | default, `CMARK_OPT_NOBREAKS`, `CMARK_OPT_HARDBREAKS` |
+| `:softbreak` | `:newline` → `"\n"`<br>`:space` → `" "`<br>`:br` → `(:br nil) "\n"` (ADR-0014) | default, `CMARK_OPT_NOBREAKS`, `CMARK_OPT_HARDBREAKS` |
 | `:link-policy` (link `href`, image `src`) | `:safe`: blank the URL when it starts, case-insensitively, with `javascript:`, `vbscript:`, `file:` or `data:`, except `data:image/png`, `data:image/gif`, `data:image/jpeg` and `data:image/webp`<br>`:unsafe`: keep every URL | default; `CMARK_OPT_UNSAFE` for links only |
-| `:document-wrapper` | `nil` or an element keyword | none |
+| `:document-wrapper` | `nil` or a non-void element keyword (ADR-0014) | none |
 
 - `:safe` is cmark's own rule, `_scan_dangerous_url`.
 - **No trusted raw-HTML mode.** A caller who needs the markup reads

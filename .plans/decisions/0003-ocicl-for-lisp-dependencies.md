@@ -1,6 +1,6 @@
 # ADR-0003: ocicl manages Lisp dependencies; ASDF finds them by environment
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-27 (registry example)
 - **Date:** 2026-09-27
 - **Scope:** Lisp dependency acquisition, distribution, test loading
 
@@ -21,10 +21,13 @@ ocicl is not packaged in Guix.
 - **`ocicl.csv` is committed; `ocicl/` is not.** `ocicl install` recreates
   `ocicl/` from the lockfile.
 - **Tests find systems through `CL_SOURCE_REGISTRY`**, e.g.
-  `CL_SOURCE_REGISTRY="$PWD//:$PWD/ocicl//"`, not through
+  `CL_SOURCE_REGISTRY="$PWD/:$PWD/ocicl//"`, not through
   `ocicl-runtime.lisp` or an rc file. Plain ASDF works the same on all three
   Lisps. A missing system fails loudly instead of being downloaded mid-test.
-  Configuration comes from the environment (12-factor).
+  Configuration comes from the environment (12-factor). The root is
+  non-recursive, so ASDF never reaches `vendor/` or `.guix-env/`, which
+  holds ocicl's own bundled systems
+  ([M1 spec](../2026-09-27-m1-pure-core-design.md) §7.1).
 - **ocicl itself is pinned** to tag `v2.9.0`, commit
   `f5faca8070c5ef04c6eac9b324c060519c5379d0`. `make ocicl` builds it from
   source with the container's SBCL into `.guix-env/bin/`, and refuses the tag

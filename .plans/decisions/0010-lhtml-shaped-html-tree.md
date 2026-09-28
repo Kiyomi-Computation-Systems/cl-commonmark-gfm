@@ -1,6 +1,6 @@
 # ADR-0010: An LHTML-shaped HTML tree, not SXML; public `html-tree->string`
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by ADR-0014 (2026-09-27)
 - **Date:** 2026-09-27
 - **Scope:** HTML tree format, serializer, `cl-commonmark-gfm/html-tree`
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §4.1, §4.2,

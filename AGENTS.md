@@ -67,20 +67,6 @@ We run this when we're done and ready to merge the PR.
 
 ## Lisp Conventions
 
-### Optimization Declarations
-
-Development (default):
-
-```lisp
-(declaim (optimize (safety 3) (debug 3) (speed 0)))
-```
-
-Production / executables:
-
-```lisp
-(declaim (optimize (speed 3) (safety 1) (debug 0)))
-```
-
 ### Naming
 
 - Lowercase with hyphens: `user-count` not `userCount`

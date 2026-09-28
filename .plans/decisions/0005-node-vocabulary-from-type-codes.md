@@ -1,6 +1,7 @@
 # ADR-0005: Classify nodes by type code first; vocabulary verified against 0.29.0.gfm.13
 
-- **Status:** Accepted; the classification decision is superseded by ADR-0008
+- **Status:** Accepted; the classification decision is superseded by ADR-0008;
+  footnote numbering amended by ADR-0014 (2026-09-27)
 - **Date:** 2026-09-27
 - **Scope:** AST vocabulary, node classification
 - **Evidence:** `tests/fixtures/vocabulary.md` and cmark-gfm's XML for it,
@@ -78,8 +79,8 @@ the node kinds. None of this had been checked against a real release.
   cannot desynchronize a table-level vector from its cells.
 - **Source positions may be `nil`.** The AST stores what cmark reports and
   never repairs it.
-- **Footnote numbers are computed in Lisp** (first-reference order) during
-  HTML-tree conversion. The AST carries labels only.
+- **Footnote numbers are computed in Lisp** (definition order, ADR-0014)
+  during HTML-tree conversion. The AST carries labels only.
 - **The HTML-tree raw-HTML policy is the only guard on raw HTML.** Tagfilter
   does not sanitize the AST.
 

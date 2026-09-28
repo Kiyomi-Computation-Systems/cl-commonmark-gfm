@@ -1,0 +1,37 @@
+# tests/fixtures/html/cases: one oracle case per line.
+#
+#   name file.md flags...
+#
+# Blank lines and lines starting with # are ignored. Every case renders with
+# cmark's GFM flag set (-e footnotes -e table -e strikethrough -e autolink
+# -e tagfilter -e tasklist), plus whatever flags are listed here (design
+# spec, section 7.3).
+
+paragraphs paragraphs.md
+headings headings.md
+blockquotes blockquotes.md
+code-blocks code-blocks.md
+thematic-break thematic-break.md
+emphasis emphasis.md
+breaks-hard breaks-hard.md
+lists-tight lists-tight.md
+lists-loose lists-loose.md
+lists-ordered lists-ordered.md
+tasks-tight tasks-tight.md
+tasks-loose tasks-loose.md
+raw-html raw-html.md
+links links.md
+images images.md
+links-dangerous links-dangerous.md
+links-unsafe links-dangerous.md --unsafe
+tables tables.md
+table-header-only table-header-only.md
+softbreak-space softbreak.md --nobreaks
+softbreak-br softbreak.md --hardbreaks
+footnotes-basic footnotes-basic.md
+footnotes-repeat footnotes-repeat.md
+footnotes-order footnotes-order.md
+footnotes-nested footnotes-nested.md
+footnotes-nonparagraph footnotes-nonparagraph.md
+footnotes-empty footnotes-empty.md
+footnotes-labels footnotes-labels.md
