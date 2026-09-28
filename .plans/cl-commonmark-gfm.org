@@ -783,7 +783,9 @@ against the pinned CLI's HTML.
 
 Exit: =make test= is green on SBCL, CCL and ECL, in the Guix container and in
 a local =debian:trixie= run of the CI steps, and every check has been seen to
-fail.  The GitHub run waits for October, as M0's did.
+fail.  The GitHub run waits for October, as M0's did.  Met on 2026-09-28:
+226 tests on each Lisp in both places, red on a flipped fixture byte (see
+=.plans/progress.md=).
 
 *** M2 — SBCL vertical slice
 

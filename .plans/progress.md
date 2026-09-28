@@ -41,7 +41,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | Milestone | Status |
 |-----------|--------|
 | M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
-| M1 pure core | built and reviewed 2026-09-28; the local `debian:trixie` CI proof runs after the commit |
+| M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
 | M2 SBCL vertical slice | not started |
 | M3 complete copier | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
@@ -80,7 +80,7 @@ Plan: [implementation](2026-09-27-m1-pure-core-implementation.md)
 - [x] Documents: ADR-0014, the plan, this file (Task 7)
 - [x] CI workflow: `make deps` and `make -k test` (Task 8)
 - [x] Review, fixes and close-out (Task 9)
-- [ ] Local `debian:trixie` CI proof against the commit, green and seen to
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
   fail (Task 9)
 
 ### October: CI follow-up
@@ -88,7 +88,8 @@ Plan: [implementation](2026-09-27-m1-pure-core-implementation.md)
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
 refused for billing, never started).
 - [ ] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
-  and that its `make info` log shows the versions recorded below.
+  that its `make info` log shows the versions recorded below, and that its
+  `make -k test` step shows each Lisp's test counts (M1).
 - [ ] See it fail once: push a throwaway branch with one byte of
   `tests/fixtures/vocabulary.xml` flipped. The job must go red at
   `make check-vocabulary`. Delete the branch.
@@ -178,8 +179,20 @@ _None yet._
   - Show that each hand-built fixture AST equals the copier's.
   - Add a non-copying child accessor for internal walks, and share the
     duplicated `proper-list-p` (from the code review).
-- **CI evidence:** pending. The local `debian:trixie` run needs a commit;
-  the GitHub run waits for October.
+- **CI evidence (interim, local),** as for M0: the workflow's steps ran
+  against commit `67ae47b` in `debian:trixie` under Docker.
+  - The clone included submodules, and both toolchain checksums matched.
+  - `make info` reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10, CCL 1.13,
+    cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - `check-help`, the launcher tests (28/28), `check-vocabulary`,
+    `check-pins`, `check-notice` and `make deps` passed.
+  - `make -k test` ran 226 tests with 683 assertions on each Lisp and
+    passed, and so did `check-fixtures`.
+  - With one byte of `tests/fixtures/html/paragraphs.html` flipped,
+    `make -k test` failed. `check-fixtures` named `paragraphs`, and each
+    Lisp's suite reported `oracle case paragraphs`.
+
+  The GitHub run waits for October.
 
 ### 2026-09-27 — M0 close (PR #2)
 
