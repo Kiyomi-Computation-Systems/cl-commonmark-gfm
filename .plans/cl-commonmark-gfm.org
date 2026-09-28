@@ -71,18 +71,23 @@ concentrates all effects in one reviewable place.
 
 ** Systems and packages
 
-| System/package | Role | Public |
-|----------------+------+--------|
+| System | Role | Public |
+|--------+------+--------|
+| =cl-commonmark-gfm/conditions= | the project's conditions; pure, extended in M2 | yes |
 | =cl-commonmark-gfm/ast= | AST constructors, predicates, queries, pure rewrites | yes |
 | =cl-commonmark-gfm/html-tree= | pure AST-to-HTML-tree conversion and =html-tree->string=; no FFI | yes |
 | =cl-commonmark-gfm/ffi= | CFFI declarations for libcmark-gfm and raw private handles | no |
 | =cl-commonmark-gfm/native= | library discovery, loading, initialization, resource scopes | no |
 | =cl-commonmark-gfm= | convenient parse/render API | yes |
-| =cl-commonmark-gfm/tests= | pure and native integration tests | test only |
+| =cl-commonmark-gfm/tests= | the pure suite (=make check-purity=); native tests get their own system in M2 (ADR-0007) | test only |
 
-The AST and HTML-tree systems must load and pass their tests without any C
-library present.  This requirement is the mechanical enforcement of the
-functional-core boundary.
+Package names are dotted (=cl-commonmark-gfm.ast=); system names keep their
+slashes.
+
+The pure systems (conditions, AST and HTML tree) must load and pass their
+tests without any C library present.  This requirement is the mechanical
+enforcement of the functional-core boundary.  They depend on nothing outside
+the project: no alexandria, and no UTF-8 library.
 
 ** Lisp dependencies and development environment
 
@@ -103,16 +108,61 @@ implementation is a =node= structure whose constructor is private and whose
 public package exports no mutators:
 
 #+begin_src lisp
-(defstruct (node (:constructor %make-node))
-  (kind nil :type keyword :read-only t)
-  (attributes nil :type list :read-only t) ; canonical plist
-  (children nil :type list :read-only t)   ; proper list of NODE
-  (sourcepos nil :type (or null sourcepos) :read-only t))
+(defstruct (node (:constructor %make-node) (:copier nil) (:conc-name %node-))
+  (kind nil :read-only t)
+  (attributes nil :read-only t) ; canonical plist
+  (children nil :read-only t)   ; proper list of NODE
+  (sourcepos nil :read-only t))
 #+end_src
+
+=:copier nil= leaves the name =copy-node= to the schema-checked copier below.
+The =%node-= readers stay internal, because =node-attributes= and
+=node-children= return copies.
 
 The representation is not the public promise.  The promise is constructors,
 predicates, read-only queries, structural equality, and pure transforms.  This
 permits a later move to specialized node structures without an API break.
+=cl-commonmark-gfm.ast= exports:
+
+#+begin_src lisp
+(make-node kind &key attributes children sourcepos)
+(copy-node node &key attributes children sourcepos)
+(node-p object)
+(node-kind node) (node-attributes node) (node-attribute node key)
+(node-children node) (node-sourcepos node)
+(node= a b &key (sourcepos t))
+(fold-ast function initial-value node) ; depth-first, parent before children
+(map-ast function node)                ; the results, in the same order
+(transform-ast function node)          ; bottom-up rebuild
+#+end_src
+
+- *One schema table,* one row per vocabulary kind, drives all validation.  It
+  gives each attribute a type and a default, or marks it required, and says
+  whether the kind is a leaf.  Required: =:level= (1–6), both footnote kinds'
+  =:label= (a non-empty string) and =:type-name=.  The one rule outside the
+  table: an =:ordered= list needs an integer =:start= and a non-=nil=
+  =:delimiter=, and a =:bullet= list has neither.
+- =make-node= checks the kind, the attribute plist (known keys, none
+  repeated, values of the right type, required keys present) and the
+  children (a proper list of nodes, empty for a leaf).  It fills missing keys
+  from their defaults and stores every key in schema order, so equal nodes
+  have =equal= attributes.
+- =copy-node= merges =attributes= over the node's own, and replaces
+  =children= and =sourcepos= only when they are supplied (=:sourcepos nil=
+  clears it).  The result is checked like a new node; the kind never changes.
+- =node-attributes= returns a fresh copy, and =node-children= a fresh list; a
+  node stores a copy of the children it is given.  =node-attribute= signals
+  for a key the kind doesn't have, rather than returning =nil= for a typo.
+- =node== compares kind, attributes, children and, unless =:sourcepos nil=,
+  source positions.  Strings compare case-sensitively, which rules out
+  =equalp=.
+- =transform-ast= gives =function= each node with its children already
+  transformed.  It returns a node, a list of nodes (spliced into the parent)
+  or =nil= (deleted); the root must come back as exactly one node, bare or
+  alone in a list.  Rebuilt nodes are checked.
+- A broken rule signals =invalid-ast-node=.  Not checked: which kinds nest
+  inside which, or whether a node is block or inline.  cmark promises neither,
+  and conversion renders whatever it is given.
 
 Use stable Lisp keywords, not cmark's integer node IDs or type strings.  The
 vocabulary below was verified against cmark-gfm 0.29.0.gfm.13 (ADR-0005;
@@ -164,8 +214,9 @@ Copy source positions as
 =((start-line . start-column) . (end-line . end-column))=, or =nil= when
 cmark reports none (email autolinks, for one).  They are reported as-is and
 never repaired: cmark emits end-before-start ranges, zero end columns and
-children that start before their parent.  cmark's columns are bytes; the API
-must not imply Unicode grapheme-column semantics.
+children that start before their parent.  =make-node= checks only their shape
+(non-negative integers) and accepts inverted ranges.  cmark's columns are
+bytes; the API must not imply Unicode grapheme-column semantics.
 
 Unknown extension nodes must not disappear.  Represent a recognized but
 otherwise unsupported extension as =:extension= with its type string, source
@@ -466,12 +517,14 @@ escapes, but does not check URLs added to a tree after conversion.
 | =native-parse-error= | a document could not be produced |
 | =native-render-error= | a renderer could not produce a buffer |
 | =unsupported-extension-node= | no safe semantic AST mapping exists |
+| =invalid-ast-node= | a node, attribute key or transform result breaks the AST schema |
 | =invalid-render-option= | options are incompatible or in the wrong API |
 | =invalid-html-tree= | =html-tree->string= was given a malformed node |
 
-These conditions include the operation, library versions, and the paths or
-directories tried.  Raw CFFI errors are implementation details, not the
-routine public vocabulary.
+All are subtypes of =commonmark-gfm-error=, an =error=.  Each names the
+operation, the offending datum and a reason; the native ones add library
+versions and the paths or directories tried.  Raw CFFI errors are
+implementation details, not the routine public vocabulary.
 
 * Functional AST and HTML tree
 
@@ -508,48 +561,79 @@ element (ADR-0010).
 
 - Attributes appear in the order cmark emits them.  Each child is a string
   (unescaped text) or an element.
-- A document yields a list of top-level nodes.  =:document-wrapper= (an
-  element keyword, default =nil=) wraps them as =(wrapper nil ...)=.
+- A document yields a list of top-level elements and strings.
+  =:document-wrapper= (a non-void element keyword, default =nil=) wraps them
+  as =(wrapper nil ...)=.  A root that isn't a =:document= converts as a
+  document's only child.
 - No source positions and no =data-*= metadata beyond what cmark's own HTML
   emits; source positions live in the AST.
 
+*Layout lives in the tree* (ADR-0014).  The converter emits a ="\n"= string
+wherever cmark's renderer writes a newline.  Where cmark calls =cr=
+(=cmark_html_render_cr=), it emits ="\n"= unless the output so far is empty or
+already ends in a newline.  Children are normalized: adjacent strings are
+merged and empty strings dropped.  So a tight task item is
+=(:li nil (:input ((:type "checkbox") (:disabled ""))) " open task")=, and a
+=:linebreak= is =(:br nil) "\n"=.
+
 Each node takes the shape cmark 0.29.0.gfm.13's HTML renderers produce under
-the options in effect; the oracle settles every detail (ADR-0011).
+the options in effect; the oracle settles every detail (ADR-0011).  The table
+leaves out the newlines around block elements.
 
 | AST | HTML tree |
 |-----+-----------|
 | =:paragraph= | =(:p nil ...)=; unwrapped inside tight lists, as cmark does |
 | =:heading= | =(:h1 nil ...)= through =(:h6 nil ...)= |
-| =:link= | =(:a ((:href "...") (:title "...")) ...)=; =href= carries cmark's percent-encoding |
-| =:image= | =(:img ((:src "...") (:alt "...") ...))=; =alt= is the children's plain text |
+| =:link= | =(:a ((:href "...") (:title "...")) ...)=; =href= carries cmark's percent-encoding; no =title= pair when it is =""= |
+| =:image= | =(:img ((:src "...") (:alt "...") ...))=; =alt= is the plain text of every literal under it, raw HTML included, with breaks as spaces; a dangling footnote reference adds =[^label]= |
 | =:table= | =(:table nil ...)=: =:thead= wraps the =:table-header= row, =:tbody= the =:table-row= rows; =align= from each cell's =:align= |
-| =:task-item= | =(:li nil (:input ((:type "checkbox") (:disabled ""))) " text")=, with =(:checked "")= before =(:disabled "")= when ticked; no =task-list-item= class |
-| =:footnote-reference= | =(:sup ((:class "footnote-ref")) (:a ((:href "#fn-1") (:id "fnref-1") (:data-footnote-ref "")) "1"))= |
-| footnote definitions | collected at the end: =(:section ((:class "footnotes") (:data-footnotes "")) (:ol nil (:li ((:id "fn-1")) ...)))=; numbering, repeat ids and back-reference =aria-label= follow cmark, computed in Lisp by first reference |
-| =:softbreak= | =:softbreak= policy: ="\n"=, =" "= or =(:br nil)= |
+| =:task-item= | =(:li nil (:input ((:type "checkbox") (:checked "") (:disabled ""))) " " ...)=; no =:checked= pair when unticked; no =task-list-item= class |
+| =:footnote-reference= | =(:sup ((:class "footnote-ref")) (:a ((:href "#fn-L") (:id "fnref-L") (:data-footnote-ref "")) "N"))=: L is the label, percent-encoded, and N the definition's number.  The k-th reference to a definition has the id =fnref-L-k=.  A reference with no definition is the text =[^label]= |
+| footnote definitions | moved to one section at the end: =(:section ((:class "footnotes") (:data-footnotes "")) (:ol nil (:li ((:id "fn-L")) ...)))=, with back-references.  Only one definition per label counts, the first the walk leaves (cmark's registration order), and only if a reference resolves to it.  Numbered in definition order (ADR-0014) |
+| =:softbreak= | =:softbreak= policy: ="\n"=, =" "= or =(:br nil) "\n"= |
 | raw HTML | =:raw-html= policy (see Rendering policy) |
+| =:extension= | signals =unsupported-extension-node=; cannot occur under the pin (ADR-0008) |
 
-=ast->html-tree= validates its options first; an unknown key or value signals
-=invalid-render-option=.
+=ast->html-tree= takes its options as =&rest= and validates them by hand
+before converting anything (ADR-0014).  An odd-length list, an unknown key, a
+value outside the table below, or a =:document-wrapper= that isn't a non-void
+element keyword signals =invalid-render-option=.  A repeated key: the leftmost
+value wins, as with =&key=, but every value must be valid, so
+=:softbreak :space :softbreak :bogus= signals =invalid-render-option=.
 
 | Option | Values (default first) | cmark equivalent (oracle) |
 |--------+------------------------+---------------------------|
 | =:raw-html= | =:omit=, =:text= | =:omit= = default safe HTML; =:text= has direct tests |
 | =:softbreak= | =:newline=, =:space=, =:br= | default, =CMARK_OPT_NOBREAKS=, =CMARK_OPT_HARDBREAKS= |
 | =:link-policy= | =:safe=, =:unsafe= | default; =CMARK_OPT_UNSAFE= for links only |
-| =:document-wrapper= | =nil= or an element keyword | none |
+| =:document-wrapper= | =nil= or a non-void element keyword | none |
 
-=html-tree->string= is the public, pure serializer (ADR-0010):
+=html-tree->string= is the public, pure serializer (ADR-0010, ADR-0014):
 
-- *cmark-exact on our trees:* static tables of void elements and of where cmark
-  places newlines make its output equal cmark's HTML.
-- *Always escapes* text and attribute values (=&=, =<=, =>=, ="=) exactly as
-  houdini does; nothing is emitted raw.  URLs are only entity-escaped, since
+- *Exact for any tree; layout lives in the tree.*  Its output is the plain
+  concatenation of what the tree holds: it adds no newlines.  A tree from
+  =ast->html-tree= prints as cmark's HTML.
+- *Always escapes* text, comment text and attribute values (=&=, =<=, =>=,
+  ="=) exactly as houdini does; nothing is emitted raw.  In =href=, =src= and
+  =id= values, ='= also becomes =&#x27;=.  URLs are only entity-escaped, since
   the tree already carries cmark's percent-encoding.
-- *Validates* its input: a tag or attribute name not matching
-  =[a-z][a-z0-9-]*=, a non-string attribute value, comment text containing
-  =--=, or a malformed element signals =invalid-html-tree= naming the node.
-- Unknown but valid tags are allowed and print inline.
+- *Bare attributes:* =data-footnotes=, =data-footnote-ref= and
+  =data-footnote-backref= print with no value when it is =""=.  Every other
+  attribute prints as ~name="value"~, so the checkbox keeps ~checked=""~ and
+  ~disabled=""~.
+- *Void elements:* =br=, =hr=, =img= and =input= print as =<br />=,
+  ~<img src="…" alt="…" />~ and so on.
+- *Comments:* =(:*comment* nil "text")= prints as =<!--text-->=, its text
+  escaped like any other text.
+- Names print lowercase, and are classified by that lowercased string, so
+  =:|href|= is =:href= and =:|br|= is =:br=.
+- *Validates* its input.  These signal =invalid-html-tree=, naming the node: a
+  malformed element; a tag or attribute name not matching =[a-z][a-z0-9-]*=
+  once lowercased (=:*comment*= is the one exception); a non-string attribute
+  value; a void element with children; a comment that isn't exactly
+  =(:*comment* nil "text")=, or whose text contains =--=, starts with =>= or
+  =->=, or ends with =-=.  A tag alone, =(:p)=, reads as =(:p nil)=.
+- Unknown but valid tags are allowed.
 - It does not sanitize URLs; =:link-policy= applies inside =ast->html-tree=.
 
 * Public API sketch
@@ -558,14 +642,15 @@ the options in effect; the oracle settles every detail (ADR-0011).
 (parse markdown &key profile extensions sourcepos)
 ;; string -> document AST
 
-(ast->html-tree document &key raw-html softbreak link-policy document-wrapper)
+(ast->html-tree node &rest options)
+;; options: :raw-html :softbreak :link-policy :document-wrapper, checked by hand
 ;; AST -> HTML tree (list of nodes, or one wrapper element)
 
 (markdown->html-tree markdown &rest parse-and-tree-keys)
 ;; string -> HTML tree
 
 (html-tree->string tree)
-;; HTML tree -> string; cmark-exact on trees from ast->html-tree
+;; HTML tree -> string; adds no layout, so a converted tree prints as cmark's HTML
 
 (markdown->html markdown &key profile extensions sourcepos unsafe-html)
 ;; string -> string (native renderer)
@@ -573,10 +658,10 @@ the options in effect; the oracle settles every detail (ADR-0011).
 (markdown->plaintext markdown &key profile extensions width)
 ;; string -> string
 
-(map-ast function document)
-(fold-ast function initial-value document)
-(transform-ast function document)
-;; pure structural utilities
+(map-ast function node)
+(fold-ast function initial-value node)
+(transform-ast function node)
+;; pure structural utilities (see AST contract)
 #+end_src
 
 Do not silently ignore renderer options.  Passing HTML-tree-only options to
@@ -607,16 +692,31 @@ the quiet reporter and turns the result into the process exit code, so CI and
 
 Pure tests:
 
-- AST construction/query/rewrite invariants and structural equality.
+- AST construction/query/rewrite invariants and structural equality: every
+  schema rule, =copy-node=, =node-attribute=, =node== and the three
+  transforms.
 - =classify-node= and =resolve-cmark-libraries= over synthetic inputs.
-- HTML-tree fixtures for every standard and GFM node: hand-built ASTs with the
-  expected trees written out.
-- Raw-HTML (=:text= directly), soft-break, and link-policy tests.
-- Direct =html-tree->string= tests, including every =invalid-html-tree= case.
-- Repeated HTML-tree conversion is =equal= and no public tree contains a
-  foreign pointer.
-- The pure suites pass with =CL_COMMONMARK_GFM_LIBS= set to
-  =/nonexistent:/nonexistent= (=make check-purity=).
+- *Oracle fixtures* (ADR-0014): hand-built ASTs checked against the pinned
+  CLI's HTML.  =tests/fixtures/html/cases= lists one case per line,
+  =name file.md cmark-flags…=; =tests/fixtures/html/name.html= is the CLI's
+  output for it, committed.  =make check-fixtures= re-runs the CLI for every
+  case and diffs.  =make fixtures-html= writes only the missing files, and
+  never overwrites one.  In Lisp, each case's
+  =(html-tree->string (ast->html-tree ast …))= must equal its file, and the
+  Lisp cases and the manifest must name exactly the same set.  The cases
+  cover every node kind but =:extension=, every mapping row, both non-default
+  softbreaks, both link policies (=:unsafe= only without raw HTML),
+  percent-encoding and the footnote rules.
+- Direct tests where cmark has no equivalent: =:raw-html :text=,
+  =:document-wrapper=, the footnote pre-pass on hand-built ASTs, and every
+  =invalid-render-option=, =invalid-html-tree= and
+  =unsupported-extension-node= case.
+- Converting twice gives =equal= trees, and a tree holds nothing but lists,
+  strings and keywords.
+- *Purity:* =make check-purity= runs the pure suite on SBCL, CCL and ECL,
+  each even if an earlier one failed, and fails if a =CFFI= package exists
+  after the run.  In M1, =make test= is =check-purity= plus
+  =check-fixtures=; the native suites join it in M2.
 
 Native integration tests:
 
@@ -647,8 +747,10 @@ ocicl 2.9.0 from checksummed release downloads.  The three Lisps run in
 sequence; each runs even if an earlier one fails.  Steps arrive with their
 milestone: =make info= (Lisp versions, architecture, cmark-gfm version),
 =check-help=, the launcher dry run, =check-vocabulary=, =check-pins= and
-=check-notice= now; =check-purity= from M1; the native suites with no override
-set, and the oracle, from M2.  The manual macOS run records the same facts.
+=check-notice= now; =make deps= and =make -k test= from M1, run even after
+an earlier step fails; the native suites
+with no override set, and the oracle, from M2.  The manual macOS run records
+the same facts.
 
 ** Milestones
 
@@ -673,10 +775,17 @@ deferred to October and tracked in =progress.md=.
 
 *** M1 — pure core
 
-Implement the AST, =ast->html-tree= and =html-tree->string= with manually built
-fixtures and full pure tests.
+Build the part that needs no C: the conditions system; the AST (schema-checked
+=make-node= and =copy-node=, queries, =node==, pure transforms);
+=ast->html-tree=, whose tree carries cmark's newlines and footnote rules
+(ADR-0014); and =html-tree->string=.  Oracle fixtures check hand-built ASTs
+against the pinned CLI's HTML.
 
-Exit: the core suite runs without CFFI or cmark-gfm (=make check-purity=).
+Exit: =make test= is green on SBCL, CCL and ECL, in the Guix container and in
+a local =debian:trixie= run of the CI steps, and every check has been seen to
+fail.  The GitHub run waits for October, as M0's did.  Met on 2026-09-28:
+226 tests on each Lisp in both places, red on a flipped fixture byte (see
+=.plans/progress.md=).
 
 *** M2 — SBCL vertical slice
 
@@ -769,6 +878,9 @@ never an invalid-free crash or unexplained unresolved symbol.
 18. Raw-HTML =:omit= / =:text=, softbreak and link policies; no trusted mode
     (ADR-0012).
 19. Linux CI is one amd64 job in a Debian trixie container (ADR-0013).
+20. The HTML tree carries cmark's newlines; footnotes follow definition order;
+    M1's fixtures are checked against the pinned CLI.  Amends 11, 16, 17
+    and 18 (ADR-0014).
 
 Full records live in =.plans/decisions/=.
 

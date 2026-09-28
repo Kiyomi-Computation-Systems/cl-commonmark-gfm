@@ -25,8 +25,11 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 - The project compiles no C. It binds libcmark-gfm directly through CFFI
   (ADR-0008) and loads the pinned pair by absolute path (ADR-0009).
 - The AST and HTML-tree systems load and pass tests with no C library present.
+- The pure systems depend on nothing outside the project (no alexandria, no
+  UTF-8 library).
 - The HTML tree is LHTML-shaped (ADR-0010) and oracle-tested against cmark's
-  HTML (ADR-0011).
+  HTML (ADR-0011). It carries cmark's newlines, and footnotes follow
+  definition order (ADR-0014).
 - The AST vocabulary is the plan's table (ADR-0005). Changing it needs an ADR.
 - Tests use Parachute, run with the quiet reporter and exit non-zero on
   failure (ADR-0007).
@@ -38,7 +41,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | Milestone | Status |
 |-----------|--------|
 | M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
-| M1 pure core | not started |
+| M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
 | M2 SBCL vertical slice | not started |
 | M3 complete copier | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
@@ -60,12 +63,33 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   HTML `:omit`/`:text` (ADR-0010–0012)
 - [x] Linux CI (ADR-0013); the workflow lands with the m0-close branch
 
+### M1 checklist
+
+Spec: [M1 pure core design](2026-09-27-m1-pure-core-design.md) ·
+Plan: [implementation](2026-09-27-m1-pure-core-implementation.md)
+
+- [x] Skeleton, dependencies and runner: the four systems, `ocicl.csv`,
+  `tests/run.lisp`, `make deps`, `make check-purity` (Task 1)
+- [x] AST: schema, `make-node`, `copy-node`, queries, `node=`, transforms
+  (Task 2)
+- [x] URL helpers: `href-encode`, `dangerous-url-p` (Task 3)
+- [x] Serializer: `html-tree->string` (Task 4)
+- [x] Oracle fixtures: the manifest, the pinned CLI's HTML,
+  `make check-fixtures`, `make fixtures-html` (Task 5)
+- [x] Converter and footnotes: `ast->html-tree` (Task 6)
+- [x] Documents: ADR-0014, the plan, this file (Task 7)
+- [x] CI workflow: `make deps` and `make -k test` (Task 8)
+- [x] Review, fixes and close-out (Task 9)
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
+  fail (Task 9)
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
 refused for billing, never started).
 - [ ] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
-  and that its `make info` log shows the versions recorded below.
+  that its `make info` log shows the versions recorded below, and that its
+  `make -k test` step shows each Lisp's test counts (M1).
 - [ ] See it fail once: push a throwaway branch with one byte of
   `tests/fixtures/vocabulary.xml` flipped. The job must go red at
   `make check-vocabulary`. Delete the branch.
@@ -79,6 +103,96 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-09-28 — M1 pure core (branch `m1-pure-core`)
+
+- **Built** (spec 2026-09-27, ADR-0014):
+  - the conditions, AST, URL-helper, serializer and converter code, with the
+    footnote pre-pass;
+  - 28 oracle fixtures;
+  - `make deps`, `check-purity`, `check-fixtures`, `fixtures-html` and
+    `test`;
+  - the CI steps `make deps` and `make -k test`.
+
+  Nine tasks, run by subagents: Sonnet for the mechanical ones, Opus for the
+  converter, the documents and the review.
+- **Tests**, in the Guix container:
+  - SBCL 2.6.4, CCL 1.13 and ECL 24.5.10 each run 226 tests with
+    683 assertions;
+  - all 28 oracle cases match the pinned CLI byte for byte;
+  - `check-fixtures`, `check-help` and `check-guix` pass.
+
+  Every check was seen to fail under a targeted mutation.
+- **The final review ran the converter over the whole corpus, ahead of M2.**
+  It built ASTs from cmark's own parse (`-t xml`, with footnote labels read
+  from the source).
+  - Inputs: all 744 corpus examples plus 123 edge inputs, each under the
+    default options, `--nobreaks`, `--hardbreaks` and `--unsafe`. That's
+    3,380 comparisons.
+  - All were byte-identical except 12 (3 inputs × 4 option sets), which hit
+    the two known footnote divergences (spec §5.4).
+  - It also found 3 must-fix problems, all fixed:
+    - mixed-case keywords (`:|href|`) slipped past the serializer's name
+      rules;
+    - raw comment text let markup escape from `textarea`, `title`, `script`
+      and `style`;
+    - a circular datum hung or killed the condition report.
+
+    Its 8 should-fixes and 14 nits were fixed too.
+- **A code review (`/code-review high`) then found 9 more.** Seven are
+  fixed, each with a test seen to fail:
+  - `copy-node` copied a circular children list before rejecting it;
+  - condition slots had no defaults, so a partial condition broke its own
+    report;
+  - a self-referential tree overflowed the serializer's stack;
+  - `make fixtures-html` could leave an empty fixture behind;
+  - `map-ast` was quadratic in depth;
+  - a nested duplicate definition was chosen differently from cmark;
+  - the three footnote walkers now build paths with one shared helper.
+
+  The other two, a non-copying child accessor and the duplicated
+  `proper-list-p`, go to M2.
+- **Found:**
+  - ASDF won't load `cl-commonmark-gfm/ast` without a primary
+    `cl-commonmark-gfm` system, so the `.asd` has an empty one.
+  - Loading a file that declaims an optimization policy changes the image's
+    policy on CCL and ECL; SBCL rebinds it around `load`. AGENTS.md's
+    "Optimization Declarations" section is gone, and library source declares
+    no policy.
+  - CL case pairs are one-to-one, so `char-equal` folds no non-ASCII letter
+    into ASCII on any of the three Lisps. `string-equal` therefore matches
+    cmark's ASCII-only scheme check exactly.
+  - cmark's XML omits `align` on body cells, but its HTML applies it per
+    column. M2's copier must take alignment from the table's columns.
+  - `****s****` parses as a `strong` inside a `strong`; only the renderer
+    collapses them.
+  - Parachute files every result under its test and under the report. The
+    runner removes the duplicates, prints its counts, and fails if no tests
+    ran.
+  - Debian's `ecl` package depends on `gcc`, so CI needs no change for ECL
+    to compile.
+- **Handed to M2** (spec §9):
+  - Recursive traversals overflow the stack at 10,000 nested block quotes on
+    SBCL and CCL (50,000 on ECL). cmark handles 50,000.
+  - Settle the two footnote divergences against the oracle.
+  - The copier gives each reference its definition's label as written.
+  - Show that each hand-built fixture AST equals the copier's.
+  - Add a non-copying child accessor for internal walks, and share the
+    duplicated `proper-list-p` (from the code review).
+- **CI evidence (interim, local),** as for M0: the workflow's steps ran
+  against commit `67ae47b` in `debian:trixie` under Docker.
+  - The clone included submodules, and both toolchain checksums matched.
+  - `make info` reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10, CCL 1.13,
+    cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - `check-help`, the launcher tests (28/28), `check-vocabulary`,
+    `check-pins`, `check-notice` and `make deps` passed.
+  - `make -k test` ran 226 tests with 683 assertions on each Lisp and
+    passed, and so did `check-fixtures`.
+  - With one byte of `tests/fixtures/html/paragraphs.html` flipped,
+    `make -k test` failed. `check-fixtures` named `paragraphs`, and each
+    Lisp's suite reported `oracle case paragraphs`.
+
+  The GitHub run waits for October.
 
 ### 2026-09-27 — M0 close (PR #2)
 

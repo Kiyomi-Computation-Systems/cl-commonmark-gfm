@@ -1,6 +1,8 @@
 # ADR-0013: Linux CI in a Debian trixie container
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-27 by the
+  [M1 spec](../2026-09-27-m1-pure-core-design.md): the M1 step (D9), the
+  cache wording and the Lisp steps' conditions
 - **Date:** 2026-09-27
 - **Scope:** CI workflow, CI toolchain, native memory checks
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §5
@@ -31,10 +33,10 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
   `pull_request` only, not on `push` to `main`.
 - **The three Lisps run in sequence in one job**, since private-repo
   minutes are billed per job. Each runs even if an earlier one fails, and
-  the job fails if any did. Once the Lisp steps land (M1), each step needs
-  `if: ${{ !cancelled() }}` (or one aggregating `make` target) to run
-  regardless of an earlier step's outcome — a job's later steps do not run
-  by default once one fails.
+  the job fails if any did. A job skips its later steps once one fails, so
+  the Lisp steps, `make deps` and `make test` (M1), run with
+  `if: ${{ !cancelled() }}`; `make -k test` runs `check-fixtures` even
+  when `check-purity` fails.
 - **Container gotchas.** Install `git` and `ca-certificates` before
   `actions/checkout`: without `git`, a checkout with `submodules: true`
   fails, because it cannot fall back to the REST API for submodules. Add
@@ -51,7 +53,7 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
 | cmark-gfm | apt: `libcmark-gfm0.29.0.gfm.13`, `libcmark-gfm-extensions0.29.0.gfm.13`, `cmark-gfm` (CLI) | exact version; **no `-dev` packages**, so discovery sees what a user sees |
 | CCL 1.13 | `ccl-1.13-linuxx86.tar.gz` from the GitHub release | SHA-256 recorded in the repo |
 | ocicl 2.9.0 | `ocicl_2.9.0-1_amd64.deb` from the GitHub release | SHA-256 recorded in the repo |
-| Lisp dependencies | `ocicl install` from `ocicl.csv` | lockfile; `./ocicl/` cached on its hash |
+| Lisp dependencies | `ocicl install` from `ocicl.csv` | lockfile; `./ocicl/` not cached yet; `ci.yml` says so |
 | Corpus | `actions/checkout` with submodules | ADR-0002 commit |
 
 ### Steps
@@ -64,7 +66,7 @@ Each step comes into use as its milestone arrives.
 | `make check-help`; `sh tests/guix-env-launcher.sh` (dry run, needs no Guix) | now |
 | `make check-vocabulary` against Debian's CLI | now |
 | `make check-pins`, `make check-notice` | now |
-| `make check-purity`: the pure suites on each Lisp with `CL_COMMONMARK_GFM_LIBS=/nonexistent:/nonexistent` must pass | M1 |
+| `make deps`, then `make -k test`, both `if: ${{ !cancelled() }}`: `check-purity` (the pure suite on each Lisp; fails if a `CFFI` package is loaded) and `check-fixtures` | M1 |
 | The native suites on each Lisp, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
 | The corpus oracle (ADR-0011) | M2 (partial) / M3 (full) |
 

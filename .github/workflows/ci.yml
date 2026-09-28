@@ -65,6 +65,16 @@ jobs:
       - name: make check-notice
         run: make check-notice
 
-      # No dependency cache yet: there is no ocicl.csv until the first Lisp
-      # dependency lands (M1). Then cache ./ocicl/, keyed on a hash of
-      # ocicl.csv, alongside the checkout step above.
+      # A job skips its later steps once one fails. The Lisp steps run anyway,
+      # so a failed check above doesn't hide their results; -k runs
+      # check-fixtures even when check-purity fails (ADR-0013).
+      - name: make deps
+        if: ${{ !cancelled() }}
+        run: make deps
+
+      - name: make test
+        if: ${{ !cancelled() }}
+        run: make -k test
+
+      # No dependency cache yet: ./ocicl/ could be cached, keyed on a hash
+      # of ocicl.csv, alongside the checkout step above (left for later).

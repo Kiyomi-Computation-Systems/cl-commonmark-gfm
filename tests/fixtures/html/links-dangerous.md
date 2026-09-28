@@ -1,0 +1,5 @@
+[js](javascript:alert(1))
+[vb](vbscript:msgbox)
+[file](file:///etc/passwd)
+[data-html](data:text/html,hi)
+[data-png](data:image/png;base64,aaaa)
