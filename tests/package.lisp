@@ -2,6 +2,8 @@
 
 (defpackage #:cl-commonmark-gfm.tests
   (:use #:cl)
+  (:import-from #:cl-commonmark-gfm.util
+                #:proper-list-p)
   (:import-from #:cl-commonmark-gfm.conditions
                 #:commonmark-gfm-error
                 #:condition-operation
@@ -22,6 +24,7 @@
                 #:node-children
                 #:node-sourcepos
                 #:node=
+                #:walk-ast
                 #:fold-ast
                 #:map-ast
                 #:transform-ast)

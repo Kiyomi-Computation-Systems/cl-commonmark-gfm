@@ -1,4 +1,4 @@
-;;;; The cl-commonmark-gfm.html-tree package: its public interface (design §5, §6).
+;;;; The cl-commonmark-gfm.html-tree package: its public interface (M1 design §5, §6).
 
 (defpackage #:cl-commonmark-gfm.html-tree
   (:use #:cl)
@@ -10,6 +10,9 @@
                 #:make-node
                 #:node-kind
                 #:node-attribute
-                #:node-children)
+                #:node-children
+                #:walk-ast)
+  (:import-from #:cl-commonmark-gfm.util
+                #:proper-list-p)
   (:export #:ast->html-tree
            #:html-tree->string))

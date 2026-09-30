@@ -31,6 +31,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   HTML (ADR-0011). It carries cmark's newlines, and footnotes follow
   definition order (ADR-0014).
 - The AST vocabulary is the plan's table (ADR-0005). Changing it needs an ADR.
+- No walk over a tree recurses on its depth: walks loop over explicit stacks
+  (ADR-0015).
 - Tests use Parachute, run with the quiet reporter and exit non-zero on
   failure (ADR-0007).
 - CI is one amd64 job in a `debian:trixie` container (ADR-0013).
@@ -42,8 +44,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 |-----------|--------|
 | M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
 | M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
-| M2 SBCL vertical slice | not started |
-| M3 complete copier | not started — evaluate property-based testing (ADR-0007) |
+| M2 stack-safe walks and the native layer | in progress: M2a |
+| M3 unknown extensions and version probes | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
 
@@ -83,6 +85,49 @@ Plan: [implementation](2026-09-27-m1-pure-core-implementation.md)
 - [x] Local `debian:trixie` CI proof against the commit, green and seen to
   fail (Task 9)
 
+### M2 checklist
+
+Spec: [M2 design](2026-09-30-m2-native-layer-design.md) ·
+Plan: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md)
+
+**M2a, stack-safe walks** (branch `m2a-stack-safe-walks`):
+
+- [x] `/util` and one `proper-list-p` (Task 1)
+- [x] `walk-ast` and the AST walks (Task 2)
+- [x] The serializer (Task 3)
+- [x] The converter and footnotes (Task 4)
+- [x] Documents: ADR-0015, the plan, this file (Task 5)
+- [x] Review, fixes, a second review and close-out (Task 6)
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
+  fail (Task 6)
+
+**M2b, the native layer** (branch `m2b-native-layer`; its plan follows
+M2a), one line per spec section:
+
+- [ ] Bindings: `/ffi`'s declarations and one native walker (§5.1)
+- [ ] Startup: once per process, under a lock (§5.2)
+- [ ] Saved images: the save hooks (§5.3)
+- [ ] Lifetimes and counters: `with-native-document`, the alive flag (§5.4)
+- [ ] Limits: the three variables, the table-cell and output bounds (§5.5)
+- [ ] The copier's walk: `copy-native-tree` (§6.1)
+- [ ] Classification: `classify-node` (§6.2)
+- [ ] Attributes, footnote labels included (§6.3)
+- [ ] Source positions (§6.4)
+- [ ] Text: UTF-8 in and out (§6.5)
+- [ ] Entry points: `parse` and the three `markdown->…` functions (§7.1)
+- [ ] Options and their defaults (§7.2)
+- [ ] Option bits (§7.3)
+- [ ] Conditions (§7.4)
+- [ ] Threads (§7.5)
+- [ ] Pure suite additions (§8.1)
+- [ ] The corpus reader (§8.2)
+- [ ] The four oracles (§8.3)
+- [ ] Other native tests: deep documents, crash guards, lifetimes (§8.4)
+- [ ] Runner, `make check-native` and CI (§8.5)
+- [ ] Seen to fail (§8.6)
+- [ ] Documents: ADRs 0016 to 0018, and the corrections to ADR-0005, 0011,
+  0013 and 0014 and to the plan (§9, §10)
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -103,6 +148,100 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-09-30 — M2a stack-safe walks (branch `m2a-stack-safe-walks`)
+
+- **Built** (M2 spec §3 and §4, ADR-0015):
+  - `cl-commonmark-gfm/util`, holding the one `proper-list-p`, a loop;
+  - `walk-ast`, now exported, with `fold-ast`, `map-ast` and
+    `transform-ast` built on it; `node=` loops over a stack of node pairs;
+  - `html-tree->string` loops over a stack of open elements, with an `eq`
+    set to find an element that contains itself;
+  - `ast->html-tree` is a port of cmark's event loop, with footnote places
+    keyed by owner and ordinal, not by path;
+  - `tests/run.lisp` exits 1 when a stack overflow escapes Parachute. ECL
+    exited 0 there, so `check-purity` reported a pass.
+
+  Six tasks, run by subagents one at a time, with the documents alongside
+  the first: Sonnet for util, the walks, the serializer and the fixes; Opus
+  for the converter, the documents and both reviews.
+- **Tests**, in the Guix container:
+  - SBCL 2.6.4, CCL 1.13 and ECL 24.5.10 each run 280 tests with
+    793 assertions (M1: 226 and 683);
+  - M1's tests are unchanged apart from comments: "design §N" became
+    "M1 design §N", since the M2 spec reuses M1's numbers;
+  - seven deep shapes at 100,000 levels, spec §4.7's six plus nested
+    tables, go through every AST walk, the converter and the serializer. So
+    do 300,000-wide trees;
+  - the pure suite takes 4.8 s on SBCL, 19.5 s on CCL and 24.4 s on ECL;
+  - all 28 oracle cases match; `check-help` and `check-guix` pass.
+
+  Every new check was seen to fail. Each walk put back to recursion aborts
+  the SBCL run with a stack exhaustion; the other mutations fail named
+  tests.
+- **Differential check.** Two throwaway harnesses ran seeded random input
+  through M1's code and M2a's, on each Lisp:
+  - 25,000 ASTs, converted under 13 option sets and put through every AST
+    walk;
+  - 70,000 HTML trees, malformed ones included.
+
+  Every result was byte-identical, conditions and datums included.
+- **Reviews.** An Opus review found 3 should-fixes, 8 nits and 3 M1 issues;
+  a second review of the fixes found 3 more small items. All are fixed or
+  recorded here. Two of the M1 issues were bugs of M2a's kind, where a
+  circular or deep value hangs the process:
+  - a reason string printed a caller's attribute key unbounded, so a
+    circular key hung or exhausted the heap. It now prints cut short;
+  - the serializer compared malformed attribute names with `equal`, which
+    loops on circular names. It now compares them by identity, so two
+    distinct but `equal` names that are neither strings nor keywords
+    report "invalid attribute name", not "repeated attribute name".
+
+  Also changed, by design (spec §4.2): `fold-ast` and `map-ast` given a
+  non-node signal a `type-error` before calling FUNCTION. M1 called it once
+  first.
+- **Found:**
+  - ECL's top level exits 0 after a stack overflow once stdin is at EOF.
+  - Were `proper-list-p` to accept a circular list, M1's test
+    `copy-node-rejects-a-circular-children-list` would hang the suite
+    (`copy-list` loops) rather than fail.
+  - SBCL can die outright on a stack overflow ("Control stack exhausted
+    while pseudo-atomic"). The exit status is still non-zero.
+  - ASDF compares file dates to the second, so a source restored within a
+    second of its mutated fasl isn't recompiled. Mutation runs clear the
+    fasl cache before the final check.
+  - CCL's `equal` hash tables degrade on label strings: 100,000 footnote
+    labels take 1.4 s and 400,000 take 14 s, where SBCL takes 0.07 s. For
+    M4.
+  - A DAG that shares nodes heavily has exponentially many places, and
+    every walk visits each. M1 behaves the same, and a parsed tree shares
+    nothing.
+  - The random harnesses never put one backref paragraph at two places of
+    a definition; an explicit test covers it.
+  - **The first local CI run failed,** against `f78ef48`: Debian's SBCL ran
+    out of heap. Parachute keeps every assertion's closure until the run
+    ends, and the deep tests' closures captured their trees and strings,
+    515 MB in all. Debian's SBCL has a 1 GB heap by default and Guix's
+    3 GB, so the container passed. The deep tests now build their data in
+    helpers or inside the asserted form, and 20 MB stays alive. The suite
+    still peaks between 768 MB and 1 GB, so `check-purity` gives SBCL a
+    2 GB heap everywhere (`c59e4de`).
+- **CI evidence (interim, local),** as for M0 and M1: the workflow's steps
+  ran against commit `c59e4de` in `debian:trixie` under Docker.
+  - The clone included submodules, and both toolchain checksums matched.
+  - `make info` reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10, CCL 1.13,
+    cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - `check-help`, the launcher tests (28/28), `check-vocabulary`,
+    `check-pins`, `check-notice` and `make deps` passed.
+  - `make -k test` ran 280 tests with 793 assertions on each Lisp and
+    passed, and so did `check-fixtures`.
+  - With one byte of `tests/fixtures/html/paragraphs.html` flipped,
+    `make -k test` failed. `check-fixtures` named `paragraphs`, and each
+    Lisp's suite reported `oracle case paragraphs`.
+
+  The GitHub run waits for October.
+- **Settled from M1's hand-offs:** stack depth, the non-copying child
+  accessor (`walk-ast`) and the shared `proper-list-p`.
 
 ### 2026-09-28 — M1 pure core (branch `m1-pure-core`)
 
@@ -172,13 +311,15 @@ _None yet._
   - Debian's `ecl` package depends on `gcc`, so CI needs no change for ECL
     to compile.
 - **Handed to M2** (spec §9):
-  - Recursive traversals overflow the stack at 10,000 nested block quotes on
-    SBCL and CCL (50,000 on ECL). cmark handles 50,000.
-  - Settle the two footnote divergences against the oracle.
-  - The copier gives each reference its definition's label as written.
-  - Show that each hand-built fixture AST equals the copier's.
-  - Add a non-copying child accessor for internal walks, and share the
-    duplicated `proper-list-p` (from the code review).
+  - [x] Recursive traversals overflow the stack at 10,000 nested block
+    quotes on SBCL and CCL (50,000 on ECL). cmark handles 50,000. Done in
+    M2a (ADR-0015).
+  - [ ] Settle the two footnote divergences against the oracle.
+  - [ ] The copier gives each reference its definition's label as written.
+  - [ ] Show that each hand-built fixture AST equals the copier's.
+  - [x] Add a non-copying child accessor for internal walks, and share the
+    duplicated `proper-list-p` (from the code review). Done in M2a:
+    `walk-ast`, and `cl-commonmark-gfm/util`.
 - **CI evidence (interim, local),** as for M0: the workflow's steps ran
   against commit `67ae47b` in `debian:trixie` under Docker.
   - The clone included submodules, and both toolchain checksums matched.

@@ -73,6 +73,7 @@ concentrates all effects in one reviewable place.
 
 | System | Role | Public |
 |--------+------+--------|
+| =cl-commonmark-gfm/util= | pure helpers the other systems share: =proper-list-p=; the UTF-8 encoder joins it in M2b | no |
 | =cl-commonmark-gfm/conditions= | the project's conditions; pure, extended in M2 | yes |
 | =cl-commonmark-gfm/ast= | AST constructors, predicates, queries, pure rewrites | yes |
 | =cl-commonmark-gfm/html-tree= | pure AST-to-HTML-tree conversion and =html-tree->string=; no FFI | yes |
@@ -84,10 +85,10 @@ concentrates all effects in one reviewable place.
 Package names are dotted (=cl-commonmark-gfm.ast=); system names keep their
 slashes.
 
-The pure systems (conditions, AST and HTML tree) must load and pass their
-tests without any C library present.  This requirement is the mechanical
-enforcement of the functional-core boundary.  They depend on nothing outside
-the project: no alexandria, and no UTF-8 library.
+The pure systems (util, conditions, AST and HTML tree) must load and pass
+their tests without any C library present.  This requirement is the
+mechanical enforcement of the functional-core boundary.  They depend on
+nothing outside the project: no alexandria, and no UTF-8 library.
 
 ** Lisp dependencies and development environment
 
@@ -131,6 +132,7 @@ permits a later move to specialized node structures without an API break.
 (node-kind node) (node-attributes node) (node-attribute node key)
 (node-children node) (node-sourcepos node)
 (node= a b &key (sourcepos t))
+(walk-ast function node)               ; :enter and :exit calls, depth-first
 (fold-ast function initial-value node) ; depth-first, parent before children
 (map-ast function node)                ; the results, in the same order
 (transform-ast function node)          ; bottom-up rebuild
@@ -156,6 +158,12 @@ permits a later move to specialized node structures without an API break.
 - =node== compares kind, attributes, children and, unless =:sourcepos nil=,
   source positions.  Strings compare case-sensitively, which rules out
   =equalp=.
+- =walk-ast= calls =function= with =:enter= and =:exit= for each node,
+  depth-first; an =:enter= call that returns =:skip= skips the node's
+  children and its =:exit=.  It reads child lists without copying.  It is
+  the one AST traversal: =fold-ast=, =map-ast=, =transform-ast= and the HTML
+  tree's AST walks are built on it.  No walk over an AST or an HTML tree
+  recurses on its depth (ADR-0015).
 - =transform-ast= gives =function= each node with its children already
   transformed.  It returns a node, a list of nodes (spliced into the parent)
   or =nil= (deleted); the root must come back as exactly one node, bare or
@@ -787,20 +795,37 @@ fail.  The GitHub run waits for October, as M0's did.  Met on 2026-09-28:
 226 tests on each Lisp in both places, red on a flipped fixture byte (see
 =.plans/progress.md=).
 
-*** M2 — SBCL vertical slice
+*** M2 — stack-safe walks and the native layer
 
-Implement the direct bindings, library discovery, deterministic resource
-scopes, one standard node family, tables, task items, and HTML/plaintext buffer
-disposal.
+Parse and render with cmark-gfm on SBCL, so that no Markdown input can crash
+the process by itself; the design states the remaining risk.  One design, two
+slices, each with its own plan, branch and PR
+([[file:2026-09-30-m2-native-layer-design.md][M2 design]]):
 
-Exit: native ASTs remain valid after release, the live-handle counters are
-zero after every native suite, and the oracle passes for the node families M2
-copies.
+1. *M2a, stack-safe walks.*  Every walk over an AST or an HTML tree loops
+   over an explicit stack, so memory, not the Lisp's stack, limits depth
+   (ADR-0015).  No output changes.
+2. *M2b, the native layer.*  CFFI bindings; finding, loading and starting the
+   pinned libraries; native lifetimes; limits that keep cmark from aborting;
+   a copier for every node kind but =:extension=; the public =parse= and
+   render functions; and four oracles.
 
-*** M3 — complete copier
+Exit, for each slice:
+- *M2a:* =make test= is green on SBCL, CCL and ECL.  M1's 226 tests and 28
+  fixtures pass unchanged, and trees 100,000 levels deep pass through every
+  walk.
+- *M2b:* =make test= is green, now with the native suite on SBCL.  ASTs stay
+  valid after their native document is freed, the live-handle counters are
+  zero after every native suite, and the oracle passes over the whole corpus.
 
-Implement all standard-node attributes and core-GFM metadata, version probes,
-and unknown-extension behavior.
+Both hold in the Guix container and in a local =debian:trixie= run of the CI
+steps, and every check has been seen to fail.  The GitHub run waits for
+October, as M0's and M1's did.
+
+*** M3 — unknown extensions and version probes
+
+M2 copies every node kind but =:extension=.  M3 implements version probes and
+unknown-extension behavior.
 
 Evaluate property-based testing here (ADR-0007).  Candidate properties:
 copying any generated Markdown yields a tree with no foreign pointer; copy then
@@ -808,8 +833,8 @@ copying any generated Markdown yields a tree with no foreign pointer; copy then
 check-it (generators with shrinking) loads on all three Lisps through ocicl;
 cl-quickcheck is the fallback.  Adopting one needs its own ADR.
 
-Exit: every supported node kind has an integration fixture, and the oracle
-passes over the whole corpus.
+Exit: version probes and unknown-extension behavior are tested, and
+property-based testing has been evaluated.
 
 *** M4 — CCL and ECL
 
@@ -843,6 +868,7 @@ never an invalid-free crash or unexplained unresolved symbol.
 | Transcribed header constants drift | checked against =vendor/cmark-gfm/src/cmark-gfm.h= (ADR-0011) |
 | Pin bump changes node vocabulary | =make check-vocabulary= diffs the pinned CLI's XML |
 | macOS regression between manual runs | releases gated on the manual macOS run (ADR-0001) |
+| Trees deeper than the Lisp stack | no depth limit: every walk over an AST or an HTML tree loops over an explicit stack; deep tests at 100,000 levels on each Lisp (ADR-0015) |
 
 * Decision log
 
@@ -881,6 +907,9 @@ never an invalid-free crash or unexplained unresolved symbol.
 20. The HTML tree carries cmark's newlines; footnotes follow definition order;
     M1's fixtures are checked against the pinned CLI.  Amends 11, 16, 17
     and 18 (ADR-0014).
+21. Walks loop over explicit stacks, with no depth limit; =walk-ast= is the
+    one AST traversal; footnote places are keyed by owner and ordinal, not by
+    path.  Amends 20 (ADR-0015).
 
 Full records live in =.plans/decisions/=.
 

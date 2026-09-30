@@ -1,4 +1,4 @@
-;;;; Tests for AST->HTML-TREE and the footnote pre-pass (design §5).
+;;;; Tests for AST->HTML-TREE and the footnote pre-pass (M1 design §5).
 ;;;;
 ;;;; Expected trees are written out whole and compared with EQUAL. Their
 ;;;; strings go through FORMAT first (see TREE), so "~%" is a newline.
@@ -42,7 +42,7 @@ through FORMAT, so that \"~%\" stands for a newline."
 
 (defun expected-ref (label number &optional (k 1))
   "The expected tree for the K-th reference to the footnote labelled LABEL,
-numbered NUMBER (design §5.4)."
+numbered NUMBER (M1 design §5.4)."
   (list :sup (list (list :class "footnote-ref"))
         (list :a (list (list :href (format nil "#fn-~A" label))
                        (list :id (if (= k 1)
@@ -53,7 +53,7 @@ numbered NUMBER (design §5.4)."
 
 (defun expected-backref (label number &optional (k 1))
   "The expected backref anchor to the K-th reference to the footnote labelled
-LABEL, numbered NUMBER (design §5.4)."
+LABEL, numbered NUMBER (M1 design §5.4)."
   (let ((index (if (= k 1) (format nil "~D" number) (format nil "~D-~D" number k))))
     (list* :a (list (list :href (if (= k 1)
                                     (format nil "#fnref-~A" label)
@@ -161,7 +161,7 @@ signals, or NIL."
           (n :table-row nil (n :table-cell (list :align :left) (txt "r"))))
        (fn-def "note" (para (txt "Note.")))))
 
-;;; The document and its layout (design §5.2)
+;;; The document and its layout (M1 design §5.2)
 
 (define-test ast->html-tree-empty-document-is-an-empty-list
   (is equal '() (ast->html-tree (doc))))
@@ -492,7 +492,7 @@ signals, or NIL."
           (apply #'ast->html-tree ast options)
           "options ~S" options))))
 
-;;; Options (design §5.1)
+;;; Options (M1 design §5.1)
 
 (define-test ast->html-tree-rejects-an-odd-length-option-list
   (dolist (options '((:softbreak) (:softbreak :space :raw-html)))
@@ -561,7 +561,7 @@ signals, or NIL."
                         :document-wrapper :section)
         "the footnote section goes inside the wrapper")))
 
-;;; Roots that aren't documents (design §5.1)
+;;; Roots that aren't documents (M1 design §5.1)
 
 (define-test ast->html-tree-converts-a-root-as-a-documents-only-child
   (is equal (tree '((:p nil "a") "~%")) (ast->html-tree (para (txt "a"))))
@@ -586,7 +586,7 @@ signals, or NIL."
                     "~%"))
       (ast->html-tree (fn-def "a" (para (txt "see ") (fn-ref "a"))))))
 
-;;; Footnotes (design §5.4)
+;;; Footnotes (M1 design §5.4)
 
 (define-test ast->html-tree-footnote-reference-and-section
   (is equal
@@ -736,6 +736,21 @@ signals, or NIL."
                                    (para (txt "P"))
                                    (n :code-block (list :literal (format nil "code~%"))))))))
 
+(define-test ast->html-tree-footnote-backrefs-go-only-in-the-last-paragraph-place
+  ;; One paragraph object sits at three places in a's definition: in a block
+  ;; quote, then twice as a child. Only the last child's place is the
+  ;; backref paragraph.
+  (let ((shared (para (txt "P"))))
+    (is equal
+        (tree `((:p nil "x" ,(expected-ref "a" 1)) "~%"
+                ,@(expected-section
+                   `(:li ((:id "fn-a")) "~%"
+                         (:blockquote nil "~%" (:p nil "P") "~%") "~%"
+                         (:p nil "P") "~%"
+                         (:p nil "P " ,(expected-backref "a" 1)) "~%"))))
+        (ast->html-tree (doc (para (txt "x") (fn-ref "a"))
+                             (fn-def "a" (n :block-quote nil shared) shared shared))))))
+
 (define-test ast->html-tree-footnote-empty-definition
   (is equal
       (tree `((:p nil "x" ,(expected-ref "b" 1)) "~%"
@@ -820,6 +835,25 @@ signals, or NIL."
                             (para (n :image (list :destination "u") (txt "i") (fn-ref "a"))
                                   (fn-ref "a"))))))))
 
+(define-test ast->html-tree-footnote-reference-ids-follow-tree-order-not-render-order
+  ;; a's definition comes first in the tree, so its reference to b is b's
+  ;; first (fnref-b), though the body renders before the section; the body's
+  ;; b is the second (fnref-b-2). Keys counted per owner, the body or a
+  ;; definition place, agree between the pre-pass and the converter, which
+  ;; meet the references in different orders (M2 design §4.4).
+  (is equal
+      (tree `((:p nil ,(expected-ref "b" 2 2) ,(expected-ref "a" 1)) "~%"
+              ,@(expected-section
+                 `(:li ((:id "fn-a")) "~%"
+                       (:p nil "A" ,(expected-ref "b" 2) " " ,(expected-backref "a" 1))
+                       "~%")
+                 `(:li ((:id "fn-b")) "~%"
+                       (:p nil "B " ,(expected-backref "b" 2) " " ,(expected-backref "b" 2 2))
+                       "~%"))))
+      (ast->html-tree (doc (fn-def "a" (para (txt "A") (fn-ref "b")))
+                           (para (fn-ref "b") (fn-ref "a"))
+                           (fn-def "b" (para (txt "B")))))))
+
 (define-test ast->html-tree-footnote-labels-are-percent-encoded
   (is equal
       (tree `((:p nil "x" ,(expected-ref "caf%C3%A9" 1)) "~%"
@@ -827,7 +861,7 @@ signals, or NIL."
       (ast->html-tree (doc (para (txt "x") (fn-ref "café"))
                            (fn-def "café" (para (txt "C")))))))
 
-;;; Extension nodes (design D10)
+;;; Extension nodes (M1 design D10)
 
 (define-test ast->html-tree-signals-unsupported-extension-node-anywhere
   (let ((extension (n :extension (list :type-name "x"))))

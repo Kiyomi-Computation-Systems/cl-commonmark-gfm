@@ -1,4 +1,4 @@
-;;;; Tests for HTML-TREE->STRING, VALID-HTML-NAME-P and VOID-ELEMENT-P (design Sec 6).
+;;;; Tests for HTML-TREE->STRING, VALID-HTML-NAME-P and VOID-ELEMENT-P (M1 design §6).
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -193,7 +193,7 @@
 (define-test html-tree->string-rejects-non-proper-list-element
   ;; Dotted: the children tail ends in a string instead of NIL.
   (fail (html-tree->string (list* :p nil "a" "b")) 'invalid-html-tree)
-  ;; Circular: guarded with a small local cycle check, not by looping forever.
+  ;; Circular: guarded by the shared CL-COMMONMARK-GFM.UTIL:PROPER-LIST-P, not by looping forever.
   (let* ((tail (list "b"))
          (circular (list* :p nil "a" tail)))
     (setf (cdr tail) circular)
@@ -248,6 +248,35 @@
   (fail (html-tree->string (list :a (list (list :href "u") (list :href "v")) "x"))
         'invalid-html-tree))
 
+;;; CHECK-NO-REPEATED-ATTRIBUTE-NAMES compares malformed names safely (a
+;;; pre-existing M1 bug): two distinct cons names, circular or merely deep,
+;;; must not reach EQUAL's unbounded walk. Each hangs or crashes M1's code;
+;;; that was confirmed under a bound, one scenario per process.
+
+(define-test html-tree->string-rejects-two-distinct-circular-cons-attribute-names
+  (let ((name1 (list 'x))
+        (name2 (list 'x)))
+    (setf (cdr name1) name1)
+    (setf (cdr name2) name2)
+    (fail (html-tree->string (list :a (list (list name1 "v1") (list name2 "v2")) "x"))
+          'invalid-html-tree)))
+
+;;; The reason is checked, not just the condition type: two distinct but
+;;; EQUAL 100,000-deep cons names must not be reported as a repeat (some
+;;; Lisps' EQUAL survives this depth without overflowing, so a type-only
+;;; check would not distinguish the old behaviour from the fixed one here).
+(define-test html-tree->string-rejects-two-distinct-100000-deep-cons-attribute-names
+  (flet ((deep-name ()
+           (let ((c nil))
+             (dotimes (i 100000) (setf c (list c)))
+             c)))
+    (handler-case
+        (progn (html-tree->string
+                (list :a (list (list (deep-name) "v1") (list (deep-name) "v2")) "x"))
+               (true nil "expected invalid-html-tree"))
+      (invalid-html-tree (e)
+        (is string= "invalid attribute name" (condition-reason e))))))
+
 (define-test html-tree->string-rejects-bad-child
   (fail (html-tree->string (list :p nil 42)) 'invalid-html-tree)
   (fail (html-tree->string (list :p nil nil)) 'invalid-html-tree)
@@ -300,3 +329,38 @@
 (define-test html-tree->string-signals-invalid-html-tree-with-operation-html-tree->string
   (handler-case (progn (html-tree->string 42) (true nil "expected invalid-html-tree"))
     (invalid-html-tree (e) (is eql 'html-tree->string (condition-operation e)))))
+
+;;; Order: the loop over a stack of open elements must still meet each
+;;; element's problem in document order, the same order M1's recursion met
+;;; it in -- a parent's own checks (reached first) before its children's,
+;;; and an earlier sibling's problem (reached first) before a later one's,
+;;; each sibling fully written, errors included, before the next is even
+;;; looked at (M1 design §6; M2 design §4.5).
+
+(define-test html-tree->string-reports-the-first-malformed-sibling-in-document-order
+  (handler-case
+      (progn (html-tree->string (list :div nil (list :1bad nil "a") (list :2bad nil "a")))
+             (true nil "expected invalid-html-tree"))
+    (invalid-html-tree (e)
+      (is eql :1bad (condition-datum e))
+      (is string= "invalid tag name" (condition-reason e)))))
+
+(define-test html-tree->string-reports-a-parents-problem-before-descending-into-a-malformed-child
+  (handler-case
+      (progn (html-tree->string (list :1bad nil (list :2bad nil "a")))
+             (true nil "expected invalid-html-tree"))
+    (invalid-html-tree (e)
+      (is eql :1bad (condition-datum e))
+      (is string= "invalid tag name" (condition-reason e)))))
+
+;;; The self-containment check's datum is EQ to the element that contains
+;;; itself, not a copy -- what the deep cycle test in deep.lisp relies on.
+
+(define-test html-tree->string-self-containment-datum-is-eq-to-the-element
+  (let ((e (list :p nil)))
+    (setf (cddr e) (list e))
+    (handler-case
+        (progn (html-tree->string e) (true nil "expected invalid-html-tree"))
+      (invalid-html-tree (condition)
+        (is string= "element contains itself" (condition-reason condition))
+        (true (eq e (condition-datum condition)))))))

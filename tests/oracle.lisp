@@ -7,19 +7,19 @@
 (defparameter *fixtures-html-directory*
   (asdf:system-relative-pathname "cl-commonmark-gfm/tests" "tests/fixtures/html/")
   "The directory holding the oracle manifest, the Markdown inputs and the
-expected HTML files (design §7.3).")
+expected HTML files (M1 design §7.3).")
 
 ;;; The manifest
 
 (defun manifest-whitespace-char-p (char)
   "True when CHAR is a space or a tab, the field separators in
-tests/fixtures/html/cases (design §7.3)."
+tests/fixtures/html/cases (M1 design §7.3)."
   (or (char= char #\Space) (char= char #\Tab)))
 
 (defun manifest-first-field (line)
   "LINE's first field: up to (but not including) its first run of spaces or
 tabs, once LINE's own leading spaces and tabs are trimmed -- as the shell's
-READ splits a manifest line (design §7.3)."
+READ splits a manifest line (M1 design §7.3)."
   (let ((trimmed (string-left-trim '(#\Space #\Tab) line)))
     (subseq trimmed 0 (position-if #'manifest-whitespace-char-p trimmed))))
 
@@ -37,8 +37,8 @@ once leading whitespace is trimmed."
 
 ;;; Case ASTs, transcribed by hand from `cmark-gfm <flags> -t xml
 ;;; tests/fixtures/html/<file>` for every case in tests/fixtures/html/cases
-;;; (design §7.3). Footnote nodes print as <unknown> in that XML; their
-;;; labels are taken from the Markdown instead (design §5.4), and footnote
+;;; (M1 design §7.3). Footnote nodes print as <unknown> in that XML; their
+;;; labels are taken from the Markdown instead (M1 design §5.4), and footnote
 ;;; definitions are placed where the XML shows them: at the end, in cmark's
 ;;; order (first-reference order in the source, not declaration order).
 ;;;
@@ -103,7 +103,7 @@ once leading whitespace is trimmed."
            '())
      (list "emphasis"
            ;; cmark parses **** as nested STRONGs (below), collapsed to one
-           ;; <strong> only by the HTML renderer (design finding 5).
+           ;; <strong> only by the HTML renderer (M1 design finding 5).
            (n :document nil
               (n :paragraph nil
                  (n :emph nil (txt "em"))
@@ -274,7 +274,7 @@ once leading whitespace is trimmed."
            ;; x[^a] / [^a]: see [^c] / y[^b] / [^b]: B / [^c]: C -- cmark
            ;; numbers definitions by first reference in source order (a, c,
            ;; b), so the parsed tree holds the definitions in that order and
-           ;; c is numbered 2 (design finding 4, ADR-0014).
+           ;; c is numbered 2 (M1 design finding 4, ADR-0014).
            (n :document nil
               (n :paragraph nil (txt "x") (n :footnote-reference (list :label "a")))
               (n :paragraph nil (txt "y") (n :footnote-reference (list :label "b")))

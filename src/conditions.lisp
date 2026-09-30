@@ -1,4 +1,4 @@
-;;;; Conditions signalled by cl-commonmark-gfm (design §3).
+;;;; Conditions signalled by cl-commonmark-gfm (M1 design §3).
 
 (defpackage #:cl-commonmark-gfm.conditions
   (:use #:cl)

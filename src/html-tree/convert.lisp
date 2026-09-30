@@ -1,14 +1,18 @@
-;;;; AST->HTML-TREE: converting a validated AST into an LHTML-shaped tree (design §5).
+;;;; AST->HTML-TREE: converting a validated AST into an LHTML-shaped tree (M1
+;;;; design §5; M2 design §4.3).
 ;;;;
-;;;; A port of cmark-gfm's HTML renderer: S_render_node and
+;;;; A port of cmark-gfm's HTML renderer loop: S_render_node and
 ;;;; S_put_footnote_backref in src/html.c, and the html_render functions of
-;;;; extensions/table.c, tasklist.c and strikethrough.c. It builds tree nodes
-;;;; where cmark writes bytes, and a "\n" string wherever cmark writes a
-;;;; newline (design §5.2, ADR-0014).
+;;;; extensions/table.c, tasklist.c and strikethrough.c. cmark hands each
+;;;; enter and exit event of its iterator to S_render_node; here WALK-AST
+;;;; hands each event to RENDER-EVENT. The renderer builds tree nodes where
+;;;; cmark writes bytes, and a "\n" string wherever cmark writes a newline
+;;;; (M1 design §5.2, ADR-0014). Nothing here recurses over a tree's depth or
+;;;; a list's length (ADR-0015).
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
-;;; Options (design §5.1)
+;;; Options (M1 design §5.1)
 
 (defparameter *render-option-choices*
   '((:raw-html :omit :text)
@@ -53,82 +57,86 @@ options with valid values. Every pair is checked, a repeated key's too."
 leftmost value wins, as with &KEY."
   (getf options key (second (assoc key *render-option-choices*))))
 
-;;; What converting a node needs besides the node
+;;; The renderer's state (M2 design §4.3)
 
-(defstruct (settings
-            (:constructor make-settings (raw-html softbreak link-policy footnotes))
+(defstruct (pending-element
+            (:constructor make-pending-element (tag attributes))
             (:copier nil))
-  "What stays the same for a whole conversion: the three render policies
-(ADR-0012) and the FOOTNOTE-PLAN of the tree being converted."
+  "An element whose start tag is written and whose end tag isn't yet: its
+TAG, its ATTRIBUTES, and ITEMS, its children so far, latest first. The
+bottom of the renderer's stack of open elements has no TAG, and collects the
+top-level items."
+  (tag nil :read-only t)
+  (attributes nil :read-only t)
+  (items '()))
+
+(defstruct (renderer
+            (:copier nil))
+  "Everything one conversion keeps from one event to the next (M2 design
+§4.3).
+
+What stays the same: the three render policies (ADR-0012), the PLAN from
+PLAN-FOOTNOTES, and the DOCUMENT being converted.
+
+The output: ELEMENTS, the stack of PENDING-ELEMENTs, innermost first; and BOL,
+true when the output so far is empty or ends in a newline, the one bit of
+layout cmark's cr reads.
+
+Plain mode, cmark's renderer->plain: PLAIN is the image whose :ENTER started
+it, or NIL, and ALT a string output stream holding its alt text so far.
+
+Context: ANCESTORS, the nodes the current walk has entered and not yet left,
+innermost first, above WALK-BASE, the parent and grandparent the walk's root
+is rendered under; OPEN-HEADERS, how many :TABLE-HEADERs are open; TABLES,
+one flag per open :TABLE, innermost first, true once its tbody is open.
+
+Footnotes: OWNER, the owner whose references are being rendered, and
+ORDINAL, how many of them have been met so far; BACKREFS, the footnote whose
+backrefs end the current walk's root paragraph, or NIL."
   (raw-html nil :read-only t)
   (softbreak nil :read-only t)
   (link-policy nil :read-only t)
-  (footnotes nil :read-only t))
+  (plan nil :read-only t)
+  (document nil :read-only t)
+  (elements (list (make-pending-element nil '())))
+  (bol t)
+  (plain nil)
+  (alt nil)
+  (ancestors '())
+  (walk-base '())
+  (open-headers 0)
+  (tables '())
+  (owner +body-owner+)
+  (ordinal 0)
+  (backrefs nil))
 
-(defstruct (context
-            (:constructor make-context (settings parent grandparent path in-table-header))
-            (:copier nil))
-  "Where a node sits, as far as cmark's renderer asks: its PARENT and
-GRANDPARENT nodes (NIL above the root), its PATH (see ROOT-PATH and
-CHILD-PATH), and whether it is inside a table's header row. Plus the
-conversion's SETTINGS."
-  (settings nil :read-only t)
-  (parent nil :read-only t)
-  (grandparent nil :read-only t)
-  (path '() :read-only t)
-  (in-table-header nil :read-only t))
+(defun parent (renderer)
+  "The parent of the node whose event is being rendered: at its :ENTER, and
+again at its :EXIT, the node itself isn't among the ANCESTORS."
+  (first (renderer-ancestors renderer)))
 
-(defun child-context (context node index)
-  "The context of the child at INDEX of NODE, whose own context is CONTEXT."
-  (make-context (context-settings context)
-                node
-                (context-parent context)
-                (child-path (context-path context) index)
-                (or (context-in-table-header context)
-                    (eql (node-kind node) :table-header))))
+(defun grandparent (renderer)
+  "The grandparent of the node whose event is being rendered."
+  (second (renderer-ancestors renderer)))
 
-(defun raw-html-policy (context)
-  "The :RAW-HTML policy CONTEXT's conversion runs under."
-  (settings-raw-html (context-settings context)))
+(defun walk-root-p (renderer)
+  "True when the node whose event is being rendered is the current walk's
+root: no ancestor has been entered above the WALK-BASE."
+  (eql (renderer-ancestors renderer) (renderer-walk-base renderer)))
 
-(defun softbreak-policy (context)
-  "The :SOFTBREAK policy CONTEXT's conversion runs under."
-  (settings-softbreak (context-settings context)))
-
-(defun link-policy (context)
-  "The :LINK-POLICY CONTEXT's conversion runs under."
-  (settings-link-policy (context-settings context)))
-
-(defun context-footnote-plan (context)
-  "The FOOTNOTE-PLAN of the tree CONTEXT's conversion runs over."
-  (settings-footnotes (context-settings context)))
-
-;;; Pieces: output in order, with cmark's one bit of layout state (design §5.2)
-;;;
-;;; A piece is a function of BOL, which is true when the output so far is
-;;; empty or ends in a newline. It returns the items it emits (strings and
-;;; elements), in order, and BOL after them. Running pieces in output order
-;;; carries BOL exactly as cmark's output buffer would, so EMIT-CR decides
-;;; what cmark_html_render_cr decides.
-
-(defun run-pieces (pieces bol)
-  "Run PIECES in order, the first from BOL. Returns the items they emit, in
-order, and BOL after the last."
-  (let ((items '()))
-    (dolist (piece pieces (values (reverse items) bol))
-      (multiple-value-bind (emitted after) (funcall piece bol)
-        (setf items (revappend emitted items)
-              bol after)))))
+;;; Output: the stack of open elements, and BOL (M1 design §5.2)
 
 (defun merge-strings (strings)
   "STRINGS concatenated into one fresh string."
-  (with-output-to-string (out)
-    (dolist (string strings)
-      (write-string string out))))
+  (let ((result (make-string (loop for string in strings sum (length string))))
+        (start 0))
+    (dolist (string strings result)
+      (replace result string :start1 start)
+      (incf start (length string)))))
 
 (defun normalize-items (items)
   "ITEMS with each run of adjacent strings merged into one fresh string, and
-empty strings dropped (design §5.2)."
+empty strings dropped (M1 design §5.2)."
   (let ((result '())
         (run '()))
     (flet ((end-run ()
@@ -143,75 +151,67 @@ empty strings dropped (design §5.2)."
       (end-run))
     (reverse result)))
 
-(defun bol-after-string (string bol)
-  "BOL after STRING: unchanged when STRING is empty, and otherwise whether
-STRING ends in a newline."
-  (if (zerop (length string))
-      bol
-      (char= (char string (1- (length string))) #\Newline)))
+(defun emit-text (renderer string)
+  "Write STRING as text: add it to the innermost open element. A non-empty
+STRING sets BOL from its last character."
+  (push string (pending-element-items (first (renderer-elements renderer))))
+  (when (plusp (length string))
+    (setf (renderer-bol renderer) (char= (char string (1- (length string))) #\Newline))))
 
-(defun emit-nothing ()
-  "A piece that emits nothing."
-  (lambda (bol) (values '() bol)))
+(defun emit-newline (renderer)
+  "Write a newline, as cmark does when it writes one outright."
+  (emit-text renderer (string #\Newline)))
 
-(defun emit-string (string)
-  "A piece that emits STRING as text."
-  (lambda (bol) (values (list string) (bol-after-string string bol))))
+(defun emit-cr (renderer)
+  "Write a newline unless the output so far is empty or already ends in one:
+cmark_html_render_cr (src/html.h)."
+  (unless (renderer-bol renderer)
+    (emit-newline renderer)))
 
-(defun emit-newline ()
-  "A piece that emits a newline, as cmark does when it writes one outright."
-  (emit-string (string #\Newline)))
+(defun emit-start-tag (renderer tag attributes)
+  "Write a start tag: push an element of TAG with ATTRIBUTES, whose children
+are what is written until it closes. A start tag leaves the output
+mid-line."
+  (push (make-pending-element tag attributes) (renderer-elements renderer))
+  (setf (renderer-bol renderer) nil))
 
-(defun emit-cr ()
-  "A piece that emits a newline unless the output so far is empty or already
-ends in one: cmark_html_render_cr (src/html.h)."
-  (lambda (bol)
-    (values (if bol '() (list (string #\Newline))) t)))
+(defun emit-end-tag (renderer)
+  "Write the innermost open element's end tag: pop it, normalize its
+children, and add it to the element it sits in. An end tag leaves the
+output mid-line."
+  (let ((element (pop (renderer-elements renderer))))
+    (push (list* (pending-element-tag element)
+                 (pending-element-attributes element)
+                 (normalize-items (reverse (pending-element-items element))))
+          (pending-element-items (first (renderer-elements renderer))))
+    (setf (renderer-bol renderer) nil)))
 
-(defun emit-list (pieces)
-  "A piece that runs the list PIECES in order."
-  (lambda (bol) (run-pieces pieces bol)))
+(defun emit-void-element (renderer tag attributes)
+  "Write a void element: TAG with ATTRIBUTES, and no children."
+  (emit-start-tag renderer tag attributes)
+  (emit-end-tag renderer))
 
-(defun emit-all (&rest pieces)
-  "A piece that runs PIECES in order."
-  (emit-list pieces))
-
-(defun emit-element (tag attributes &rest pieces)
-  "A piece that emits one element: TAG with ATTRIBUTES, whose children are
-what PIECES emit after its start tag. A start tag and an end tag each leave
-the output mid-line."
-  (lambda (bol)
-    (declare (ignore bol))
-    (values (list (list* tag attributes (normalize-items (run-pieces pieces nil))))
-            nil)))
+(defun top-level-items (renderer)
+  "The top-level items written so far, normalized: what the bottom of the
+stack of open elements collected."
+  (normalize-items (reverse (pending-element-items (first (renderer-elements renderer))))))
 
 (defun attribute (name value)
   "An attribute pair: NAME with a fresh copy of the string VALUE."
   (list name (copy-seq value)))
 
-;;; Children
-
-(defun child-pieces (node context)
-  "The pieces that render NODE's children, each in its own context. CONTEXT
-is NODE's."
-  (loop for child in (node-children node)
-        for index from 0
-        collect (convert-node child (child-context context node index))))
-
-(defun emit-children (node context)
-  "A piece that renders NODE's children in order. CONTEXT is NODE's."
-  (emit-list (child-pieces node context)))
-
 ;;; Blocks (html.c, and tasklist.c for task items)
 
-(defun convert-block-quote (node context)
-  "cr, <blockquote>, a newline, the children, cr, </blockquote>, a newline."
-  (emit-all (emit-cr)
-            (emit-element :blockquote '()
-                          (emit-newline)
-                          (emit-children node context)
-                          (emit-cr))
-            (emit-newline)))
+(defun render-block-quote (renderer entering)
+  "Enter: cr, <blockquote>, a newline. Exit: cr, </blockquote>, a newline."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer :blockquote '())
+         (emit-newline renderer))
+        (t
+         (emit-cr renderer)
+         (emit-end-tag renderer)
+         (emit-newline renderer))))
 
 (defun list-tag (node)
   "The tag of a :LIST node: :UL for a bullet list, :OL for an ordered one."
@@ -227,19 +227,24 @@ ordered list that doesn't start at 1, and none otherwise."
       (list (attribute :start (format nil "~D" (node-attribute node :start))))
       '()))
 
-(defun convert-list (node context)
-  "cr, <ul> or <ol>, a newline, the items, the end tag, a newline."
-  (emit-all (emit-cr)
-            (emit-element (list-tag node) (list-attributes node)
-                          (emit-newline)
-                          (emit-children node context))
-            (emit-newline)))
+(defun render-list (renderer node entering)
+  "Enter: cr, <ul> or <ol>, a newline. Exit: the end tag, a newline."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer (list-tag node) (list-attributes node))
+         (emit-newline renderer))
+        (t
+         (emit-end-tag renderer)
+         (emit-newline renderer))))
 
-(defun convert-item (node context)
-  "cr, <li>, the children, </li>, a newline."
-  (emit-all (emit-cr)
-            (emit-element :li '() (emit-children node context))
-            (emit-newline)))
+(defun render-item (renderer entering)
+  "Enter: cr, <li>. Exit: </li>, a newline."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer :li '()))
+        (t
+         (emit-end-tag renderer)
+         (emit-newline renderer))))
 
 (defun checkbox-attributes (checked)
   "The attributes of a task item's checkbox, ticked when CHECKED."
@@ -248,14 +253,16 @@ ordered list that doesn't start at 1, and none otherwise."
              (list (attribute :checked "") (attribute :disabled ""))
              (list (attribute :disabled "")))))
 
-(defun convert-task-item (node context)
-  "cr, <li>, the checkbox, a space, the children, </li>, a newline."
-  (emit-all (emit-cr)
-            (emit-element :li '()
-                          (emit-element :input (checkbox-attributes (node-attribute node :checked)))
-                          (emit-string " ")
-                          (emit-children node context))
-            (emit-newline)))
+(defun render-task-item (renderer node entering)
+  "Enter: cr, <li>, the checkbox, a space. Exit: </li>, a newline."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer :li '())
+         (emit-void-element renderer :input (checkbox-attributes (node-attribute node :checked)))
+         (emit-text renderer " "))
+        (t
+         (emit-end-tag renderer)
+         (emit-newline renderer))))
 
 (defun tight-list-p (node)
   "True when NODE is a :LIST node with :TIGHT T."
@@ -263,27 +270,39 @@ ordered list that doesn't start at 1, and none otherwise."
        (eql (node-kind node) :list)
        (node-attribute node :tight)))
 
-(defun convert-paragraph (node context &optional (tail (emit-nothing)))
-  "In a tight list, when the paragraph's grandparent is a :LIST with :TIGHT T,
-only its children. Otherwise cr, <p>, the children, TAIL, </p>, a newline.
-TAIL is where a footnote's backrefs go."
-  (if (tight-list-p (context-grandparent context))
-      (emit-children node context)
-      (emit-all (emit-cr)
-                (emit-element :p '() (emit-children node context) tail)
-                (emit-newline))))
+(defun backref-paragraph-exit-p (renderer)
+  "True at the :EXIT of a definition's backref paragraph: the walk carries
+BACKREFS, and the paragraph is the walk's root (M2 design §4.4)."
+  (and (renderer-backrefs renderer) (walk-root-p renderer)))
+
+(defun render-paragraph (renderer entering)
+  "Nothing when the paragraph is tight, that is when its grandparent is a
+:LIST with :TIGHT T. Otherwise, enter: cr, <p>. Exit: a space and the
+backrefs, in a definition's backref paragraph; then </p>, a newline."
+  (unless (tight-list-p (grandparent renderer))
+    (cond (entering
+           (emit-cr renderer)
+           (emit-start-tag renderer :p '()))
+          (t
+           (when (backref-paragraph-exit-p renderer)
+             (emit-text renderer " ")
+             (emit-backrefs renderer (renderer-backrefs renderer)))
+           (emit-end-tag renderer)
+           (emit-newline renderer)))))
 
 (defun heading-tag (level)
   "The tag of a heading of LEVEL, 1 to 6."
   (ecase level
     (1 :h1) (2 :h2) (3 :h3) (4 :h4) (5 :h5) (6 :h6)))
 
-(defun convert-heading (node context)
-  "cr, <hN>, the children, </hN>, a newline."
-  (emit-all (emit-cr)
-            (emit-element (heading-tag (node-attribute node :level)) '()
-                          (emit-children node context))
-            (emit-newline)))
+(defun render-heading (renderer node entering)
+  "Enter: cr, <hN>. Exit: </hN>, a newline."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer (heading-tag (node-attribute node :level)) '()))
+        (t
+         (emit-end-tag renderer)
+         (emit-newline renderer))))
 
 (defun info-space-p (char)
   "True when CHAR ends a code block's language word: space, tab, LF or CR,
@@ -298,65 +317,96 @@ otherwise a class naming the language, INFO's first word."
       (list (attribute :class (concatenate 'string "language-"
                                            (subseq info 0 (position-if #'info-space-p info)))))))
 
-(defun convert-code-block (node)
+(defun render-code-block (renderer node)
   "cr, <pre><code>, the literal, </code></pre>, a newline."
-  (emit-all (emit-cr)
-            (emit-element :pre '()
-                          (emit-element :code (code-block-attributes (node-attribute node :info))
-                                        (emit-string (node-attribute node :literal))))
-            (emit-newline)))
+  (emit-cr renderer)
+  (emit-start-tag renderer :pre '())
+  (emit-start-tag renderer :code (code-block-attributes (node-attribute node :info)))
+  (emit-text renderer (node-attribute node :literal))
+  (emit-end-tag renderer)
+  (emit-end-tag renderer)
+  (emit-newline renderer))
 
-(defun emit-raw-html (node context)
-  "A piece for NODE's raw HTML: cmark's comment under :RAW-HTML :OMIT, and
-NODE's literal as text under :TEXT."
-  (ecase (raw-html-policy context)
-    (:omit (emit-element :*comment* '() (emit-string " raw HTML omitted ")))
-    (:text (emit-string (node-attribute node :literal)))))
+(defun render-raw-html (renderer node)
+  "NODE's raw HTML: cmark's comment under :RAW-HTML :OMIT, and NODE's
+literal as text under :TEXT."
+  (ecase (renderer-raw-html renderer)
+    (:omit
+     (emit-start-tag renderer :*comment* '())
+     (emit-text renderer " raw HTML omitted ")
+     (emit-end-tag renderer))
+    (:text
+     (emit-text renderer (node-attribute node :literal)))))
 
-(defun convert-html-block (node context)
+(defun render-html-block (renderer node)
   "cr, the raw HTML, cr."
-  (emit-all (emit-cr) (emit-raw-html node context) (emit-cr)))
+  (emit-cr renderer)
+  (render-raw-html renderer node)
+  (emit-cr renderer))
 
-(defun convert-thematic-break ()
+(defun render-thematic-break (renderer)
   "cr, <hr />, a newline."
-  (emit-all (emit-cr) (emit-element :hr '()) (emit-newline)))
+  (emit-cr renderer)
+  (emit-void-element renderer :hr '())
+  (emit-newline renderer))
 
 ;;; Tables (table.c)
 
-(defun convert-table (node context)
-  "cr, <table>, the children, cr, </table>, cr. The first :TABLE-ROW child
-opens a tbody that holds it and every child after it; a table without one
-has no tbody."
-  (let* ((pieces (child-pieces node context))
-         (body-start (position :table-row (node-children node) :key #'node-kind)))
-    (emit-all (emit-cr)
-              (emit-element :table '()
-                            (emit-list (subseq pieces 0 body-start))
-                            (if body-start
-                                (emit-table-body (nthcdr body-start pieces))
-                                (emit-nothing))
-                            (emit-cr))
-              (emit-cr))))
+(defun render-table (renderer entering)
+  "Enter: cr, <table>, with its tbody not yet open. Exit: when its tbody is
+open, cr, </tbody>, cr; then cr, </table>, cr."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer :table '())
+         (push nil (renderer-tables renderer)))
+        (t
+         (when (pop (renderer-tables renderer))
+           (emit-cr renderer)
+           (emit-end-tag renderer)
+           (emit-cr renderer))
+         (emit-cr renderer)
+         (emit-end-tag renderer)
+         (emit-cr renderer))))
 
-(defun emit-table-body (pieces)
-  "cr, <tbody>, cr, the rows PIECES render, cr, </tbody>, cr: what the first
-body row opens, and the table's end closes."
-  (emit-all (emit-cr)
-            (emit-element :tbody '() (emit-cr) (emit-list pieces) (emit-cr))
-            (emit-cr)))
+(defun render-table-header (renderer entering)
+  "Enter: cr, <thead>, cr, <tr>. Exit: cr, </tr>, cr, </thead>. Its cells,
+and every cell below it, are th cells."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer :thead '())
+         (emit-cr renderer)
+         (emit-start-tag renderer :tr '())
+         (incf (renderer-open-headers renderer)))
+        (t
+         (decf (renderer-open-headers renderer))
+         (emit-cr renderer)
+         (emit-end-tag renderer)
+         (emit-cr renderer)
+         (emit-end-tag renderer))))
 
-(defun convert-table-header (node context)
-  "cr, <thead>, cr, <tr>, the cells, cr, </tr>, cr, </thead>."
-  (emit-all (emit-cr)
-            (emit-element :thead '()
-                          (emit-cr)
-                          (emit-element :tr '() (emit-children node context) (emit-cr))
-                          (emit-cr))))
+(defun opens-table-body-p (renderer)
+  "True when the :TABLE-ROW being entered opens a tbody: its parent is a
+:TABLE, the innermost open one, whose tbody isn't open yet. The tbody then
+holds the row and everything after it in the table."
+  (let ((parent (parent renderer)))
+    (and parent
+         (eql (node-kind parent) :table)
+         (not (first (renderer-tables renderer))))))
 
-(defun convert-table-row (node context)
-  "cr, <tr>, the cells, cr, </tr>."
-  (emit-all (emit-cr)
-            (emit-element :tr '() (emit-children node context) (emit-cr))))
+(defun render-table-row (renderer entering)
+  "Enter: when the row opens its table's tbody, cr, <tbody>, cr; then cr,
+<tr>. Exit: cr, </tr>."
+  (cond (entering
+         (when (opens-table-body-p renderer)
+           (emit-cr renderer)
+           (emit-start-tag renderer :tbody '())
+           (emit-cr renderer)
+           (setf (first (renderer-tables renderer)) t))
+         (emit-cr renderer)
+         (emit-start-tag renderer :tr '()))
+        (t
+         (emit-cr renderer)
+         (emit-end-tag renderer))))
 
 (defun cell-attributes (align)
   "The attributes of a table cell whose :ALIGN is ALIGN."
@@ -366,44 +416,59 @@ body row opens, and the table's end closes."
     (:center (list (attribute :align "center")))
     (:right (list (attribute :align "right")))))
 
-(defun convert-table-cell (node context)
-  "cr, then <th> inside the header row or <td> elsewhere, holding the
-children."
-  (emit-all (emit-cr)
-            (emit-element (if (context-in-table-header context) :th :td)
-                          (cell-attributes (node-attribute node :align))
-                          (emit-children node context))))
+(defun render-table-cell (renderer node entering)
+  "Enter: cr, then <th> while a :TABLE-HEADER is open, or <td>. Exit: the
+end tag."
+  (cond (entering
+         (emit-cr renderer)
+         (emit-start-tag renderer
+                         (if (plusp (renderer-open-headers renderer)) :th :td)
+                         (cell-attributes (node-attribute node :align))))
+        (t
+         (emit-end-tag renderer))))
 
 ;;; Inlines (html.c, and strikethrough.c for :STRIKETHROUGH)
 
-(defun emit-line-break ()
+(defun render-line-break (renderer)
   "<br /> and a newline."
-  (emit-all (emit-element :br '()) (emit-newline)))
+  (emit-void-element renderer :br '())
+  (emit-newline renderer))
 
-(defun convert-softbreak (context)
+(defun render-softbreak (renderer)
   "A newline, a space, or a line break, by the :SOFTBREAK policy."
-  (ecase (softbreak-policy context)
-    (:newline (emit-newline))
-    (:space (emit-string " "))
-    (:br (emit-line-break))))
+  (ecase (renderer-softbreak renderer)
+    (:newline (emit-newline renderer))
+    (:space (emit-text renderer " "))
+    (:br (render-line-break renderer))))
+
+(defun render-code (renderer node)
+  "<code>, the literal, </code>."
+  (emit-start-tag renderer :code '())
+  (emit-text renderer (node-attribute node :literal))
+  (emit-end-tag renderer))
+
+(defun render-inline-element (renderer tag entering)
+  "Enter: TAG's start tag. Exit: its end tag."
+  (if entering
+      (emit-start-tag renderer tag '())
+      (emit-end-tag renderer)))
 
 (defun strong-node-p (node)
   "True when NODE is a :STRONG node."
   (and node (eql (node-kind node) :strong)))
 
-(defun convert-strong (node context)
-  "<strong> holding the children, or only the children when the parent is
-itself a :STRONG."
-  (if (strong-node-p (context-parent context))
-      (emit-children node context)
-      (emit-element :strong '() (emit-children node context))))
+(defun render-strong (renderer entering)
+  "<strong> and </strong>, unless the parent is itself a :STRONG. The same
+parent decides at the :ENTER and at the :EXIT."
+  (unless (strong-node-p (parent renderer))
+    (render-inline-element renderer :strong entering)))
 
-(defun destination-url (node context)
+(defun destination-url (renderer node)
   "The :DESTINATION of a :LINK or :IMAGE NODE, percent-encoded, or \"\" when
 the link policy is :SAFE and it is dangerous. The check runs on the raw
-destination (design §5.5)."
+destination (M1 design §5.5)."
   (let ((destination (node-attribute node :destination)))
-    (if (and (eql (link-policy context) :safe) (dangerous-url-p destination))
+    (if (and (eql (renderer-link-policy renderer) :safe) (dangerous-url-p destination))
         ""
         (href-encode destination))))
 
@@ -415,49 +480,37 @@ empty."
         '()
         (list (attribute :title title)))))
 
-(defun convert-link (node context)
-  "<a> with href and title, holding the children."
-  (emit-element :a (list* (attribute :href (destination-url node context))
-                          (title-attributes node))
-                (emit-children node context)))
+(defun render-link (renderer node entering)
+  "Enter: <a> with href and title. Exit: </a>."
+  (if entering
+      (emit-start-tag renderer :a (list* (attribute :href (destination-url renderer node))
+                                         (title-attributes node)))
+      (emit-end-tag renderer)))
 
-(defun convert-image (node context)
-  "<img /> with src, alt and title."
-  (emit-element :img (list* (attribute :src (destination-url node context))
-                            (attribute :alt (alt-text node context))
-                            (title-attributes node))))
-
-;;; Alt text: cmark's plain mode (html.c, renderer->plain)
-
-(defun write-plain-text (node path plan out)
-  "Write NODE's plain text, as an image's alt, to OUT: a :TEXT, :CODE or
-:HTML-INLINE literal, a space for a break, a dangling reference's text, and
-otherwise its children's. PATH is NODE's place, and PLAN the tree's
-FOOTNOTE-PLAN. A definition leaves its place, so it adds nothing."
-  (ecase (node-kind node)
-    ((:text :code :html-inline) (write-string (node-attribute node :literal) out))
-    ((:softbreak :linebreak) (write-char #\Space out))
-    (:footnote-reference
-     (unless (reference-citation plan path)
-       (write-string (dangling-reference-text node) out)))
-    (:footnote-definition nil)
-    ((:document :block-quote :list :item :task-item :paragraph :heading :code-block
-      :html-block :thematic-break :table :table-header :table-row :table-cell
-      :emph :strong :strikethrough :link :image)
-     (write-plain-children node path plan out))))
-
-(defun write-plain-children (node path plan out)
-  "Write the plain text of NODE's children to OUT. PATH is NODE's place."
-  (loop for child in (node-children node)
-        for index from 0
-        do (write-plain-text child (child-path path index) plan out)))
-
-(defun alt-text (node context)
-  "The alt text of an :IMAGE NODE: the plain text of its descendants."
-  (with-output-to-string (out)
-    (write-plain-children node (context-path context) (context-footnote-plan context) out)))
+(defun render-image (renderer node entering)
+  "Enter: start plain mode, so the descendants write only alt text. Exit,
+once plain mode has ended: <img /> with src, alt and title."
+  (cond (entering
+         (setf (renderer-plain renderer) node
+               (renderer-alt renderer) (make-string-output-stream)))
+        (t
+         (let ((alt (get-output-stream-string (renderer-alt renderer))))
+           (setf (renderer-alt renderer) nil)
+           (emit-void-element renderer :img
+                              (list* (attribute :src (destination-url renderer node))
+                                     (attribute :alt alt)
+                                     (title-attributes node)))))))
 
 ;;; Footnotes (html.c; the pre-pass is footnotes.lisp)
+
+(defun next-citation (renderer)
+  "Count one more reference of the current owner, and return its citation
+under the plan, (FOOTNOTE . K), or NIL when it dangles. Every reference
+place the renderer meets counts exactly once, resolving or not, as the
+pre-pass counts it (M2 design §4.4)."
+  (reference-citation (renderer-plan renderer)
+                      (citation-key (renderer-owner renderer)
+                                    (incf (renderer-ordinal renderer)))))
 
 (defun dangling-reference-text (node)
   "The text a :FOOTNOTE-REFERENCE NODE becomes when nothing resolves it."
@@ -473,165 +526,211 @@ FOOTNOTE-PLAN. A definition leaves its place, so it adds nothing."
       (concatenate 'string "fnref-" (footnote-anchor footnote))
       (format nil "fnref-~A-~D" (footnote-anchor footnote) k)))
 
-(defun emit-footnote-reference (footnote k)
+(defun emit-footnote-reference (renderer footnote k)
   "The K-th reference to FOOTNOTE: a sup holding a link to it, which reads
 as its number."
-  (emit-element :sup (list (attribute :class "footnote-ref"))
-                (emit-element :a (list (attribute :href (concatenate 'string "#fn-"
-                                                                     (footnote-anchor footnote)))
-                                       (attribute :id (reference-id footnote k))
-                                       (attribute :data-footnote-ref ""))
-                              (emit-string (format nil "~D" (footnote-number footnote))))))
+  (emit-start-tag renderer :sup (list (attribute :class "footnote-ref")))
+  (emit-start-tag renderer :a
+                  (list (attribute :href (concatenate 'string "#fn-" (footnote-anchor footnote)))
+                        (attribute :id (reference-id footnote k))
+                        (attribute :data-footnote-ref "")))
+  (emit-text renderer (format nil "~D" (footnote-number footnote)))
+  (emit-end-tag renderer)
+  (emit-end-tag renderer))
 
-(defun convert-footnote-reference (node context)
+(defun render-footnote-reference (renderer node)
   "A resolving reference's sup, or the text of a dangling one."
-  (let ((citation (reference-citation (context-footnote-plan context) (context-path context))))
+  (let ((citation (next-citation renderer)))
     (if citation
-        (emit-footnote-reference (car citation) (cdr citation))
-        (emit-string (dangling-reference-text node)))))
+        (emit-footnote-reference renderer (car citation) (cdr citation))
+        (emit-text renderer (dangling-reference-text node)))))
 
-(defun emit-backref (footnote k)
+(defun emit-backref (renderer footnote k)
   "The backref anchor to the K-th reference to FOOTNOTE
 (S_put_footnote_backref). From the second on, it names K in its index and
 label, and shows K in a sup after the arrow."
   (let ((index (if (= k 1)
                    (format nil "~D" (footnote-number footnote))
                    (format nil "~D-~D" (footnote-number footnote) k))))
-    (emit-element :a (list (attribute :href (concatenate 'string "#" (reference-id footnote k)))
-                           (attribute :class "footnote-backref")
-                           (attribute :data-footnote-backref "")
-                           (attribute :data-footnote-backref-idx index)
-                           (attribute :aria-label (concatenate 'string "Back to reference "
-                                                               index)))
-                  (emit-string (string (code-char #x21A9)))
-                  (if (= k 1)
-                      (emit-nothing)
-                      (emit-element :sup (list (attribute :class "footnote-ref"))
-                                    (emit-string (format nil "~D" k)))))))
+    (emit-start-tag renderer :a
+                    (list (attribute :href (concatenate 'string "#" (reference-id footnote k)))
+                          (attribute :class "footnote-backref")
+                          (attribute :data-footnote-backref "")
+                          (attribute :data-footnote-backref-idx index)
+                          (attribute :aria-label (concatenate 'string "Back to reference "
+                                                              index))))
+    (emit-text renderer (string (code-char #x21A9)))
+    (unless (= k 1)
+      (emit-start-tag renderer :sup (list (attribute :class "footnote-ref")))
+      (emit-text renderer (format nil "~D" k))
+      (emit-end-tag renderer))
+    (emit-end-tag renderer)))
 
-(defun emit-backrefs (footnote)
+(defun emit-backrefs (renderer footnote)
   "One backref per reference to FOOTNOTE, separated by spaces."
-  (emit-list (loop for k from 1 to (footnote-reference-count footnote)
-                   append (if (= k 1)
-                              (list (emit-backref footnote k))
-                              (list (emit-string " ") (emit-backref footnote k))))))
+  (loop for k from 1 to (footnote-reference-count footnote)
+        do (unless (= k 1)
+             (emit-text renderer " "))
+           (emit-backref renderer footnote k)))
+
+;;; Dispatch: one handler for WALK-AST's events (M2 design §4.3)
+
+(defun render-node (renderer node entering)
+  "Render the :ENTER of NODE, when ENTERING, or its :EXIT, outside plain
+mode, following cmark's S_render_node: M2 design §4.3's events table, row
+by row. A leaf does all its work on :ENTER. Returns :SKIP at a definition's
+:ENTER, and NIL otherwise: a definition leaves its place, and the footnote
+section renders it. The pre-pass has already ruled out :EXTENSION."
+  (ecase (node-kind node)
+    (:document nil)
+    (:block-quote (render-block-quote renderer entering))
+    (:list (render-list renderer node entering))
+    (:item (render-item renderer entering))
+    (:task-item (render-task-item renderer node entering))
+    (:paragraph (render-paragraph renderer entering))
+    (:heading (render-heading renderer node entering))
+    (:code-block (when entering (render-code-block renderer node)))
+    (:html-block (when entering (render-html-block renderer node)))
+    (:thematic-break (when entering (render-thematic-break renderer)))
+    (:table (render-table renderer entering))
+    (:table-header (render-table-header renderer entering))
+    (:table-row (render-table-row renderer entering))
+    (:table-cell (render-table-cell renderer node entering))
+    (:text (when entering (emit-text renderer (node-attribute node :literal))))
+    (:softbreak (when entering (render-softbreak renderer)))
+    (:linebreak (when entering (render-line-break renderer)))
+    (:code (when entering (render-code renderer node)))
+    (:html-inline (when entering (render-raw-html renderer node)))
+    (:emph (render-inline-element renderer :em entering))
+    (:strikethrough (render-inline-element renderer :del entering))
+    (:strong (render-strong renderer entering))
+    (:link (render-link renderer node entering))
+    (:image (render-image renderer node entering))
+    (:footnote-reference (when entering (render-footnote-reference renderer node)))
+    (:footnote-definition (return-from render-node :skip)))
+  nil)
+
+(defun render-plain (renderer node)
+  "Render the :ENTER of NODE in plain mode, cmark's renderer->plain: NODE
+adds only to the alt text. :TEXT, :CODE and :HTML-INLINE add their literal,
+whatever the :RAW-HTML policy; breaks add a space; a reference counts, and
+adds its [^label] text when it dangles. Returns :SKIP at a definition, which
+leaves its place, and NIL otherwise: every other node's children are
+visited, nested images' included."
+  (let ((alt (renderer-alt renderer)))
+    (ecase (node-kind node)
+      ((:text :code :html-inline) (write-string (node-attribute node :literal) alt))
+      ((:softbreak :linebreak) (write-char #\Space alt))
+      (:footnote-reference
+       (unless (next-citation renderer)
+         (write-string (dangling-reference-text node) alt)))
+      (:footnote-definition (return-from render-plain :skip))
+      ((:document :block-quote :list :item :task-item :paragraph :heading :code-block
+        :html-block :thematic-break :table :table-header :table-row :table-cell
+        :emph :strong :strikethrough :link :image)
+       nil)))
+  nil)
+
+(defun render-event (renderer event node)
+  "WALK-AST's handler: render EVENT, :ENTER or :EXIT, of NODE. An entered
+node joins the ANCESTORS unless it is skipped, and leaves them at its :EXIT,
+before that renders, so a node sees the same parent at both events. Plain
+mode ends at the :EXIT of the image that started it, before that image's
+exit renders: cmark's renderer->plain == node check. A node can't sit below
+itself, so no other event meets that image. Every other event in plain mode
+renders through RENDER-PLAIN, whose exits write nothing."
+  (ecase event
+    (:enter
+     (let ((result (if (renderer-plain renderer)
+                       (render-plain renderer node)
+                       (render-node renderer node t))))
+       (unless (eql result :skip)
+         (push node (renderer-ancestors renderer)))
+       result))
+    (:exit
+     (pop (renderer-ancestors renderer))
+     (when (eql node (renderer-plain renderer))
+       (setf (renderer-plain renderer) nil))
+     (unless (renderer-plain renderer)
+       (render-node renderer node nil))
+     nil)))
+
+(defun render-walk (renderer root ancestors &optional backrefs)
+  "Render ROOT's tree with one WALK-AST, starting under ANCESTORS: ROOT's
+parent and grandparent as cmark's renderer would see them, innermost first.
+BACKREFS, when given, is a footnote whose backrefs go at the end of ROOT,
+its definition's backref paragraph."
+  (setf (renderer-ancestors renderer) ancestors
+        (renderer-walk-base renderer) ancestors
+        (renderer-backrefs renderer) backrefs)
+  (walk-ast (lambda (event node) (render-event renderer event node)) root))
+
+;;; The footnote section (M1 design §5.4; M2 design §4.4)
 
 (defun definition-node-p (node)
   "True when NODE is a :FOOTNOTE-DEFINITION node."
   (eql (node-kind node) :footnote-definition))
 
-(defun backref-paragraph-index (definition)
-  "The index of DEFINITION's last child, definitions aside, when that child
-is a :PARAGRAPH: the backrefs go at its end. NIL otherwise. Definitions are
-set aside because each one leaves its place."
-  (let* ((children (node-children definition))
-         (index (position-if-not #'definition-node-p children :from-end t)))
+(defun backref-paragraph-index (children)
+  "The index in CHILDREN, a definition's children, of its last child that
+isn't a definition, when that child is a :PARAGRAPH: the backrefs go at its
+end. NIL otherwise. Definitions are set aside because each one leaves its
+place."
+  (let ((index (position-if-not #'definition-node-p children :from-end t)))
     (and index
          (eql (node-kind (nth index children)) :paragraph)
          index)))
 
-(defun emit-footnote-body (footnote context)
-  "The children of FOOTNOTE's definition, whose context is CONTEXT, with its
-backrefs: inside its last paragraph after a space, or else after the
-children and followed by a newline."
+(defun render-footnote-body (renderer footnote)
+  "The children of FOOTNOTE's definition, rendered as its owner with a fresh
+count. Each child is walked on its own, under the definition as parent and
+the document as grandparent, where cmark's parser moves the definition;
+nested definitions are skipped. The backrefs end the backref paragraph,
+after a space, or else follow the children, then a newline. The backref
+paragraph is known by its index, not by its identity: the same paragraph
+object may also sit elsewhere in the definition."
   (let* ((definition (footnote-definition footnote))
-         (paragraph-index (backref-paragraph-index definition))
-         (pieces (loop for child in (node-children definition)
-                       for index from 0
-                       for child-context = (child-context context definition index)
-                       collect (if (eql index paragraph-index)
-                                   (convert-paragraph child child-context
-                                                      (emit-all (emit-string " ")
-                                                                (emit-backrefs footnote)))
-                                   (convert-node child child-context)))))
-    (if paragraph-index
-        (emit-list pieces)
-        (emit-all (emit-list pieces) (emit-backrefs footnote) (emit-newline)))))
+         (children (node-children definition))
+         (paragraph-index (backref-paragraph-index children))
+         (ancestors (list definition (renderer-document renderer))))
+    (setf (renderer-owner renderer) (footnote-owner footnote)
+          (renderer-ordinal renderer) 0)
+    (loop for child in children
+          for index from 0
+          do (render-walk renderer child ancestors (and (eql index paragraph-index) footnote)))
+    (unless paragraph-index
+      (emit-backrefs renderer footnote)
+      (emit-newline renderer))))
 
-(defun emit-footnote-item (footnote document settings)
-  "<li id=\"fn-L\">, a newline, the body, </li>, a newline. The definition
-renders as a child of DOCUMENT, where cmark's parser moves it, but keeps the
-path of the place it was kept from, so the references inside it are found
-in the FOOTNOTE-PLAN."
-  (emit-all (emit-element :li (list (attribute :id (concatenate 'string "fn-"
-                                                                 (footnote-anchor footnote))))
-                          (emit-newline)
-                          (emit-footnote-body footnote
-                                              (make-context settings document nil
-                                                            (footnote-path footnote) nil)))
-            (emit-newline)))
+(defun render-footnote-item (renderer footnote)
+  "<li id=\"fn-L\">, a newline, the definition's body, </li>, a newline."
+  (emit-start-tag renderer :li
+                  (list (attribute :id (concatenate 'string "fn-" (footnote-anchor footnote)))))
+  (emit-newline renderer)
+  (render-footnote-body renderer footnote)
+  (emit-end-tag renderer)
+  (emit-newline renderer))
 
-(defun emit-footnote-section (document settings)
+(defun render-footnote-section (renderer)
   "The section of surviving footnotes, in number order, and a newline after
 it; nothing when none survive. It comes straight after the rest, with no cr
-before it, as in cmark."
-  (let ((footnotes (footnote-plan-footnotes (settings-footnotes settings))))
-    (if (null footnotes)
-        (emit-nothing)
-        (emit-all (emit-element :section (list (attribute :class "footnotes")
-                                               (attribute :data-footnotes ""))
-                                (emit-newline)
-                                (emit-element :ol '()
-                                              (emit-newline)
-                                              (emit-list
-                                               (loop for footnote in footnotes
-                                                     collect (emit-footnote-item
-                                                              footnote document settings))))
-                                (emit-newline))
-                  (emit-newline)))))
-
-;;; Dispatch
-
-(defun convert-node (node context)
-  "The piece that renders NODE in CONTEXT, following cmark's S_render_node
-(design §5.3). A definition renders nothing where it stands: the footnote
-section renders it. CHECK-NO-EXTENSION-NODES has already ruled out
-:EXTENSION."
-  (ecase (node-kind node)
-    (:document (emit-children node context))
-    (:block-quote (convert-block-quote node context))
-    (:list (convert-list node context))
-    (:item (convert-item node context))
-    (:task-item (convert-task-item node context))
-    (:paragraph (convert-paragraph node context))
-    (:heading (convert-heading node context))
-    (:code-block (convert-code-block node))
-    (:html-block (convert-html-block node context))
-    (:thematic-break (convert-thematic-break))
-    (:table (convert-table node context))
-    (:table-header (convert-table-header node context))
-    (:table-row (convert-table-row node context))
-    (:table-cell (convert-table-cell node context))
-    (:text (emit-string (node-attribute node :literal)))
-    (:softbreak (convert-softbreak context))
-    (:linebreak (emit-line-break))
-    (:code (emit-element :code '() (emit-string (node-attribute node :literal))))
-    (:html-inline (emit-raw-html node context))
-    (:emph (emit-element :em '() (emit-children node context)))
-    (:strong (convert-strong node context))
-    (:strikethrough (emit-element :del '() (emit-children node context)))
-    (:link (convert-link node context))
-    (:image (convert-image node context))
-    (:footnote-reference (convert-footnote-reference node context))
-    (:footnote-definition (emit-nothing))))
+before it, as in cmark. The main walk has closed every table, header and
+image, so the section starts with none open."
+  (let ((footnotes (footnote-plan-footnotes (renderer-plan renderer))))
+    (when footnotes
+      (emit-start-tag renderer :section (list (attribute :class "footnotes")
+                                              (attribute :data-footnotes "")))
+      (emit-newline renderer)
+      (emit-start-tag renderer :ol '())
+      (emit-newline renderer)
+      (dolist (footnote footnotes)
+        (render-footnote-item renderer footnote))
+      (emit-end-tag renderer)
+      (emit-newline renderer)
+      (emit-end-tag renderer)
+      (emit-newline renderer))))
 
 ;;; AST->HTML-TREE
-
-(defun find-extension-node (node)
-  "The first :EXTENSION node in NODE's tree, depth-first, or NIL."
-  (if (eql (node-kind node) :extension)
-      node
-      (some #'find-extension-node (node-children node))))
-
-(defun check-no-extension-nodes (root)
-  "Signal UNSUPPORTED-EXTENSION-NODE, naming the node, when ROOT's tree holds
-an :EXTENSION node anywhere (design D10)."
-  (let ((extension (find-extension-node root)))
-    (when extension
-      (error 'unsupported-extension-node
-             :operation 'ast->html-tree
-             :datum extension
-             :reason "extension nodes have no HTML tree"))))
 
 (defun as-document (node)
   "NODE when it is a :DOCUMENT, and otherwise a new document holding only
@@ -640,18 +739,18 @@ NODE."
       node
       (make-node :document :children (list node))))
 
-(defun document-items (document settings)
-  "The top-level items of DOCUMENT: its children, then the footnote section,
-starting from an empty output."
-  (let ((context (make-context settings nil nil (root-path) nil)))
-    (normalize-items (run-pieces (list (convert-node document context)
-                                       (emit-footnote-section document settings))
-                                 t))))
+(defun document-items (renderer)
+  "The top-level items of the RENDERER's document: the document's own walk,
+as the body's owner, then the footnote section, starting from an empty
+output."
+  (render-walk renderer (renderer-document renderer) '())
+  (render-footnote-section renderer)
+  (top-level-items renderer))
 
 (defun ast->html-tree (node &rest options)
   "Convert the AST NODE into an HTML tree, as cmark-gfm's HTML renderer
-would render it (design §5). Returns a list of top-level items, strings and
-elements, with cmark's newlines as \"\\n\" strings; or, with
+would render it (M1 design §5). Returns a list of top-level items, strings
+and elements, with cmark's newlines as \"\\n\" strings; or, with
 :DOCUMENT-WRAPPER, one element of that tag holding them. A NODE that isn't a
 :DOCUMENT converts as a document's only child.
 
@@ -662,17 +761,18 @@ OPTIONS (ADR-0012), each value's default first:
   :DOCUMENT-WRAPPER NIL | a keyword naming a non-void element
 
 Signals INVALID-RENDER-OPTION for a malformed option list, an unknown key or
-a bad value, before converting anything; and UNSUPPORTED-EXTENSION-NODE when
-the tree holds an :EXTENSION node. Returns a fresh tree, and leaves NODE as
-it was."
+a bad value, before converting anything; and UNSUPPORTED-EXTENSION-NODE,
+naming the first :EXTENSION node depth-first, when the tree holds one.
+It loops over WALK-AST's events, so the Lisp stack doesn't bound a tree's
+depth (M2 design §4.3). Returns a fresh tree, and leaves NODE as it was."
   (check-options options)
-  (check-no-extension-nodes node)
   (let* ((document (as-document node))
-         (settings (make-settings (option-value options :raw-html)
-                                  (option-value options :softbreak)
-                                  (option-value options :link-policy)
-                                  (plan-footnotes document)))
-         (items (document-items document settings))
+         (renderer (make-renderer :raw-html (option-value options :raw-html)
+                                  :softbreak (option-value options :softbreak)
+                                  :link-policy (option-value options :link-policy)
+                                  :plan (plan-footnotes document)
+                                  :document document))
+         (items (document-items renderer))
          (wrapper (option-value options :document-wrapper)))
     (if wrapper
         (list* wrapper '() items)
