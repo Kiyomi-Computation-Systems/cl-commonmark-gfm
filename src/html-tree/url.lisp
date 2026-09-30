@@ -1,4 +1,4 @@
-;;;; URL percent-encoding and the dangerous-URL check (design §5.5).
+;;;; URL percent-encoding and the dangerous-URL check (M1 design §5.5).
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
@@ -29,7 +29,7 @@ below #x80, two below #x800, three below #x10000, and four otherwise."
 (defparameter *href-safe-punctuation* "-_.+!*(),%#@?=;:/$~&'"
   "Punctuation HREF-ENCODE leaves unescaped, alongside ASCII alphanumerics.
 Mirrors houdini_escape_href's HREF_SAFE table, except that & and ' are safe
-here too: the serializer entity-escapes them later (design §5.5).")
+here too: the serializer entity-escapes them later (M1 design §5.5).")
 
 (defparameter *hex-digits* "0123456789ABCDEF"
   "Uppercase hex digits, indexed by nibble value, for HREF-ENCODE's %XX
@@ -53,7 +53,7 @@ all of them, and they are always percent-encoded."
 
 (defun href-encode (string)
   "Percent-encode STRING for use as a link or image destination, mirroring
-cmark-gfm's HOUDINI_ESCAPE_HREF (design §5.5). STRING is encoded as UTF-8
+cmark-gfm's HOUDINI_ESCAPE_HREF (M1 design §5.5). STRING is encoded as UTF-8
 with a small private encoder; each octet that is an ASCII alphanumeric or a
 character of *HREF-SAFE-PUNCTUATION* stays as its character, and every other
 octet becomes %XX in uppercase hex. Because % passes through unescaped, an
@@ -69,7 +69,7 @@ existing escape is never re-encoded."
 
 (defparameter *dangerous-url-schemes* '("javascript:" "vbscript:" "file:" "data:")
   "Schemes DANGEROUS-URL-P blanks under the :SAFE link policy, mirroring
-cmark-gfm's _scan_dangerous_url (design §5.5).")
+cmark-gfm's _scan_dangerous_url (M1 design §5.5).")
 
 (defparameter *safe-data-image-prefixes*
   '("data:image/png" "data:image/gif" "data:image/jpeg" "data:image/webp")

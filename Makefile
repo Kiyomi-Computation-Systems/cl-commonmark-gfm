@@ -31,7 +31,7 @@ VOCAB_FLAGS := --sourcepos -e footnotes -e table -e strikethrough -e autolink \
 VOCAB_MD    := tests/fixtures/vocabulary.md
 VOCAB_XML   := tests/fixtures/vocabulary.xml
 
-# The oracle fixtures (design §7.3): one manifest, one Markdown input and one
+# The oracle fixtures (M1 design §7.3): one manifest, one Markdown input and one
 # committed HTML file per case. FIXTURES_FLAGS is cmark's GFM set, minus
 # --sourcepos, applied before each case's own extra flags.
 FIXTURES_DIR   := tests/fixtures/html
@@ -185,7 +185,7 @@ check-notice: ## Diff NOTICE's COPYING section against vendor/cmark-gfm/COPYING
 # finds cl-commonmark-gfm.asd but never walks into vendor/ or .guix-env/;
 # then ocicl// recursively, so it finds every dependency ocicl installed.
 # There is no empty entry, so no inherited configuration (e.g. a home
-# directory source-registry.conf) leaks in (design §7.1, §7.2).
+# directory source-registry.conf) leaks in (M1 design §7.1, §7.2).
 LISPS ?= sbcl ccl ecl
 
 check-purity: ## Run the pure test suite (tests/run.lisp) on each Lisp in $(LISPS)

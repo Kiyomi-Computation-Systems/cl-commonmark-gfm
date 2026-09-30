@@ -1,4 +1,4 @@
-;;;; ASDF system definitions for cl-commonmark-gfm (design §3). The native
+;;;; ASDF system definitions for cl-commonmark-gfm (M1 design §3). The native
 ;;;; layer that gives the primary system its real content arrives in M2.
 ;;;;
 ;;;; The empty primary system below is load-bearing, not a preview of M2:
@@ -11,6 +11,13 @@
   :description "cmark-gfm bindings for Common Lisp (the native layer arrives in M2)"
   :license "BSD-3-Clause")
 
+(asdf:defsystem "cl-commonmark-gfm/util"
+  :description "Small helpers shared by the pure systems, starting with proper-list-p"
+  :license "BSD-3-Clause"
+  :serial t
+  :pathname "src/"
+  :components ((:file "util")))
+
 (asdf:defsystem "cl-commonmark-gfm/conditions"
   :description "Conditions signalled by cl-commonmark-gfm"
   :license "BSD-3-Clause"
@@ -21,7 +28,7 @@
 (asdf:defsystem "cl-commonmark-gfm/ast"
   :description "A validated AST node type, queries, equality and transforms"
   :license "BSD-3-Clause"
-  :depends-on ("cl-commonmark-gfm/conditions")
+  :depends-on ("cl-commonmark-gfm/conditions" "cl-commonmark-gfm/util")
   :serial t
   :pathname "src/ast/"
   :components ((:file "package")
@@ -32,7 +39,7 @@
 (asdf:defsystem "cl-commonmark-gfm/html-tree"
   :description "AST to LHTML-shaped HTML tree conversion, and its serializer"
   :license "BSD-3-Clause"
-  :depends-on ("cl-commonmark-gfm/ast")
+  :depends-on ("cl-commonmark-gfm/ast" "cl-commonmark-gfm/util")
   :serial t
   :pathname "src/html-tree/"
   :components ((:file "package")
@@ -44,7 +51,8 @@
 (asdf:defsystem "cl-commonmark-gfm/tests"
   :description "Test suite for the pure conditions, AST and HTML-tree systems"
   :license "BSD-3-Clause"
-  :depends-on ("cl-commonmark-gfm/conditions"
+  :depends-on ("cl-commonmark-gfm/util"
+               "cl-commonmark-gfm/conditions"
                "cl-commonmark-gfm/ast"
                "cl-commonmark-gfm/html-tree"
                "parachute")
@@ -52,9 +60,11 @@
   :pathname "tests/"
   :components ((:file "package")
                (:file "helpers")
+               (:file "util")
                (:file "conditions")
                (:file "ast")
                (:file "url")
                (:file "serialize")
                (:file "html-tree")
-               (:file "oracle")))
+               (:file "oracle")
+               (:file "deep")))

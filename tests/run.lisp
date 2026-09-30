@@ -1,5 +1,5 @@
 ;;;; Load the pure suite through ASDF, run it under Parachute, and turn the
-;;;; result into the process exit status (design §7.2).
+;;;; result into the process exit status (M1 design §7.2).
 
 (require :asdf)
 
@@ -22,7 +22,18 @@ more than once when a report's results are walked (as FAILING-LEAVES walks
 them); REMOVE-DUPLICATES with EQL leaves one of each."
   (remove-duplicates (coerce (parachute:results report) 'list) :test #'eql))
 
-(let* ((report (parachute:test :cl-commonmark-gfm.tests :report 'parachute:quiet))
+(defun run-suite ()
+  "Run the suite under the quiet reporter and return Parachute's report.
+Parachute records a test's errors, but a serious condition that isn't an
+error, such as a stack overflow, escapes it. Exit 1 when one does: ECL's
+top level would otherwise exit 0 after an overflow, and check-purity would
+report a pass."
+  (handler-case (parachute:test :cl-commonmark-gfm.tests :report 'parachute:quiet)
+    (serious-condition (condition)
+      (format *error-output* "~&check-purity: the run was aborted by ~S~%" (type-of condition))
+      (uiop:quit 1))))
+
+(let* ((report (run-suite))
        (passed (eql :passed (parachute:status report)))
        (pure (not (find-package "CFFI")))
        (results (distinct-report-results report))

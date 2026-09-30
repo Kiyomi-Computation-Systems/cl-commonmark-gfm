@@ -4,21 +4,6 @@
 
 ;;; General-purpose predicates shared by the schema and by node construction
 
-(defun proper-list-p (value)
-  "True when VALUE is a finite, NIL-terminated (proper) list. Uses Floyd's
-cycle detection, so a circular list is rejected rather than looping forever."
-  (labels ((traverse (slow fast)
-             (cond
-               ((null fast) t)
-               ((atom fast) nil)
-               ((null (cdr fast)) t)
-               ((atom (cdr fast)) nil)
-               ((eql slow (cdr fast)) nil)
-               (t (traverse (cdr slow) (cddr fast))))))
-    (and (listp value)
-         (or (null value)
-             (traverse value (cdr value))))))
-
 (defun strict-boolean-p (value)
   "True when VALUE is exactly T or NIL: the schema's \"boolean\" type."
   (or (eql value t) (null value)))
@@ -70,7 +55,7 @@ ATTRIBUTES, an ATTRIBUTE-SPEC list in canonical order."
 such attribute."
   (find key (kind-spec-attributes kind-spec) :key #'attribute-spec-key :test #'eql))
 
-;;; The schema table (design spec Sec 4.2)
+;;; The schema table (M1 design §4.2)
 
 (defparameter *schema*
   (let ((table (make-hash-table :test 'eql)))
@@ -121,7 +106,7 @@ such attribute."
             (make-attribute-spec :extension-name #'optional-string-p nil nil)
             (make-attribute-spec :type-name #'stringp nil t)))
     table)
-  "One row per vocabulary kind (design Sec 4.2), keyed by kind keyword.")
+  "One row per vocabulary kind (M1 design §4.2), keyed by kind keyword.")
 
 (defun find-kind-spec (kind)
   "Return KIND's KIND-SPEC, or NIL when KIND is not in the schema."

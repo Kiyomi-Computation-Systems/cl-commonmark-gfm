@@ -37,6 +37,18 @@ so a destructive operation on the result (e.g. SORT) cannot corrupt NODE."
   "Return NODE's source position, or NIL when it has none."
   (%node-sourcepos node))
 
+(defun bounded-key-string (key)
+  "KEY as a reason string names it: printed with ~(~A~), under the bounds
+src/conditions.lisp's report uses (*PRINT-CIRCLE* T, *PRINT-LENGTH* 10,
+*PRINT-LEVEL* 4, *PRINT-READABLY* NIL). A keyword prints exactly as it did
+in M1. A caller's circular or deeply nested KEY prints cut short, where M1
+hung or ran out of memory; so does a long or shared one."
+  (let ((*print-circle* t)
+        (*print-length* 10)
+        (*print-level* 4)
+        (*print-readably* nil))
+    (format nil "~(~a~)" key)))
+
 (defun node-attribute (node key)
   "Return the value of NODE's KEY attribute. Signals INVALID-AST-NODE when
 NODE's kind has no such attribute."
@@ -45,7 +57,8 @@ NODE's kind has no such attribute."
       (error 'invalid-ast-node
              :operation 'node-attribute
              :datum key
-             :reason (format nil "~(~a~) node has no ~(~a~) attribute" (node-kind node) key)))
+             :reason (format nil "~(~a~) node has no ~a attribute"
+                             (node-kind node) (bounded-key-string key))))
     (getf (%node-attributes node) key)))
 
 ;;; Sourcepos validation
@@ -89,7 +102,7 @@ names a key that KIND-SPEC lacks, or repeats a key."
       (let ((key (car pair)))
         (unless (find-attribute-spec kind-spec key)
           (error 'invalid-ast-node :operation operation :datum key
-                 :reason (format nil "~(~a~) has no ~(~a~) attribute" kind key)))
+                 :reason (format nil "~(~a~) has no ~a attribute" kind (bounded-key-string key))))
         (when (member key seen :test #'eql)
           (error 'invalid-ast-node :operation operation :datum key
                  :reason "repeated attribute key"))
@@ -230,15 +243,39 @@ case-sensitively (never EQUALP) and keyword lists by contents."
        (loop for (key value) on plist-a by #'cddr
              always (attribute-value= value (getf plist-b key)))))
 
-(defun children= (children-a children-b sourcepos)
-  "Compare two children lists for NODE=, propagating SOURCEPOS down."
-  (and (= (length children-a) (length children-b))
-       (every (lambda (a b) (node= a b :sourcepos sourcepos)) children-a children-b)))
+(defun shallow-node= (x y sourcepos)
+  "True when nodes X and Y have the same kind and attributes, and, unless
+SOURCEPOS is NIL, the same source position: every part of NODE='s comparison
+except children, which NODE= walks separately."
+  (and (eql (node-kind x) (node-kind y))
+       (attributes= (%node-attributes x) (%node-attributes y))
+       (or (not sourcepos) (equal (node-sourcepos x) (node-sourcepos y)))))
 
 (defun node= (a b &key (sourcepos t))
   "True when nodes A and B have the same kind, attributes and children, and,
-unless SOURCEPOS is NIL, the same source position at every depth."
-  (and (eql (node-kind a) (node-kind b))
-       (attributes= (%node-attributes a) (%node-attributes b))
-       (or (not sourcepos) (equal (node-sourcepos a) (node-sourcepos b)))
-       (children= (%node-children a) (%node-children b) sourcepos)))
+unless SOURCEPOS is NIL, the same source position at every depth. Signals a
+TYPE-ERROR, via CHECK-TYPE, when A or B is not a NODE -- A is checked first,
+so its datum is the one named when both are bad.
+
+Loops over an explicit stack of (A . B) node pairs instead of recursing into
+children, so depth is bounded by memory rather than by the Lisp call stack
+(M1 design §4.4; M2 design §4.2). A pair of EQL nodes is equal without being
+descended into."
+  (check-type a node)
+  (check-type b node)
+  (let ((stack (list (cons a b))))
+    (loop while stack
+          do (let* ((pair (pop stack))
+                    (x (car pair))
+                    (y (cdr pair)))
+               (unless (eql x y)
+                 (unless (shallow-node= x y sourcepos)
+                   (return-from node= nil))
+                 (let ((children-x (%node-children x))
+                       (children-y (%node-children y)))
+                   (unless (= (length children-x) (length children-y))
+                     (return-from node= nil))
+                   (loop for cx in children-x
+                         for cy in children-y
+                         do (push (cons cx cy) stack)))))
+          finally (return t))))

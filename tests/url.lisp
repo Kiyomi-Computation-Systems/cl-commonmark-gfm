@@ -16,7 +16,7 @@ output), so no printer variable needs binding here."
 
 (define-test href-encode-every-ascii-code-passes-through-or-is-percent-encoded
   (let ((safe-ascii-characters
-          ;; Alphanumerics, plus -_.+!*(),%#@?=;:/$~, plus & and ' (design
+          ;; Alphanumerics, plus -_.+!*(),%#@?=;:/$~, plus & and ' (M1 design
           ;; §5.5). Written out by hand from the spec, not derived from
           ;; *HREF-SAFE-PUNCTUATION* or HREF-SAFE-OCTET-P.
           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.+!*(),%#@?=;:/$~&'"))

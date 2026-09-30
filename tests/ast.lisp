@@ -1,4 +1,5 @@
-;;;; Tests for the AST: schema validation, queries, equality and transforms.
+;;;; Tests for the AST: schema validation, queries, equality, WALK-AST and
+;;;; the transforms built on it.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -343,6 +344,40 @@
                         (true nil "expected invalid-ast-node"))
     (invalid-ast-node (e) (is eql 'node-attribute (condition-operation e)))))
 
+;;; NODE-ATTRIBUTE and MAKE-NODE print a pathological KEY safely in a reason
+;;; string (a pre-existing M1 bug): a circular or deeply nested KEY must not
+;;; hang or crash the process. Each hangs or crashes M1's code; that was
+;;; confirmed under a bound, one scenario per process, since Parachute's
+;;; reporter cannot survive a hang. A keyword KEY still reads as it did in
+;;; M1.
+
+(define-test node-attribute-reason-names-a-keyword-key-as-m1-did
+  (handler-case (progn (node-attribute (make-node :paragraph) :bogus)
+                       (true nil "expected invalid-ast-node"))
+    (invalid-ast-node (e)
+      (is string= "paragraph node has no bogus attribute" (condition-reason e)))))
+
+(define-test make-node-reason-names-a-keyword-key-as-m1-did
+  (handler-case (progn (make-node :text :attributes (list :bogus "x"))
+                       (true nil "expected invalid-ast-node"))
+    (invalid-ast-node (e)
+      (is string= "text has no bogus attribute" (condition-reason e)))))
+
+(define-test node-attribute-signals-for-a-circular-key
+  (let ((key (list 1)))
+    (setf (cdr key) key)
+    (fail (node-attribute (make-node :paragraph) key) 'invalid-ast-node)))
+
+(define-test make-node-signals-for-a-circular-attribute-key
+  (let ((key (list 1)))
+    (setf (cdr key) key)
+    (fail (make-node :text :attributes (list key "x")) 'invalid-ast-node)))
+
+(define-test node-attribute-signals-for-a-key-nested-100000-deep
+  (let ((key nil))
+    (dotimes (i 100000) (setf key (list key)))
+    (fail (node-attribute (make-node :paragraph) key) 'invalid-ast-node)))
+
 ;;; NODE=
 
 (define-test node=-true-for-identical-trees
@@ -386,6 +421,14 @@
                                   :options (list :footnotes)))))
   (false (node= (n :document (list :extensions (list :table)))
                 (n :document (list :extensions (list :autolink))))))
+
+(define-test node=-signals-type-error-for-non-node-arguments
+  (fail (node= 42 42) 'type-error)
+  (fail (node= nil nil) 'type-error))
+
+(define-test node=-names-its-first-argument-when-neither-is-a-node
+  (handler-case (progn (node= 42 "x") (true nil "expected type-error"))
+    (type-error (e) (is eql 42 (type-error-datum e)))))
 
 ;;; FOLD-AST and MAP-AST: traversal order
 
@@ -500,3 +543,101 @@
                                        (n :paragraph nil))
                         (true nil "expected invalid-ast-node"))
     (invalid-ast-node (e) (is eql 'transform-ast (condition-operation e)))))
+
+;;; WALK-AST
+
+(define-test walk-ast-event-sequence-for-a-small-mixed-tree
+  ;; document > (paragraph > text "a", text "b"), (paragraph > text "c").
+  ;; Leaves (the three text nodes) get both an :ENTER and an :EXIT call.
+  (let* ((tree (n :document nil
+                  (n :paragraph nil (txt "a") (txt "b"))
+                  (n :paragraph nil (txt "c"))))
+         (events '()))
+    (walk-ast (lambda (event node) (push (list event (node-kind node)) events)) tree)
+    (is equal (list (list :enter :document)
+                     (list :enter :paragraph)
+                     (list :enter :text)
+                     (list :exit :text)
+                     (list :enter :text)
+                     (list :exit :text)
+                     (list :exit :paragraph)
+                     (list :enter :paragraph)
+                     (list :enter :text)
+                     (list :exit :text)
+                     (list :exit :paragraph)
+                     (list :exit :document))
+        (reverse events))))
+
+(define-test walk-ast-skip-skips-the-children-and-the-exit
+  (let* ((tree (n :document nil
+                  (n :paragraph nil (txt "inner"))
+                  (txt "after")))
+         (events '()))
+    (walk-ast (lambda (event node)
+                (push (list event (node-kind node)) events)
+                (when (and (eql event :enter) (eql (node-kind node) :paragraph))
+                  :skip))
+              tree)
+    ;; No event at all for "inner" (the paragraph's only child), and no
+    ;; :EXIT for the paragraph itself; "after" is visited normally.
+    (is equal (list (list :enter :document)
+                     (list :enter :paragraph)
+                     (list :enter :text)
+                     (list :exit :text)
+                     (list :exit :document))
+        (reverse events))))
+
+(define-test walk-ast-skip-on-the-root-gives-exactly-one-call
+  ;; :SKIP returned for the root itself -- the one :ENTER call WALK-AST makes
+  ;; outside its main loop -- must skip the root's children and its :EXIT
+  ;; just as it would for any other node.
+  (let* ((tree (n :paragraph nil (txt "a")))
+         (events '()))
+    (is eql nil
+        (walk-ast (lambda (event node)
+                    (push (list event (node-kind node)) events)
+                    :skip)
+                  tree))
+    (is equal (list (list :enter :paragraph)) events)))
+
+(define-test walk-ast-ignores-enter-return-values-other-than-skip
+  (let* ((tree (n :paragraph nil (txt "a")))
+         (events '()))
+    (walk-ast (lambda (event node)
+                (push (list event (node-kind node)) events)
+                ;; Neither of these is :SKIP, so neither may skip anything.
+                (ecase event (:enter 42) (:exit :paragraph)))
+              tree)
+    (is equal (list (list :enter :paragraph)
+                     (list :enter :text)
+                     (list :exit :text)
+                     (list :exit :paragraph))
+        (reverse events))))
+
+(define-test walk-ast-visits-a-node-at-two-places-at-each
+  (let* ((shared (txt "shared"))
+         (tree (n :document nil (n :paragraph nil shared) (n :paragraph nil shared)))
+         (enter-count 0)
+         (exit-count 0))
+    (walk-ast (lambda (event node)
+                (when (eql node shared)
+                  (ecase event
+                    (:enter (incf enter-count))
+                    (:exit (incf exit-count)))))
+              tree)
+    (is = 2 enter-count)
+    (is = 2 exit-count)))
+
+(define-test walk-ast-signals-type-error-for-a-non-node
+  (fail (walk-ast (lambda (event node) (declare (ignore event node))) "not-a-node")
+        'type-error))
+
+(define-test walk-ast-does-not-call-function-for-a-non-node
+  (let ((called nil))
+    (ignore-errors (walk-ast (lambda (event node) (declare (ignore event node)) (setf called t))
+                              42))
+    (false called)))
+
+(define-test walk-ast-returns-nil
+  (is eql nil (walk-ast (lambda (event node) (declare (ignore event node)) :ignored)
+                         (n :paragraph nil))))
