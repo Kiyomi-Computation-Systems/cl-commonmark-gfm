@@ -98,7 +98,7 @@ Plan: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md)
 - [x] The converter and footnotes (Task 4)
 - [x] Documents: ADR-0015, the plan, this file (Task 5)
 - [x] Review, fixes, a second review and close-out (Task 6)
-- [ ] Local `debian:trixie` CI proof against the commit, green and seen to
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
   fail (Task 6)
 
 **M2b, the native layer** (branch `m2b-native-layer`; its plan follows
@@ -167,7 +167,7 @@ _None yet._
   for the converter, the documents and both reviews.
 - **Tests**, in the Guix container:
   - SBCL 2.6.4, CCL 1.13 and ECL 24.5.10 each run 280 tests with
-    792 assertions (M1: 226 and 683);
+    793 assertions (M1: 226 and 683);
   - M1's tests are unchanged apart from comments: "design §N" became
     "M1 design §N", since the M2 spec reuses M1's numbers;
   - seven deep shapes at 100,000 levels, spec §4.7's six plus nested
@@ -218,6 +218,28 @@ _None yet._
     nothing.
   - The random harnesses never put one backref paragraph at two places of
     a definition; an explicit test covers it.
+  - **The first local CI run failed,** against `f78ef48`: Debian's SBCL ran
+    out of heap. Parachute keeps every assertion's closure until the run
+    ends, and the deep tests' closures captured their trees and strings,
+    515 MB in all. Debian's SBCL has a 1 GB heap by default and Guix's
+    3 GB, so the container passed. The deep tests now build their data in
+    helpers or inside the asserted form, and 20 MB stays alive. The suite
+    still peaks between 768 MB and 1 GB, so `check-purity` gives SBCL a
+    2 GB heap everywhere (`c59e4de`).
+- **CI evidence (interim, local),** as for M0 and M1: the workflow's steps
+  ran against commit `c59e4de` in `debian:trixie` under Docker.
+  - The clone included submodules, and both toolchain checksums matched.
+  - `make info` reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10, CCL 1.13,
+    cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - `check-help`, the launcher tests (28/28), `check-vocabulary`,
+    `check-pins`, `check-notice` and `make deps` passed.
+  - `make -k test` ran 280 tests with 793 assertions on each Lisp and
+    passed, and so did `check-fixtures`.
+  - With one byte of `tests/fixtures/html/paragraphs.html` flipped,
+    `make -k test` failed. `check-fixtures` named `paragraphs`, and each
+    Lisp's suite reported `oracle case paragraphs`.
+
+  The GitHub run waits for October.
 - **Settled from M1's hand-offs:** stack depth, the non-copying child
   accessor (`walk-ast`) and the shared `proper-list-p`.
 
