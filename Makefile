@@ -186,13 +186,18 @@ check-notice: ## Diff NOTICE's COPYING section against vendor/cmark-gfm/COPYING
 # then ocicl// recursively, so it finds every dependency ocicl installed.
 # There is no empty entry, so no inherited configuration (e.g. a home
 # directory source-registry.conf) leaks in (M1 design §7.1, §7.2).
+#
+# SBCL gets a 2 GB heap wherever it runs. Debian's SBCL, which CI uses
+# (ADR-0013), defaults to 1 GB and Guix's to 3 GB. The deep tests need more
+# than 768 MB at their peak, and under 1 GB CI's run ran out of heap while
+# the container's passed.
 LISPS ?= sbcl ccl ecl
 
 check-purity: ## Run the pure test suite (tests/run.lisp) on each Lisp in $(LISPS)
 	@failed=""; \
 	for lisp in $(LISPS); do \
 	  case "$$lisp" in \
-	    sbcl) cmd="$(SBCL) --non-interactive --no-sysinit --no-userinit --load tests/run.lisp" ;; \
+	    sbcl) cmd="$(SBCL) --dynamic-space-size 2048 --non-interactive --no-sysinit --no-userinit --load tests/run.lisp" ;; \
 	    ccl)  cmd="ccl -n -b -l tests/run.lisp" ;; \
 	    ecl)  cmd="ecl -norc -load tests/run.lisp" ;; \
 	    *) echo "check-purity: unknown Lisp '$$lisp'" >&2; cmd=""; failed="$$failed $$lisp" ;; \

@@ -139,127 +139,138 @@ visiting NODE and its descendants."
 FOLD-AST itself."
   (fold-ast (lambda (n acc) (declare (ignore n)) (1+ acc)) 0 node))
 
+;;; Parachute keeps every assertion's closure until the run ends, and with
+;;; it whatever the closure captured. So no assertion in this file captures
+;;; a tree or a large string: helpers build them, check them and return
+;;; numbers and booleans, or the asserted form builds them itself. Captured
+;;; trees and strings once kept 515 MB alive through the run, and SBCL ran
+;;; out of heap at Debian's default of 1 GB.
+
+(defun walk-facts (build size)
+  "What the walk tests check, for three trees BUILD makes at SIZE: two alike,
+and one whose deepest text is \"y\". Returns a plist of numbers and
+booleans, so no test holds a tree:
+- :EVENTS, WALK-AST's event count; :NODES, FOLD-AST's node count; :MAPPED,
+  MAP-AST's length;
+- :IDENTITY, whether TRANSFORM-AST with IDENTITY returns the same root;
+  :REBUILT, whether TRANSFORM-AST rebuilding every node with COPY-NODE
+  returns a tree NODE= to the original;
+- :SAME and :DIFFERENT, NODE= of the first tree with the second, and with
+  the third."
+  (let ((a (funcall build size))
+        (b (funcall build size))
+        (c (funcall build size "y")))
+    (list :events (count-walk-ast-events a)
+          :nodes (count-fold-ast-nodes a)
+          :mapped (length (map-ast #'node-kind a))
+          :identity (eql a (transform-ast #'identity a))
+          :rebuilt (node= a (transform-ast (lambda (n) (copy-node n)) a))
+          :same (node= a b)
+          :different (node= a c))))
+
 ;;; Deep tests. Each shape at +DEEP+ levels: WALK-AST's event count,
 ;;; FOLD-AST's node count and MAP-AST's length, each checked against a count
 ;;; derived from the shape's own structure, not from the code under test;
-;;; TRANSFORM-AST with IDENTITY returns the same root, by EQ; TRANSFORM-AST
+;;; TRANSFORM-AST with IDENTITY returns the same root; TRANSFORM-AST
 ;;; rebuilding every node with COPY-NODE returns a tree NODE= to the
 ;;; original; NODE= of two separately built trees is true, and false when
-;;; only the deepest leaf's text differs. Deep values never reach a failure
-;;; message: every comparison on a tree is wrapped in TRUE or FALSE around
-;;; EQ or NODE=, both of which return a plain boolean, and every IS compares
-;;; plain numbers.
+;;; only the deepest leaf's text differs.
 
 (define-test deep-block-quotes-walks
-  (let* ((expected (+ +deep+ 3))
-         (tree-a (deep-block-quotes +deep+))
-         (tree-b (deep-block-quotes +deep+))
-         (tree-c (deep-block-quotes +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-block-quotes +deep+))
+        (nodes (+ +deep+ 3)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-emphasis-walks
-  (let* ((expected (+ +deep+ 3))
-         (tree-a (deep-emphasis +deep+))
-         (tree-b (deep-emphasis +deep+))
-         (tree-c (deep-emphasis +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-emphasis +deep+))
+        (nodes (+ +deep+ 3)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-lists-walks
-  (let* ((expected (+ (* 2 +deep+) 3))
-         (tree-a (deep-lists +deep+))
-         (tree-b (deep-lists +deep+))
-         (tree-c (deep-lists +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-lists +deep+))
+        (nodes (+ (* 2 +deep+) 3)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-links-walks
-  (let* ((expected (+ +deep+ 3))
-         (tree-a (deep-links +deep+))
-         (tree-b (deep-links +deep+))
-         (tree-c (deep-links +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-links +deep+))
+        (nodes (+ +deep+ 3)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-image-walks
-  (let* ((expected (+ +deep+ 4))
-         (tree-a (deep-image +deep+))
-         (tree-b (deep-image +deep+))
-         (tree-c (deep-image +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-image +deep+))
+        (nodes (+ +deep+ 4)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-footnotes-walks
-  (let* ((expected (+ (* 4 +deep+) 2))
-         (tree-a (deep-footnotes +deep+))
-         (tree-b (deep-footnotes +deep+))
-         (tree-c (deep-footnotes +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-footnotes +deep+))
+        (nodes (+ (* 4 +deep+) 2)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 (define-test deep-tables-walks
-  (let* ((expected (+ (* 3 +deep+) 2))
-         (tree-a (deep-tables +deep+))
-         (tree-b (deep-tables +deep+))
-         (tree-c (deep-tables +deep+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'deep-tables +deep+))
+        (nodes (+ (* 3 +deep+) 2)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 ;;; Wide test: one node, +WIDE+ children.
 
 (define-test wide-paragraph-walks
-  (let* ((expected (1+ +wide+))
-         (tree-a (wide-paragraph +wide+))
-         (tree-b (wide-paragraph +wide+))
-         (tree-c (wide-paragraph +wide+ "y")))
-    (is = (* 2 expected) (count-walk-ast-events tree-a))
-    (is = expected (count-fold-ast-nodes tree-a))
-    (is = expected (length (map-ast #'node-kind tree-a)))
-    (true (eq tree-a (transform-ast #'identity tree-a)))
-    (true (node= tree-a (transform-ast (lambda (n) (copy-node n)) tree-a)))
-    (true (node= tree-a tree-b))
-    (false (node= tree-a tree-c))))
+  (let ((facts (walk-facts #'wide-paragraph +wide+))
+        (nodes (1+ +wide+)))
+    (is = (* 2 nodes) (getf facts :events))
+    (is = nodes (getf facts :nodes))
+    (is = nodes (getf facts :mapped))
+    (true (getf facts :identity))
+    (true (getf facts :rebuilt))
+    (true (getf facts :same))
+    (false (getf facts :different))))
 
 ;;; The serializer (M2 design §4.7, Task 3). A deep HTML tree and a deep
 ;;; element cycle, both built with a loop -- not BUILD-CHAIN, which builds
 ;;; AST nodes, not HTML-tree conses. Deep values never reach a failure
-;;; message: every comparison here is wrapped in TRUE around STRING= or EQ.
+;;; message: the assertions see strings compared inside the asserted form,
+;;; and DEEP-CYCLE-FACTS's plist.
 
 (defconstant +cycle-depth+ 50000
   "The depth HTML-TREE->STRING's deep-cycle test uses: an element that
@@ -290,19 +301,28 @@ check must still find it, without recursing DEPTH deep to do so (M2 design
     outermost))
 
 (define-test deep-html-tree-serializes
-  (let ((expected (concatenate 'string
-                                (repeat-string "<div>" +deep+)
-                                "x"
-                                (repeat-string "</div>" +deep+))))
-    (true (string= expected (html-tree->string (deep-html-tree +deep+))))))
+  (true (string= (concatenate 'string
+                              (repeat-string "<div>" +deep+)
+                              "x"
+                              (repeat-string "</div>" +deep+))
+                 (html-tree->string (deep-html-tree +deep+)))))
+
+(defun deep-cycle-facts (depth)
+  "Serialize the cycle DEEP-CYCLE-HTML-TREE builds at DEPTH. Returns NIL
+when nothing is signalled, and otherwise a plist: :REASON, the reason of the
+INVALID-HTML-TREE signalled, and :DATUM-IS-ROOT, whether its datum is the
+outermost element."
+  (let ((tree (deep-cycle-html-tree depth)))
+    (handler-case (progn (html-tree->string tree) nil)
+      (invalid-html-tree (condition)
+        (list :reason (condition-reason condition)
+              :datum-is-root (eql tree (condition-datum condition)))))))
 
 (define-test deep-cycle-html-tree-signals-element-contains-itself
-  (let ((tree (deep-cycle-html-tree +cycle-depth+)))
-    (handler-case
-        (progn (html-tree->string tree) (true nil "expected invalid-html-tree"))
-      (invalid-html-tree (condition)
-        (true (string= "element contains itself" (condition-reason condition)))
-        (true (eq tree (condition-datum condition)))))))
+  (let ((facts (deep-cycle-facts +cycle-depth+)))
+    (true facts "expected invalid-html-tree")
+    (is string= "element contains itself" (getf facts :reason))
+    (true (getf facts :datum-is-root))))
 
 ;;; The converter (M2 design §4.7). Each of the seven AST shapes at
 ;;; +DEEP+ levels goes through AST->HTML-TREE, then HTML-TREE->STRING, and
@@ -419,15 +439,19 @@ written)."
 ;;; newline) before this was written.
 
 (define-test wide-paragraph-converts
-  (let ((expected (concatenate 'string "<p>" (repeat-string "x" +wide+) "</p>" (string #\Newline))))
-    (true (string= expected (deep-html (n :document nil (wide-paragraph +wide+)))))))
+  (true (string= (concatenate 'string "<p>" (repeat-string "x" +wide+) "</p>" (string #\Newline))
+                 (deep-html (n :document nil (wide-paragraph +wide+))))))
+
+(defun wide-emphasis (width)
+  "A :DOCUMENT holding one :PARAGRAPH with WIDTH :EMPH children, each holding
+:TEXT \"x\"."
+  (n :document nil (make-node :paragraph
+                              :children (loop repeat width
+                                              collect (n :emph nil (txt "x"))))))
 
 (define-test wide-emphasis-converts
   ;; +WIDE+ :EMPH children don't merge the way text does, so the converter's
   ;; open element and the serializer each meet +WIDE+ siblings.
-  (let ((paragraph (make-node :paragraph
-                              :children (loop repeat +wide+
-                                              collect (n :emph nil (txt "x")))))
-        (expected (concatenate 'string "<p>" (repeat-string "<em>x</em>" +wide+) "</p>"
-                               (string #\Newline))))
-    (true (string= expected (deep-html (n :document nil paragraph))))))
+  (true (string= (concatenate 'string "<p>" (repeat-string "<em>x</em>" +wide+) "</p>"
+                              (string #\Newline))
+                 (deep-html (wide-emphasis +wide+)))))
