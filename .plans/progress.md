@@ -55,7 +55,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 |-----------|--------|
 | M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
 | M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
-| M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b with its close-out; GitHub CI proof deferred to October |
+| M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`); M2b in PR #5, green on GitHub CI |
 | M3 unknown extensions and version probes | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
@@ -129,20 +129,23 @@ Plans: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md),
 - [x] Documents: ADRs 0016 to 0018, the amended ADRs, the plan, this file
   (Task 10)
 - [x] Review, fixes, a second review and close-out (Task 11)
-- [ ] Local `debian:trixie` CI proof against the commit, green and seen to
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
   fail; covers the CCL start watchdog too, now that `run-suite` always
   runs CCL through it (ADR-0013) (Task 11)
 
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
-refused for billing, never started).
+refused for billing, never started). They came back on 2026-10-01: PR #5's
+run, the project's first to start, passed (M2b close-out). The `main` run
+follows its merge.
 - [ ] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
   that its `make info` log shows the versions recorded below, and that its
   `make -k test` step shows each Lisp's test counts (M1).
 - [ ] See it fail once: push a throwaway branch with one byte of
-  `tests/fixtures/vocabulary.xml` flipped. The job must go red at
-  `make check-vocabulary`. Delete the branch.
+  `tests/fixtures/vocabulary.xml` flipped, and open a draft PR for it. CI
+  runs only on pull requests and on pushes to `main`. The job must go red
+  at `make check-vocabulary`. Close the PR and delete the branch.
 - [ ] Record both here and tick them.
 
 ## Manual macOS runs
@@ -279,26 +282,37 @@ _None yet._
   - ECL's `:dffi` check and its deferred interrupts;
   - `strlen` and `memcpy` through `foreign-funcall` on ECL;
   - whether CCL's save path unwinds threads that hold the state.
-- **CI evidence (interim, local),** against the working tree before the
-  commit, the step M2a lacked: the workflow's steps ran in
-  `debian:trixie` under Docker.
+- **CI evidence.** The workflow's steps ran three times, with the same
+  results each time:
+  - **locally,** in `debian:trixie` under Docker, against the working tree
+    before the commit, the step M2a lacked;
+  - **locally again,** against commit `cf88cfd`. The clone included
+    submodules, and both toolchain checksums matched;
+  - **on GitHub:** PR #5's run, the project's first to start, passed in
+    3 min 23 s (run 36934771014).
+
+  In each run:
   - **`make info`** reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10,
     CCL 1.13, cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
   - **The other checks:** `check-help`, the launcher tests (28 of 28),
     `check-vocabulary`, `check-pins`, `check-notice` and `make deps`
     passed.
-  - **`make -k test` passed in 117 s:**
+  - **`make -k test` passed,** in 117 s and 115 s locally and 158 s on
+    GitHub:
     - the watchdog's 37 checks;
     - the pure suite's 528 tests on each Lisp;
     - the fixtures;
     - the native suite's 137 tests, which found Debian's libraries by
       directory search.
-  - **With one fixture byte flipped,** every suite failed: the pure suite
-    on all three Lisps, `check-fixtures` (naming `paragraphs`) and the
-    native suite.
 
-  The run against the commit follows it. The GitHub run waits for
-  October.
+  **With one fixture byte flipped,** both local runs failed every suite:
+  the pure suite on all three Lisps, `check-fixtures` (naming
+  `paragraphs`) and the native suite.
+
+  **The watchdog at work:** in both local runs' flipped pass, the pure
+  suite's first CCL start hung (finding 20). Each time the watchdog killed
+  it after 30 s, and the second start ran. No other suite run needed a
+  restart, on GitHub either.
 
 ### 2026-09-30 — M2a stack-safe walks (branch `m2a-stack-safe-walks`)
 
