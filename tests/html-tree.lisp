@@ -87,13 +87,6 @@ a list of the two top-level items."
 
 ;;; Condition helpers
 
-(defun signalled (type thunk)
-  "Call THUNK. Return the condition of TYPE it signalled, or NIL when it
-returned normally or signalled a COMMONMARK-GFM-ERROR of another type."
-  (handler-case (progn (funcall thunk) nil)
-    (commonmark-gfm-error (condition)
-      (and (typep condition type) condition))))
-
 (defun render-option-error (ast options)
   "The INVALID-RENDER-OPTION that (APPLY #'AST->HTML-TREE AST OPTIONS)
 signals, or NIL."

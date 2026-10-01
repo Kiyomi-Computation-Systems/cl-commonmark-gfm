@@ -13,6 +13,7 @@
                 #:node-children
                 #:walk-ast)
   (:import-from #:cl-commonmark-gfm.util
-                #:proper-list-p)
+                #:proper-list-p
+                #:char-utf8-octets)
   (:export #:ast->html-tree
            #:html-tree->string))

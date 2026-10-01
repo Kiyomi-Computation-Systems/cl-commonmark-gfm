@@ -1,6 +1,13 @@
 # ADR-0008: Bind libcmark-gfm directly; no C shim for now
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-01 (found in M2b's Task 5, and
+  corrected in M2b's second review): the first ABI belief says render
+  stress and GC-pressure cycles would expose a reordered allocator. They
+  might not. Calling another slot as `free` is undefined behavior: cmark's
+  `calloc` or `realloc` wrapper (`src/cmark.c`) gets the buffer and
+  whatever a register holds. On SBCL 2.6.4 x86-64 both aborted the
+  process at the first render, so the native suite dies there. Elsewhere,
+  a reordering could leak silently
 - **Date:** 2026-09-27
 - **Scope:** native boundary, node classification, native lifetimes
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.1, §3.3,

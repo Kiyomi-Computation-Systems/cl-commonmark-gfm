@@ -119,3 +119,16 @@ output), so no printer variable needs binding here."
   (false (cl-commonmark-gfm.html-tree::dangerous-url-p "http://x.org"))
   (false (cl-commonmark-gfm.html-tree::dangerous-url-p "")))
 
+;;; HREF-ENCODE: a lone surrogate (M2 design §6.5, finding 11). On SBCL and
+;;; ECL, (CODE-CHAR #xD800) is a character; on CCL it is NIL, so CCL asserts
+;;; that fact instead, so every Lisp still asserts something real.
+
+#-ccl
+(define-test href-encode-percent-encodes-a-lone-surrogate-as-the-replacement-character
+  (is string= "%EF%BF%BD"
+      (cl-commonmark-gfm.html-tree::href-encode (string (code-char #xD800)))))
+
+#+ccl
+(define-test href-encode-percent-encodes-a-lone-surrogate-as-the-replacement-character
+  (false (code-char #xD800)))
+

@@ -1,6 +1,8 @@
 # ADR-0011: cmark's HTML is the tree's oracle; `vendor/cmark-gfm` submodule
 
-- **Status:** Accepted; amended by ADR-0014 (2026-09-27)
+- **Status:** Accepted; amended by ADR-0014 (2026-09-27); and by ADR-0018
+  (2026-09-30): the whole corpus runs in M2, not M3, and cmark's
+  expectations and its XML join as witnesses
 - **Date:** 2026-09-27
 - **Scope:** AST → HTML tree mapping, tree tests, corpus source
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §4.3, §4.6,

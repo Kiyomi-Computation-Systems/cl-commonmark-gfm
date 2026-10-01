@@ -21,9 +21,12 @@
   "Each option of AST->HTML-TREE but :DOCUMENT-WRAPPER, followed by the values
 it accepts, default first (ADR-0012).")
 
-(defun invalid-option (datum reason)
-  "Signal INVALID-RENDER-OPTION for AST->HTML-TREE, naming DATUM and REASON."
-  (error 'invalid-render-option :operation 'ast->html-tree :datum datum :reason reason))
+(defun signal-invalid-render-option (operation datum reason)
+  "Signal INVALID-RENDER-OPTION for OPERATION, naming DATUM and REASON. OPERATION
+is ordinarily AST->HTML-TREE, its own name; MARKDOWN->HTML-TREE passes its own
+name instead, when it checks its tree options before any native call (M2
+design §7.1; ADR-0012)."
+  (error 'invalid-render-option :operation operation :datum datum :reason reason))
 
 (defun document-wrapper-p (value)
   "True when VALUE may be the :DOCUMENT-WRAPPER option: NIL, or a keyword that
@@ -31,26 +34,34 @@ names a non-void element under the serializer's name rule."
   (or (null value)
       (and (valid-html-name-p value) (not (void-element-p value)))))
 
-(defun check-option (key value)
-  "Signal INVALID-RENDER-OPTION unless KEY is an option of AST->HTML-TREE and
-VALUE is one of its values."
+(defun check-option (operation key value)
+  "Signal INVALID-RENDER-OPTION for OPERATION unless KEY is an option of
+AST->HTML-TREE and VALUE is one of its values."
   (let ((choices (rest (assoc key *render-option-choices*))))
     (cond ((eql key :document-wrapper)
            (unless (document-wrapper-p value)
-             (invalid-option value ":document-wrapper must be nil or a non-void element keyword")))
+             (signal-invalid-render-option
+              operation value ":document-wrapper must be nil or a non-void element keyword")))
           ((null choices)
-           (invalid-option key "unknown option"))
+           (signal-invalid-render-option operation key "unknown option"))
           ((not (member value choices))
-           (invalid-option value (format nil "~(~S~) must be one of ~{~(~S~)~^, ~}"
-                                         key choices))))))
+           (signal-invalid-render-option
+            operation value (format nil "~(~S~) must be one of ~{~(~S~)~^, ~}" key choices))))))
 
-(defun check-options (options)
-  "Signal INVALID-RENDER-OPTION unless OPTIONS is a plist of AST->HTML-TREE's
-options with valid values. Every pair is checked, a repeated key's too."
+(defun check-tree-options (options operation)
+  "Signal INVALID-RENDER-OPTION for OPERATION unless OPTIONS is a plist of
+AST->HTML-TREE's options with valid values. Every pair is checked, a repeated
+key's too.
+
+This checker is internal to .HTML-TREE, not exported: MARKDOWN->HTML-TREE
+imports it by name (ADR-0012) to validate its own tree options before any
+native call, so the rules for :RAW-HTML, :SOFTBREAK, :LINK-POLICY and
+:DOCUMENT-WRAPPER stay in one place. AST->HTML-TREE calls it on its own
+OPTIONS, passing its own name."
   (unless (evenp (length options))
-    (invalid-option options "options must be a plist of even length"))
+    (signal-invalid-render-option operation options "options must be a plist of even length"))
   (loop for (key value) on options by #'cddr
-        do (check-option key value)))
+        do (check-option operation key value)))
 
 (defun option-value (options key)
   "KEY's value in the checked OPTIONS, or its default. A repeated key's
@@ -765,7 +776,7 @@ a bad value, before converting anything; and UNSUPPORTED-EXTENSION-NODE,
 naming the first :EXTENSION node depth-first, when the tree holds one.
 It loops over WALK-AST's events, so the Lisp stack doesn't bound a tree's
 depth (M2 design §4.3). Returns a fresh tree, and leaves NODE as it was."
-  (check-options options)
+  (check-tree-options options 'ast->html-tree)
   (let* ((document (as-document node))
          (renderer (make-renderer :raw-html (option-value options :raw-html)
                                   :softbreak (option-value options :softbreak)

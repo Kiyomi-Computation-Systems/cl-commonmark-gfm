@@ -1,7 +1,9 @@
 # ADR-0014: The HTML tree carries cmark's newlines; footnotes follow definition order
 
 - **Status:** Accepted; amended by ADR-0015 (2026-09-30): places are keyed
-  by owner and ordinal, not by path
+  by owner and ordinal, not by path; and by ADR-0018 (2026-09-30): its
+  hand-offs to M2 (the copier's labels, the two divergences and the fixture
+  ASTs) are settled in M2b
 - **Date:** 2026-09-27
 - **Scope:** HTML tree layout and footnotes, serializer rules, M1's tree
   tests, `ast->html-tree`'s options
