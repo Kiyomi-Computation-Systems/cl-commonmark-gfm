@@ -48,14 +48,18 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   compared, so large data is built in a helper or inside the asserted form.
 - CI is one amd64 job in a `debian:trixie` container (ADR-0013).
 - TDD. A test is done when it has been seen to fail.
+- Mutation runs delete the fasl cache before every run, the restoring run
+  included; in the Guix container it's `.guix-env/cache/common-lisp/`.
+  ASDF compares file dates to the second, so a source mutated and restored
+  within one second keeps its mutated fasl.
 
 ## Milestones
 
 | Milestone | Status |
 |-----------|--------|
-| M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
-| M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
-| M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`); M2b in PR #5, green on GitHub CI |
+| M0 design freeze | closed 2026-09-27; GitHub CI proven 2026-10-02 |
+| M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
+| M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
@@ -137,16 +141,34 @@ Plans: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md),
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
 refused for billing, never started). They came back on 2026-10-01: PR #5's
-run, the project's first to start, passed (M2b close-out). The `main` run
-follows its merge.
-- [ ] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
+run, the project's first to start, passed (M2b close-out). Done 2026-10-02.
+- [x] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
   that its `make info` log shows the versions recorded below, and that its
   `make -k test` step shows each Lisp's test counts (M1).
-- [ ] See it fail once: push a throwaway branch with one byte of
+- [x] See it fail once: push a throwaway branch with one byte of
   `tests/fixtures/vocabulary.xml` flipped, and open a draft PR for it. CI
   runs only on pull requests and on pushes to `main`. The job must go red
   at `make check-vocabulary`. Close the PR and delete the branch.
-- [ ] Record both here and tick them.
+- [x] Record both here and tick them.
+
+The record:
+- **The first `main` run** (run 36994077632, on M2b's merge `89fabeb`)
+  passed in 3 min 24 s.
+  - `make info` showed the versions M0 recorded: x86_64,
+    SBCL 2.5.2.debian, ECL 24.5.10, CCL 1.13, cmark-gfm 0.29.0.gfm.13 and
+    ocicl 2.9.0.
+  - `make -k test` passed the watchdog's 37 checks, the fixtures, 528
+    tests on each Lisp (1,569 assertions on SBCL and ECL, 1,568 on CCL)
+    and 137 native tests.
+- **The red run** (draft PR #6, run 36995312367) changed `Heading` to
+  `Xeading` in `tests/fixtures/vocabulary.xml`.
+  - The job went red at `make check-vocabulary`, whose diff showed the
+    line.
+  - `check-pins` and `check-notice` were skipped. `make deps` and
+    `make test` ran anyway, by design (ADR-0013). The pure suite and the
+    fixtures passed, since they don't read the file. The native suite's
+    two vocabulary tests failed.
+  - The PR is closed, and its branch deleted.
 
 ## Manual macOS runs
 
