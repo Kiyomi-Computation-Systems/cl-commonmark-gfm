@@ -2,28 +2,6 @@
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
-;;; A private UTF-8 encoder
-
-(defun char-utf8-octets (char)
-  "Return CHAR's Unicode code point as a list of UTF-8 octets: one octet
-below #x80, two below #x800, three below #x10000, and four otherwise."
-  (let ((code (char-code char)))
-    (cond
-      ((< code #x80)
-       (list code))
-      ((< code #x800)
-       (list (logior #xC0 (ash code -6))
-             (logior #x80 (logand code #x3F))))
-      ((< code #x10000)
-       (list (logior #xE0 (ash code -12))
-             (logior #x80 (logand (ash code -6) #x3F))
-             (logior #x80 (logand code #x3F))))
-      (t
-       (list (logior #xF0 (ash code -18))
-             (logior #x80 (logand (ash code -12) #x3F))
-             (logior #x80 (logand (ash code -6) #x3F))
-             (logior #x80 (logand code #x3F)))))))
-
 ;;; HREF-ENCODE
 
 (defparameter *href-safe-punctuation* "-_.+!*(),%#@?=;:/$~&'"
@@ -54,10 +32,10 @@ all of them, and they are always percent-encoded."
 (defun href-encode (string)
   "Percent-encode STRING for use as a link or image destination, mirroring
 cmark-gfm's HOUDINI_ESCAPE_HREF (M1 design §5.5). STRING is encoded as UTF-8
-with a small private encoder; each octet that is an ASCII alphanumeric or a
-character of *HREF-SAFE-PUNCTUATION* stays as its character, and every other
-octet becomes %XX in uppercase hex. Because % passes through unescaped, an
-existing escape is never re-encoded."
+with CHAR-UTF8-OCTETS (cl-commonmark-gfm.util); each octet that is an ASCII
+alphanumeric or a character of *HREF-SAFE-PUNCTUATION* stays as its
+character, and every other octet becomes %XX in uppercase hex. Because %
+passes through unescaped, an existing escape is never re-encoded."
   (with-output-to-string (out)
     (loop for char across string
           do (dolist (octet (char-utf8-octets char))

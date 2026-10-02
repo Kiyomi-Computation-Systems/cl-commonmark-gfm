@@ -23,6 +23,11 @@ parser written in Lisp.
 - A user with only a system cmark-gfm package, a Lisp and ocicl can load the
   library and either get working results or a named project condition.  Never
   a crash, an unresolved symbol, or a silently loaded second core.
+- No Markdown input crashes the process by itself: three limits keep cmark
+  from aborting (ADR-0016), and an input guard rejects what triggers
+  cmark's footnote-entity bug (ADR-0019).  On a machine already short of
+  memory, cmark's allocator can still abort, and another bug in cmark's
+  parser could still fault the process.
 - Parse UTF-8 GFM to a Lisp value containing no native pointer; it remains valid
   after native resources are released.
 - Preserve source positions and all semantic data needed for the HTML tree,
@@ -73,27 +78,31 @@ concentrates all effects in one reviewable place.
 
 | System | Role | Public |
 |--------+------+--------|
-| =cl-commonmark-gfm/util= | pure helpers the other systems share: =proper-list-p=; the UTF-8 encoder joins it in M2b | no |
-| =cl-commonmark-gfm/conditions= | the project's conditions; pure, extended in M2 | yes |
+| =cl-commonmark-gfm/util= | pure helpers the other systems share: =proper-list-p=, and from M2b the UTF-8 encoder (=char-utf8-octets=, =utf8-length=, =encode-utf8=) and decoder (=decode-utf8=) | no |
+| =cl-commonmark-gfm/conditions= | the project's conditions; pure, extended in M2b (ADR-0017) | yes |
 | =cl-commonmark-gfm/ast= | AST constructors, predicates, queries, pure rewrites | yes |
 | =cl-commonmark-gfm/html-tree= | pure AST-to-HTML-tree conversion and =html-tree->string=; no FFI | yes |
-| =cl-commonmark-gfm/ffi= | CFFI declarations for libcmark-gfm and raw private handles | no |
-| =cl-commonmark-gfm/native= | library discovery, loading, initialization, resource scopes | no |
-| =cl-commonmark-gfm= | convenient parse/render API | yes |
-| =cl-commonmark-gfm/tests= | the pure suite (=make check-purity=); native tests get their own system in M2 (ADR-0007) | test only |
+| =cl-commonmark-gfm/native-core= | the native layer's pure decisions: cmark's constants, option checking and option bits, =classify-node=, =resolve-cmark-libraries=, the limits with their bounds (ADR-0016), and the input guard (ADR-0019) | its four variables, through =cl-commonmark-gfm= |
+| =cl-commonmark-gfm/ffi= | CFFI declarations of the cmark-gfm functions the native layer calls | no |
+| =cl-commonmark-gfm/native= | startup, saved images, lifetimes and counters, the native walker, the copier, the output-bound walk and the render calls | no |
+| =cl-commonmark-gfm= | the four entry points; re-exports the public symbols of the conditions, the AST and the HTML tree, and =/native-core='s four variables | yes |
+| =cl-commonmark-gfm/tests= | the pure suite (=make check-purity=), with the corpus reader | test only |
+| =cl-commonmark-gfm/native-tests= | the native suite (=make check-native=): the oracles, crash guards, lifetimes, threads and saved images | test only |
 
 Package names are dotted (=cl-commonmark-gfm.ast=); system names keep their
-slashes.
+slashes.  What each system depends on, and which load CFFI:
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]] §3.
 
-The pure systems (util, conditions, AST and HTML tree) must load and pass
-their tests without any C library present.  This requirement is the
+The pure systems (util, conditions, AST, HTML tree and native-core) must load
+and pass their tests without any C library present.  This requirement is the
 mechanical enforcement of the functional-core boundary.  They depend on
 nothing outside the project: no alexandria, and no UTF-8 library.
 
 ** Lisp dependencies and development environment
 
-- ocicl acquires Lisp dependencies (CFFI, the test framework).  =ocicl.csv= is
-  committed; =ocicl/= is not (ADR-0003).
+- ocicl acquires Lisp dependencies (CFFI and bordeaux-threads for the native
+  systems, and the test framework).  =ocicl.csv= is committed; =ocicl/= is
+  not (ADR-0003).
 - Tests locate systems through ASDF's =CL_SOURCE_REGISTRY=, never through an
   rc file or =ocicl-runtime.lisp=, so SBCL, CCL and ECL load identically and a
   missing system fails instead of downloading mid-test.
@@ -213,14 +222,21 @@ Notes from verification:
 - There is no autolink node kind: the autolink extension emits =:link=.
 - Footnotes are enabled by the option =CMARK_OPT_FOOTNOTES=, not by a syntax
   extension.  Footnote numbering is computed in Lisp; the AST carries labels.
+  After parsing, a reference's own literal is its number, so the copier
+  takes its label from =cmark_node_parent_footnote_def=: the definition's
+  label as written (ADR-0018).
 - =custom_block= / =custom_inline= never come from parsing and are not in the
   vocabulary; meeting one signals =unsupported-extension-node=.
 
 *** Source positions
 
-Copy source positions as
+Copy source positions only from a parse with =CMARK_OPT_SOURCEPOS=
+(=:sourcepos t=, =parse='s default).  Without it, positions after a
+multi-line code span or raw HTML drift, so =:sourcepos nil= gives no
+positions at all (ADR-0018).  Copy them as
 =((start-line . start-column) . (end-line . end-column))=, or =nil= when
-cmark reports none (email autolinks, for one).  They are reported as-is and
+cmark reports none (a start line of 0: softbreaks, linebreaks and email
+autolinks).  They are reported as-is and
 never repaired: cmark emits end-before-start ranges, zero end columns and
 children that start before their parent.  =make-node= checks only their shape
 (non-negative integers) and accepts inverted ranges.  cmark's columns are
@@ -247,9 +263,12 @@ allocator, as an array of function pointers (ADR-0008).
 
 Use exact ABI types:
 
-- =size_t= becomes CFFI =:size=.
-- C option bitsets use an explicit unsigned 32-bit CFFI type.
+- =size_t= becomes CFFI =:size=, =int= becomes =:int= and =uint16_t= becomes
+  =:uint16=.  Every pointer is =:pointer=.
+- C option bitsets are =int=, as the header declares them.
 - C boolean-like =int= is explicitly decoded to Lisp =t=/=nil=.
+- Strings cmark lends come back as pointers, and are decoded explicitly, as
+  UTF-8.
 - A C =bool= return is declared =:uint8= and tested against zero, so only its
   defined byte is read (ADR-0008).
 - UTF-8 source is an octet vector plus its byte length, never a Lisp character
@@ -270,8 +289,11 @@ a public entry point of 0.29.0.gfm.13:
 | Extension list for HTML rendering | =cmark_parser_get_syntax_extensions(parser)=; the parser outlives rendering |
 | Free render output | the =free= slot of =cmark_get_default_mem_allocator()= |
 | Classify nodes | pure Lisp over the type code, extension identity and type string |
-| Table and task metadata | =cmark_gfm_extensions_get_table_alignments=, =…_get_table_columns=, =…_get_table_row_is_header=, =…_get_tasklist_item_checked= |
+| Table and task metadata | =cmark_gfm_extensions_get_table_alignments=, =…_get_table_columns=, =…_get_tasklist_item_checked=; the header row is known by its type string |
 | Version probe | =cmark_version_string()= |
+
+The functions =/ffi= declares are listed in the
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]], §5.1.
 
 The default =:gfm= profile attaches tables, strikethrough, autolinks, tag
 filter, and task lists, plus the =CMARK_OPT_FOOTNOTES= option (ADR-0006).  Tag
@@ -299,8 +321,10 @@ and ADR-0008 says what the test cannot catch:
 
 1. The allocator's =free= is its third function pointer, read as
    =(cffi:mem-aref allocator :pointer 2)=.  A test asserts the three slots are
-   non-null and distinct; that misses a reordering, which render stress and
-   GC-pressure cycles would expose.
+   non-null and distinct.  That misses a reordering.  Calling another slot
+   as =free= is undefined behavior: on SBCL 2.6.4 x86-64 the native suite
+   dies at its first render, and elsewhere a reordering could leak
+   silently.
 2. The tasklist accessor's C =bool= is one byte (see ABI types above).
 
 Do not bind cmark internal headers, =cmark_llist= internals or extension
@@ -313,31 +337,39 @@ belief, and is recorded in an ADR first (ADR-0008).
 The normal parse path is:
 
 #+begin_src lisp
-(defun parse (markdown &key profile extensions sourcepos)
-  (let ((bytes (utf8-octets markdown))
-        (options (make-parse-options :profile profile
-                                     :extensions extensions
-                                     :sourcepos sourcepos)))
-    (with-native-document (document bytes options)
-      (copy-native-tree (native-root document)))))
+(defun parse (markdown &rest options)
+  (check-type markdown string)
+  (let ((checked (check-options :parse 'parse options)))
+    (check-input markdown checked 'parse)
+    (with-native-state (state)
+      (with-native-document (document markdown checked :state state)
+        (copy-native-tree document checked 'parse)))))
 #+end_src
 
-=make-parse-options= is the pure validation step described under "Option
-objects"; invalid choices fail before any native call.
+=check-options= is the pure step described under "Options", and
+=check-input= applies the input limits (ADR-0016) and the input guard
+(ADR-0019).  Both run before =with-native-state=, which starts cmark on the
+first call (ADR-0017), so a bad option, an oversized input or one the guard
+rejects fails before any native call.  =with-native-state= then holds the
+state until the document is released, so cmark is never closed under the
+parse (ADR-0017).
 
 A =native-document= handle owns one =cmark_parser *= and its finished root,
 together:
 
 - *Parse:* =cmark_parser_new(options)=; attach the selected extensions;
-  =cmark_parser_feed(bytes, length)= with the octet vector pinned for the
-  call; =cmark_parser_finish= → root.  A null root signals
-  =native-parse-error=.
+  =cmark_parser_feed(bytes, length)= with the octet vector pinned for that
+  call only; =cmark_parser_finish= → root, under the finish lock
+  (ADR-0017).  A null parser or root signals =native-parse-error=.
 - *Render:* =cmark_render_html= (passing
   =cmark_parser_get_syntax_extensions(parser)=) or =cmark_render_plaintext=,
-  while the handle is alive.
+  while the handle is alive.  A null buffer signals =native-render-error=.
 - *Release:* =with-native-document= is an internal =unwind-protect= resource
-  scope.  It calls =cmark_node_free(root)=, then =cmark_parser_free(parser)=,
-  exactly once, on success, condition, and non-local exit.
+  scope.  It clears the document's alive flag, then calls
+  =cmark_node_free(root)=, then =cmark_parser_free(parser)=, each exactly
+  once, on success, condition, and non-local exit.  Every native accessor
+  checks the alive flag, so a document used after its scope signals instead
+  of touching freed memory (ADR-0017).
 
 =copy-native-tree= eagerly copies every string and scalar, then returns a pure
 AST.
@@ -359,6 +391,9 @@ Ownership rules:
   native test suite asserts all three are zero when it ends; this is the leak
   check.
 - A finalizer may be an emergency leak backstop, never normal cleanup.
+- Every cmark call runs with interrupts deferred, so an interrupt, such as
+  a timeout, lands when the call returns, never inside cmark's allocator.
+  Timeouts are coarse as a result (ADR-0017).
 
 ** Library discovery and initialization
 
@@ -388,13 +423,22 @@ is passed in, so every branch is tested against synthetic listings.
    listing every directory searched and the override variable's name.
 3. *Load and verify.*  Load the core, then the extensions, by absolute path.
    =cmark_version_string()= must equal ="0.29.0.gfm.13"=, else
-   =native-abi-mismatch= with both versions.  Register the core extensions.
-   Smoke-parse a table, a checked task item and a footnote under =:gfm=; they
-   must classify to =:table=, =:task-item= and =:footnote-reference=, else
+   =native-abi-mismatch= with both versions.  Register the core extensions,
+   and cache the five extensions and the allocator's =free=.  Smoke-parse a
+   table, a checked task item and a footnote under =:gfm=; they must classify
+   to =:table=, =:task-item= and =:footnote-reference=, else
    =native-initialization-error=.
 
-Initialization is process-global, idempotent, and runs once under a lock
-before the first parser is constructed.
+Startup ([[file:2026-09-30-m2-native-layer-design.md][M2 design]] §5.2) runs
+on the first call that needs cmark, once per process, under a lock
+(ADR-0017).  A failed attempt closes what it loaded and publishes nothing,
+so the next call tries again.  Trying again is unsafe while something else
+in the process keeps libcmark-gfm loaded.  Before an image is saved, the
+Lisps' own save hooks close both libraries and clear the state, so a saved
+image starts up again wherever it runs.  While any call holds the state,
+they close nothing, and the save fails instead.  If a save goes ahead
+anyway, a restore hook clears any published state when the image starts
+(M2 design §5.3).
 
 The Guix container sets =CL_COMMONMARK_GFM_LIBS= to its profile's two
 versioned paths; its =LD_LIBRARY_PATH= is for ocicl's =libcrypto= only
@@ -410,8 +454,11 @@ compiles no C; the runtime version check, the smoke parse, the ABI-belief
 tests and the header-constant check against =vendor/cmark-gfm= guard against
 ABI drift.  A Groveler-based developer check may be added later.
 
-No reader conditionals belong in AST or HTML-tree code.  If a loader workaround
-is needed, confine it to =native= and cover it with an integration test.
+No reader conditionals belong in AST or HTML-tree code.  In the library they
+appear only in =/native=: the save and restore hooks, deferring interrupts,
+and ECL's =:dffi= check (ADR-0017).
+If a loader workaround is needed, confine it there and cover it with an
+integration test.
 
 ** SBCL
 
@@ -423,6 +470,10 @@ deployment, but that is an application delivery mode, not a library assumption.
 - Do not rely on finalizer timing or a GC run for native cleanup.
 - Keep source octets live for every call and do not retain raw addresses.
 - Version 1's no-callback policy avoids callback support differences.
+- A function on =sb-ext:*save-hooks*= closes both libraries before an image
+  is saved, and one on =sb-ext:*init-hooks*= clears any published state
+  when an image starts (ADR-0017).
+- Each cmark call runs inside =sb-sys:without-interrupts= (ADR-0017).
 
 ** CCL
 
@@ -437,6 +488,11 @@ configuration on macOS.
 - Do not retain implementation-owned string storage across a foreign call.
 - Keep all loader branches inside the native shell; AST/HTML-tree code stays
   completely shared.
+- A function on =ccl:*save-exit-functions*= closes both libraries before an
+  image is saved, and one on =ccl:*restore-lisp-functions*= clears any
+  published state when an image starts (ADR-0017).  Both are first
+  exercised in M4.
+- Each cmark call runs inside =ccl:without-interrupts= (ADR-0017).
 
 ** ECL
 
@@ -480,7 +536,13 @@ core/extensions pair and passes native integration tests.
 - No Lisp dereference of a cmark structure, except the default allocator's
   =free= slot (ADR-0008): every other C structure remains opaque.
 - Check every status and pointer result before access.
-- Use =size_t= end-to-end and reject an encoded input that cannot fit it.
+- Use =size_t= end-to-end.
+- No input reaches cmark past the three limits, each checked before cmark
+  does the work it guards (ADR-0016), or past the input guard, which
+  rejects what triggers cmark's footnote-entity bug when footnotes are on
+  (ADR-0019).
+- Hold the finish lock around =cmark_parser_finish=: it writes cmark's
+  global tables, and concurrent parses would corrupt each other (ADR-0017).
 - Copy render output before freeing it through the allocator's =free= slot.
 - Do not allow C callbacks into Lisp in v1: that avoids foreign-thread entry,
   callback rooting/lifetime, and exceptions crossing C frames.
@@ -518,40 +580,65 @@ escapes, but does not check URLs added to a tree after conversion.
 
 | Condition | Meaning |
 |-----------+---------|
+| =invalid-option= | the parent of the two below |
+| =invalid-parse-option= | a bad parse option; =parse= signals it for every option problem |
+| =invalid-render-option= | from a renderer or =ast->html-tree=: a bad render or tree option, an unknown key, an odd-length list |
+| =resource-limit-exceeded= | an input, its nodes or its output would pass one of the three limits (ADR-0016) |
+| =unsupported-input= | with footnotes on, a =[= followed by an entity that decodes to =^=: cmark-gfm can't parse it safely (ADR-0019) |
+| =native-error= | the parent of the six below |
 | =native-library-not-found= | the pinned core/extensions pair could not be found or loaded |
-| =native-abi-mismatch= | the runtime cmark-gfm version is not the pin |
+| =native-abi-mismatch= | the runtime cmark-gfm version is not the pin, or asking the library for it failed |
 | =dynamic-ffi-unavailable= | ECL requires its static deployment route |
-| =native-initialization-error= | registration or extension smoke parse failed |
+| =native-initialization-error= | startup failed after the version check: an extension or the allocator's =free= is missing, a call into the loaded libraries failed, or the smoke parse failed in any way |
 | =native-parse-error= | a document could not be produced |
 | =native-render-error= | a renderer could not produce a buffer |
 | =unsupported-extension-node= | no safe semantic AST mapping exists |
 | =invalid-ast-node= | a node, attribute key or transform result breaks the AST schema |
-| =invalid-render-option= | options are incompatible or in the wrong API |
 | =invalid-html-tree= | =html-tree->string= was given a malformed node |
 
-All are subtypes of =commonmark-gfm-error=, an =error=.  Each names the
-operation, the offending datum and a reason; the native ones add library
-versions and the paths or directories tried.  Raw CFFI errors are
-implementation details, not the routine public vocabulary.
+All are subtypes of =commonmark-gfm-error=, an =error=, and report
+"operation: reason: datum"; every slot defaults to =nil=.
+=resource-limit-exceeded= adds the limit's variable and its effective
+maximum; the native ones add the override, the paths or directories tried,
+and the versions.  A native document used after release signals an internal
+condition that isn't exported.  Raw CFFI errors are implementation details,
+not the routine public vocabulary.  Each condition's slots and causes:
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]] §7.4.
 
 * Functional AST and HTML tree
 
-** Option objects
+** Options
 
-Validate a pure Lisp option object before entering the native shell.  It
-contains a cmark option bitset, selected extensions, and source-position
-policy.  Invalid names or incompatible choices fail before parsing.
+Every entry point takes its options as a =&rest= list and checks them by
+hand, before any native call (ADR-0014, ADR-0017).  =check-options=, pure, in
+=/native-core=, resolves each option to its value or its default.  An
+odd-length list, an unknown key, a bad value, or a repeated or unknown
+extension signals; when a key repeats, the leftmost value wins, but every
+value must be valid.  The parse, HTML and plaintext option bits follow from
+the checked options, and rendering always carries the parse's bits
+(ADR-0006).
 
-The default =:gfm= profile attaches core GFM extensions and enables footnotes.
-=:commonmark= attaches none and leaves footnotes off.  Store the selected profile/extensions in document metadata so consumers
-can distinguish syntax that did not match from an extension that was disabled.
+The default =:gfm= profile attaches the five core extensions and turns
+footnotes on; =:commonmark= attaches none and leaves footnotes off.  The
+profile only supplies defaults: an explicit =:extensions= or =:footnotes=
+overrides it.  The parse's options are stored on the =:document= node, so
+consumers can tell syntax that didn't match from an extension that was off.
+
+Each option's values, its default per entry point, the condition a bad one
+signals, and the option bits:
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]] §7.2 and §7.3.
 
 ** Native-to-Lisp copier
 
-=copy-native-tree= is the sole impure AST stage.  It walks the native tree
-depth-first through cmark's public accessors, copies values, classifies each
-node with the pure =classify-node= (ADR-0008), and returns a pure tree.  It has
-a tested case for every supported cmark and core-GFM node type.
+=copy-native-tree= is the sole impure AST stage (ADR-0018).  It walks the
+native tree with the one native walker (=cmark_node_first_child=,
+=cmark_node_next= and =cmark_node_parent=, with its own stack and no
+=cmark_iter=), copies values through cmark's public accessors, classifies
+each node with the pure =classify-node= (ADR-0008), and builds the AST
+bottom-up through =make-node=.  It copies every node kind but =:extension=,
+and counts nodes against =*max-nodes*= (ADR-0016).  Its attributes,
+positions and text follow the M2 design's §6.3 to §6.5, and four oracles
+check it over the whole corpus (see Tests).
 
 Its default behavior is not data loss: emit =:extension= if it can safely
 identify the foreign extension; otherwise signal =unsupported-extension-node=.
@@ -647,30 +734,45 @@ value wins, as with =&key=, but every value must be valid, so
 * Public API sketch
 
 #+begin_src lisp
-(parse markdown &key profile extensions sourcepos)
-;; string -> document AST
+(parse markdown &rest options)
+;; string -> :document AST
+;; options: :profile :extensions :footnotes :smart :sourcepos (default t)
+
+(markdown->html markdown &rest options)
+;; string -> string, from cmark's HTML renderer
+;; options: :profile :extensions :footnotes :smart :sourcepos (default nil)
+;;          :softbreak :unsafe-html
+
+(markdown->plaintext markdown &rest options)
+;; string -> string, from cmark's plaintext renderer
+;; options: :profile :extensions :footnotes :smart :softbreak :width
+
+(markdown->html-tree markdown &rest options)
+;; string -> HTML tree: (ast->html-tree (parse …) …), parsed without positions
+;; options: :profile :extensions :footnotes :smart, and the tree options
 
 (ast->html-tree node &rest options)
 ;; options: :raw-html :softbreak :link-policy :document-wrapper, checked by hand
 ;; AST -> HTML tree (list of nodes, or one wrapper element)
 
-(markdown->html-tree markdown &rest parse-and-tree-keys)
-;; string -> HTML tree
-
 (html-tree->string tree)
 ;; HTML tree -> string; adds no layout, so a converted tree prints as cmark's HTML
 
-(markdown->html markdown &key profile extensions sourcepos unsafe-html)
-;; string -> string (native renderer)
-
-(markdown->plaintext markdown &key profile extensions width)
-;; string -> string
-
+(walk-ast function node)
 (map-ast function node)
 (fold-ast function initial-value node)
 (transform-ast function node)
 ;; pure structural utilities (see AST contract)
+
+*max-input-octets* *max-nodes* *max-output-octets* ; the limits (ADR-0016)
+*cmark-gfm-libraries*                              ; the override (ADR-0009)
 #+end_src
+
+=cl-commonmark-gfm= exports all of these (ADR-0017).  MARKDOWN is a string;
+anything else signals a =type-error=.  Each entry point checks all its
+options before any native call, then applies the limits and the input
+guard (ADR-0019), then starts cmark if needed.  Options, values and defaults:
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]] §7.2.
 
 Do not silently ignore renderer options.  Passing HTML-tree-only options to
 =markdown->html= signals =invalid-render-option=.
@@ -683,7 +785,7 @@ Phase 1 supports an externally installed cmark-gfm runtime package: the two
 versioned shared libraries, no =-dev= package or C toolchain needed.  It must
 report the pinned version (ADR-0002): Debian trixie ships it; the Guix
 container provides it; the maintainer's macOS install is checked by hand.
-Loading verifies the core library, the extensions library and the runtime
+Startup verifies the core library, the extensions library and the runtime
 version separately (ADR-0009).  Failing clearly is preferable to silently
 loading plain cmark.
 
@@ -721,31 +823,88 @@ Pure tests:
   =unsupported-extension-node= case.
 - Converting twice gives =equal= trees, and a tree holds nothing but lists,
   strings and keywords.
+- Trees 100,000 levels deep and 300,000 children wide go through every walk
+  (ADR-0015).
+- *The native layer's pure parts:* cmark's constants against
+  =vendor/cmark-gfm/src/cmark-gfm.h=, read as text; every option and bad
+  value of each entry point, and their bits; the limits' effective maxima,
+  the table-cell bound and the output bounds' per-node terms; the input
+  guard's matches and near misses; the UTF-8 encoder, and the decoder
+  against the Unicode Standard's well-formed sequences and its
+  maximal-subpart examples; the corpus reader's counts.
 - *Purity:* =make check-purity= runs the pure suite on SBCL, CCL and ECL,
   each even if an earlier one failed, and fails if a =CFFI= package exists
-  after the run.  In M1, =make test= is =check-purity= plus
-  =check-fixtures=; the native suites join it in M2.
+  after the run.
 
-Native integration tests:
+Native tests, on SBCL (CCL and ECL join in M4):
 
-- UTF-8 and source positions; boundary-sized sources and embedded NUL behavior.
-- Tables, strikethrough, autolinks, tag filtering, checked/unchecked task items.
-- HTML/plaintext rendering with the exact parsing extension profile.
-- *The oracle* (ADR-0011): for every example in the pinned corpus
-  (=vendor/cmark-gfm/test/*.txt=),
-  =(html-tree->string (ast->html-tree (parse md)))= equals
-  =(markdown->html md)= byte for byte, under each oracle-backed option.
-  =:link-policy :unsafe= is compared with =CMARK_OPT_UNSAFE= only on examples
-  without raw HTML.  M2 runs it for the node families it copies; M3 over the
-  whole corpus.
-- The live-handle counters (parsers, roots, render buffers) are zero at the end
-  of every native suite.
-- The two ABI-belief tests; render stress; repeated parse/render cycles under
-  GC pressure.
-- Missing library, ABI mismatch, initialization, and unsupported-node conditions.
+- *The corpus:* a pure reader of =vendor/cmark-gfm/test/*.txt= mirrors
+  =spec_tests.py=.  It gives 747 enabled examples in six files, each with its
+  file's base options.
+- *Four oracles* (ADR-0011, ADR-0018), the first three over the corpus:
+  1. cmark's expectations: =markdown->html= with =:unsafe-html t= reproduces
+     the expected HTML byte for byte, on 741 examples;
+  2. the HTML oracle: =(html-tree->string (markdown->html-tree md …))=
+     equals =(markdown->html md …)= under each =:softbreak= value;
+     =:link-policy :unsafe= is compared with =:unsafe-html t= only on
+     examples without raw HTML;
+  3. the XML oracle: a test-only writer prints the copied AST in cmark's
+     XML, which must equal =cmark_render_xml= of the same document;
+  4. the fixture ASTs: each of the 28 cases, parsed, equals its hand-built
+     AST.
 
-There is no sanitizer or Valgrind gate (ADR-0013); revisit in M2 if the
-counters prove too weak.
+  Direct tests cover what no corpus-wide witness sees in the AST itself:
+  labels as written, body-cell alignment, the document's attributes and
+  =:sourcepos nil=.  ADR-0014's two footnote divergences are pinned
+  directly, each by a minimal input whose tree-path HTML is asserted
+  exactly; a corpus example that hits one is listed by name, and must keep
+  differing (ADR-0018).
+- *Crash guards* (ADR-0016): crafted inputs for each source of blowup are
+  rejected with =resource-limit-exceeded= before cmark does the work; below
+  the limits, no bound undercounts.
+- *The input guard* (ADR-0019): each entity form is rejected through every
+  entry point, before any parser is created; near misses parse; with
+  footnotes off, the rejected inputs parse.
+- *Deep documents:* cmark's own stress inputs, through the tree path and
+  =markdown->html= alike.
+- *Lifetimes:* the live-handle counters (parsers, roots, render buffers) are
+  zero at the end of every native suite and after every failure path; a
+  document used after release signals; parse and render loops under forced
+  collections; render stress; the two ABI-belief tests.
+- *Every native condition but =dynamic-ffi-unavailable=* is signalled at
+  least once, through a bad override or an internal wrapper redefined for
+  the test.  That one needs an ECL without =:dffi=, in M4.
+- *Threads* (ADR-0017): concurrent calls give what sequential ones give, on
+  the inputs that race without the finish lock; many first calls at once
+  start cmark once.
+- *A saved image:* a child SBCL saves one, and a second child starts from it
+  with nothing published, then parses.  A save while a worker holds the
+  state is refused, and the worker is unharmed; an image saved with the
+  save hook skipped still starts with nothing published.
+- *Interrupts* (ADR-0017): a worker rendering in a loop, interrupted many
+  times with a =throw=, keeps making progress, and ends with no hold and
+  the counters at zero.  It runs in a child process with a time limit, so
+  a deadlock fails the test instead of hanging the suite.
+- UTF-8 and source positions, including a label cmark cuts inside a
+  character, which becomes U+FFFD; every option through each entry point;
+  and discovery both ways: the override in the container, the directory
+  search in CI.
+
+=make check-native= runs the native suite on each Lisp in =NATIVE_LISPS=
+(=sbcl= by default).  It fails when no tests ran, or when the open counters
+aren't zero at the end.  CCL's release binary sometimes hangs before any
+Lisp code runs, so the Makefile starts CCL, for both suites and for
+=make info=, through a watchdog that kills and restarts a run that hasn't
+started; =make check-watchdog= tests it against a fake CCL (ADR-0013).
+=make test= is =check-watchdog=, =check-purity=, =check-fixtures= and
+=check-native=.  Every check is seen to fail under a targeted change.
+The rules: [[file:2026-09-30-m2-native-layer-design.md][M2 design]] §8.
+
+There is no sanitizer or Valgrind gate (ADR-0013).  M2 was to revisit that
+if the counters proved too weak, and M2b added none: the counters, the
+GC-pressure cycles and the render stress tests stand.  The two upstream
+bugs M2b met were found by reading cmark's C and by review:
+[[file:2026-09-30-m2-native-layer-design.md][M2 design]] findings 16 and 19.
 
 CI is one amd64 job on =ubuntu-latest= in a =debian:trixie= container
 (=.github/workflows/ci.yml=, ADR-0013), on pull requests and pushes to =main=.
@@ -756,9 +915,10 @@ sequence; each runs even if an earlier one fails.  Steps arrive with their
 milestone: =make info= (Lisp versions, architecture, cmark-gfm version),
 =check-help=, the launcher dry run, =check-vocabulary=, =check-pins= and
 =check-notice= now; =make deps= and =make -k test= from M1, run even after
-an earlier step fails; the native suites
-with no override set, and the oracle, from M2.  The manual macOS run records
-the same facts.
+an earlier step fails.  From M2, =make -k test= also runs the native suite
+and its oracles, with no override set, so discovery searches
+=/usr/lib/x86_64-linux-gnu=: on SBCL in M2, and on CCL and ECL from M4.  The
+manual macOS run records the same facts.
 
 ** Milestones
 
@@ -806,9 +966,10 @@ slices, each with its own plan, branch and PR
    over an explicit stack, so memory, not the Lisp's stack, limits depth
    (ADR-0015).  No output changes.
 2. *M2b, the native layer.*  CFFI bindings; finding, loading and starting the
-   pinned libraries; native lifetimes; limits that keep cmark from aborting;
-   a copier for every node kind but =:extension=; the public =parse= and
-   render functions; and four oracles.
+   pinned libraries; native lifetimes; limits that keep cmark from aborting
+   (ADR-0016), and a guard against cmark's footnote-entity bug (ADR-0019);
+   the public =parse= and render functions (ADR-0017); a copier for every
+   node kind but =:extension=, and four oracles (ADR-0018).
 
 Exit, for each slice:
 - *M2a:* =make test= is green on SBCL, CCL and ECL.  M1's 226 tests and 28
@@ -858,7 +1019,7 @@ never an invalid-free crash or unexplained unresolved symbol.
 |------+------------|
 | Core/extension mismatch or a second core loaded | load the pinned pair from one directory by absolute path; version check and smoke parse (ADR-0009) |
 | Wrong renderer allocator | free render output only through the default allocator's =free= slot (ADR-0008) |
-| ABI belief wrong (allocator slot order, =bool= width) | slot and fixture tests; render stress and GC-pressure cycles (ADR-0008) |
+| ABI belief wrong (allocator slot order, =bool= width) | slot and fixture tests (ADR-0008); a reordered allocator passes the slot test, and is undefined behavior: on SBCL 2.6.4 x86-64 the native suite dies at its first render, and elsewhere it could leak silently |
 | Borrowed string retained | eager copy while document is alive |
 | Dynamic extension IDs | identify extensions by cached pointer, never by ID (ADR-0008) |
 | ECL has no =:dffi= | early condition and static-link instructions |
@@ -869,6 +1030,10 @@ never an invalid-free crash or unexplained unresolved symbol.
 | Pin bump changes node vocabulary | =make check-vocabulary= diffs the pinned CLI's XML |
 | macOS regression between manual runs | releases gated on the manual macOS run (ADR-0001) |
 | Trees deeper than the Lisp stack | no depth limit: every walk over an AST or an HTML tree loops over an explicit stack; deep tests at 100,000 levels on each Lisp (ADR-0015) |
+| A small input makes cmark abort or run out of memory (padded tables, footnote references, plaintext prefixes) | three limits, each checked before cmark does the work it guards, with hard caps; rejection and soundness tests; memory pressure stays a documented risk (ADR-0016) |
+| Concurrent parses race in cmark's global tables | one finish lock around =cmark_parser_finish=; thread tests on the inputs that race; another cmark-gfm user in the same process can still race (ADR-0017) |
+| An interrupt, such as a timeout, unwinds out of a cmark call and leaves a malloc lock held, so the thread deadlocks | interrupts are deferred during each cmark call, so timeouts are coarse; an interrupt test in a child process with a time limit (ADR-0017) |
+| cmark's footnote-entity bug: with footnotes on, a =[= followed by an entity that decodes to =^= makes cmark read past a 1-byte buffer, then use it after freeing it | an input guard rejects the pattern before any native call, with =unsupported-input=; rejection and near-miss tests; other parser bugs stay a documented risk (ADR-0019) |
 
 * Decision log
 
@@ -910,6 +1075,22 @@ never an invalid-free crash or unexplained unresolved symbol.
 21. Walks loop over explicit stacks, with no depth limit; =walk-ast= is the
     one AST traversal; footnote places are keyed by owner and ordinal, not by
     path.  Amends 20 (ADR-0015).
+22. Three limits keep cmark from aborting or exhausting memory:
+    =*max-input-octets*=, =*max-nodes*= and =*max-output-octets*=, each
+    checked before cmark does the work it guards, with hard caps (ADR-0016).
+23. The public API: four entry points whose =&rest= options are checked by
+    hand, defaults per function, new conditions, one re-exporting package.
+    cmark starts on first use under a lock; a finish lock serializes
+    =cmark_parser_finish=; the Lisps' own save hooks close the libraries; an
+    alive flag guards every native access (ADR-0017).
+24. The copier copies every node kind but =:extension=, takes each
+    reference's label from its definition, and copies positions only with
+    =SOURCEPOS=.  Four witnesses check it over the whole corpus in M2.
+    Amends 11, 17, 19 and 20 (ADR-0018).
+25. An input guard: with footnotes on, every entry point rejects a =[=
+    followed by an entity that decodes to =^=, which trips a memory bug in
+    cmark's parser.  It runs with the limits, before any native call, and
+    signals a new condition, =unsupported-input=.  Amends 23 (ADR-0019).
 
 Full records live in =.plans/decisions/=.
 

@@ -1,7 +1,9 @@
 # ADR-0005: Classify nodes by type code first; vocabulary verified against 0.29.0.gfm.13
 
 - **Status:** Accepted; the classification decision is superseded by ADR-0008;
-  footnote numbering amended by ADR-0014 (2026-09-27)
+  footnote numbering amended by ADR-0014 (2026-09-27); finding 2 amended by
+  ADR-0018 (2026-09-30): after parsing, a reference's literal is its number,
+  and its label comes from `cmark_node_parent_footnote_def`
 - **Date:** 2026-09-27
 - **Scope:** AST vocabulary, node classification
 - **Evidence:** `tests/fixtures/vocabulary.md` and cmark-gfm's XML for it,

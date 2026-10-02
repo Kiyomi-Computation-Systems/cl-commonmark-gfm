@@ -4,6 +4,7 @@
 #   scripts/guix-env make <target>
 
 SBCL ?= sbcl
+CCL  ?= ccl
 
 # The container's ocicl, pinned by tag AND commit (ADR-0003, ADR-0004).
 # `make ocicl` refuses a tag that has moved. Outside Guix, use your own ocicl:
@@ -40,7 +41,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-fixtures fixtures-html test check-guix check-guix-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog test check-guix check-guix-inside clean
 
 help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_.-]+:.*?## / \
@@ -61,7 +62,13 @@ info: ## Print the toolchain and cmark-gfm versions in use
 	@echo "arch      : $$(uname -m)"
 	@echo "sbcl      : $$($(SBCL) --version 2>/dev/null || echo missing)"
 	@echo "ecl       : $$(ecl --version 2>/dev/null || echo missing)"
-	@echo "ccl       : $$(ccl --eval '(progn (princ (lisp-implementation-version)) (ccl:quit))' 2>/dev/null || echo missing)"
+	@ccl_out=$$(scripts/lisp-start-watchdog "$(CCL_START_WINDOW)" "$(CCL_START_TRIES)" "$(LISP_START_MARKER)" \
+	  $(CCL) -n -b --eval '(progn (format t "~&~A~%" "$(LISP_START_MARKER)") (finish-output) (princ (lisp-implementation-version)) (terpri) (ccl:quit))' 2>/dev/null); \
+	if [ $$? -eq 0 ]; then \
+	  echo "ccl       : $$(printf '%s\n' "$$ccl_out" | tail -n 1)"; \
+	else \
+	  echo "ccl       : missing"; \
+	fi
 	@echo "cmark-gfm : $$(if command -v cmark-gfm >/dev/null; then cmark-gfm --version | sed -n 's/^cmark-gfm \([^ ]*\).*/\1/p'; else echo missing; fi) (CLI; pinned $(CMARK_GFM_VERSION))"
 	@echo "ocicl     : $$(if command -v ocicl >/dev/null; then ocicl version </dev/null 2>/dev/null | head -1; else echo missing; fi)"
 
@@ -180,44 +187,93 @@ check-notice: ## Diff NOTICE's COPYING section against vendor/cmark-gfm/COPYING
 	tail -n +$$start NOTICE | diff -u vendor/cmark-gfm/COPYING - \
 	  && echo "check-notice: NOTICE reproduces vendor/cmark-gfm/COPYING"
 
-# The Lisps check-purity runs the pure suite on. CL_SOURCE_REGISTRY below
-# lists the repository root, non-recursively (one trailing slash), so ASDF
-# finds cl-commonmark-gfm.asd but never walks into vendor/ or .guix-env/;
-# then ocicl// recursively, so it finds every dependency ocicl installed.
-# There is no empty entry, so no inherited configuration (e.g. a home
-# directory source-registry.conf) leaks in (M1 design §7.1, §7.2).
+# The Lisps each test suite runs on. check-purity runs the pure suite on
+# all three; check-native runs the native suite on SBCL alone until M4 adds
+# CCL and ECL (M2 design §8.5).
+LISPS ?= sbcl ccl ecl
+NATIVE_LISPS ?= sbcl
+
+# Both suites find their systems through this CL_SOURCE_REGISTRY. It lists
+# the repository root, non-recursively (one trailing slash), so ASDF finds
+# cl-commonmark-gfm.asd but never walks into vendor/ or .guix-env/; then
+# ocicl// recursively, so it finds every dependency ocicl installed. There
+# is no empty entry, so no inherited configuration (e.g. a home directory
+# source-registry.conf) leaks in (M1 design §7.1, §7.2).
+TEST_SOURCE_REGISTRY := $(CURDIR)/:$(CURDIR)/ocicl//
+
+# CCL 1.13's release binary sometimes hangs inside its own startup, before
+# any Lisp code runs, and is deaf to SIGTERM (finding 20, M2 design §8.5;
+# ADR-0013). run-suite below runs CCL only through
+# scripts/lisp-start-watchdog, which waits CCL_START_WINDOW seconds for
+# LISP_START_MARKER -- tests/run.lisp and tests/run-native.lisp's first,
+# flushed line of output -- before killing the run and starting it again,
+# up to CCL_START_TRIES times. `make check-watchdog` tests the script
+# itself, against a fake.
+CCL_START_WINDOW ?= 30
+CCL_START_TRIES  ?= 3
+LISP_START_MARKER := ;; lisp started
+
+# $(call run-suite,TARGET,LISPS,RUNNER) runs RUNNER (tests/run.lisp or
+# tests/run-native.lisp) on each Lisp in LISPS, reports each Lisp under
+# TARGET's name, and fails when any Lisp fails or is unknown.
 #
 # SBCL gets a 2 GB heap wherever it runs. Debian's SBCL, which CI uses
 # (ADR-0013), defaults to 1 GB and Guix's to 3 GB. The deep tests need more
 # than 768 MB at their peak, and under 1 GB CI's run ran out of heap while
 # the container's passed.
-LISPS ?= sbcl ccl ecl
+#
+# An empty or blank LISPS/NATIVE_LISPS makes the `for` loop below run zero
+# times, leaving $$failed empty: nothing would run, yet TARGET would report
+# a pass. $(strip ...) catches that first: both "" and " " strip to "".
+define run-suite
+@if [ -z "$(strip $(2))" ]; then \
+  echo "$(1): no Lisps given" >&2; \
+  exit 1; \
+fi; \
+failed=""; \
+for lisp in $(2); do \
+  if [ "$$lisp" = ccl ]; then \
+    if CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" scripts/lisp-start-watchdog \
+         "$(CCL_START_WINDOW)" "$(CCL_START_TRIES)" "$(LISP_START_MARKER)" \
+         $(CCL) -n -b -l $(3) </dev/null; then \
+      echo "$(1): $$lisp passed"; \
+    else \
+      echo "$(1): $$lisp failed" >&2; \
+      failed="$$failed $$lisp"; \
+    fi; \
+    continue; \
+  fi; \
+  case "$$lisp" in \
+    sbcl) cmd="$(SBCL) --dynamic-space-size 2048 --non-interactive --no-sysinit --no-userinit --load $(3)" ;; \
+    ecl)  cmd="ecl -norc -load $(3)" ;; \
+    *) echo "$(1): unknown Lisp '$$lisp'" >&2; cmd=""; failed="$$failed $$lisp" ;; \
+  esac; \
+  if [ -n "$$cmd" ]; then \
+    if CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" $$cmd </dev/null; then \
+      echo "$(1): $$lisp passed"; \
+    else \
+      echo "$(1): $$lisp failed" >&2; \
+      failed="$$failed $$lisp"; \
+    fi; \
+  fi; \
+done; \
+if [ -n "$$failed" ]; then \
+  echo "$(1): failed on:$$failed" >&2; \
+  exit 1; \
+fi; \
+echo "$(1): passed on all of: $(2)"
+endef
 
 check-purity: ## Run the pure test suite (tests/run.lisp) on each Lisp in $(LISPS)
-	@failed=""; \
-	for lisp in $(LISPS); do \
-	  case "$$lisp" in \
-	    sbcl) cmd="$(SBCL) --dynamic-space-size 2048 --non-interactive --no-sysinit --no-userinit --load tests/run.lisp" ;; \
-	    ccl)  cmd="ccl -n -b -l tests/run.lisp" ;; \
-	    ecl)  cmd="ecl -norc -load tests/run.lisp" ;; \
-	    *) echo "check-purity: unknown Lisp '$$lisp'" >&2; cmd=""; failed="$$failed $$lisp" ;; \
-	  esac; \
-	  if [ -n "$$cmd" ]; then \
-	    if CL_SOURCE_REGISTRY="$(CURDIR)/:$(CURDIR)/ocicl//" $$cmd </dev/null; then \
-	      echo "check-purity: $$lisp passed"; \
-	    else \
-	      echo "check-purity: $$lisp failed" >&2; \
-	      failed="$$failed $$lisp"; \
-	    fi; \
-	  fi; \
-	done; \
-	if [ -n "$$failed" ]; then \
-	  echo "check-purity: failed on:$$failed" >&2; \
-	  exit 1; \
-	fi; \
-	echo "check-purity: passed on all of: $(LISPS)"
+	$(call run-suite,check-purity,$(LISPS),tests/run.lisp)
 
-test: check-purity check-fixtures ## Run the full test suite
+check-native: ## Run the native test suite (tests/run-native.lisp) on each Lisp in $(NATIVE_LISPS)
+	$(call run-suite,check-native,$(NATIVE_LISPS),tests/run-native.lisp)
+
+check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
+	@sh tests/lisp-start-watchdog.sh
+
+test: check-watchdog check-purity check-fixtures check-native ## Run the full test suite
 
 check-guix: ## Test scripts/guix-env on the host, then run the checks inside the container
 	@sh tests/guix-env-launcher.sh

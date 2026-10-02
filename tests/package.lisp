@@ -3,16 +3,36 @@
 (defpackage #:cl-commonmark-gfm.tests
   (:use #:cl)
   (:import-from #:cl-commonmark-gfm.util
-                #:proper-list-p)
+                #:proper-list-p
+                #:char-utf8-octets
+                #:utf8-length
+                #:encode-utf8)
   (:import-from #:cl-commonmark-gfm.conditions
                 #:commonmark-gfm-error
                 #:condition-operation
                 #:condition-datum
                 #:condition-reason
                 #:invalid-ast-node
+                #:invalid-option
+                #:invalid-parse-option
                 #:invalid-render-option
                 #:invalid-html-tree
-                #:unsupported-extension-node)
+                #:unsupported-extension-node
+                #:resource-limit-exceeded
+                #:condition-limit
+                #:condition-maximum
+                #:unsupported-input
+                #:native-error
+                #:native-library-not-found
+                #:condition-override
+                #:condition-paths
+                #:native-abi-mismatch
+                #:condition-expected-version
+                #:condition-found-version
+                #:dynamic-ffi-unavailable
+                #:native-initialization-error
+                #:native-parse-error
+                #:native-render-error)
   (:import-from #:cl-commonmark-gfm.ast
                 #:node
                 #:node-p
@@ -31,6 +51,106 @@
   (:import-from #:cl-commonmark-gfm.html-tree
                 #:ast->html-tree
                 #:html-tree->string)
+  (:import-from #:cl-commonmark-gfm.native-core
+                #:*cmark-gfm-version*
+                #:*extension-keywords*
+                #:*cmark-header-constants*
+                #:+cmark-node-document+
+                #:+cmark-node-block-quote+
+                #:+cmark-node-list+
+                #:+cmark-node-item+
+                #:+cmark-node-code-block+
+                #:+cmark-node-html-block+
+                #:+cmark-node-custom-block+
+                #:+cmark-node-paragraph+
+                #:+cmark-node-heading+
+                #:+cmark-node-thematic-break+
+                #:+cmark-node-footnote-definition+
+                #:+cmark-node-text+
+                #:+cmark-node-softbreak+
+                #:+cmark-node-linebreak+
+                #:+cmark-node-code+
+                #:+cmark-node-html-inline+
+                #:+cmark-node-custom-inline+
+                #:+cmark-node-emph+
+                #:+cmark-node-strong+
+                #:+cmark-node-link+
+                #:+cmark-node-image+
+                #:+cmark-node-footnote-reference+
+                #:+cmark-opt-sourcepos+
+                #:+cmark-opt-hardbreaks+
+                #:+cmark-opt-nobreaks+
+                #:+cmark-opt-validate-utf8+
+                #:+cmark-opt-smart+
+                #:+cmark-opt-footnotes+
+                #:+cmark-opt-unsafe+
+                #:+cmark-bullet-list+
+                #:+cmark-ordered-list+
+                #:+cmark-period-delim+
+                #:+cmark-paren-delim+
+                #:classify-node
+                #:resolve-cmark-libraries
+                #:*cmark-gfm-libraries*
+                #:check-options
+                #:checked-options
+                #:checked-profile
+                #:checked-extensions
+                #:checked-footnotes
+                #:checked-smart
+                #:checked-sourcepos
+                #:checked-softbreak
+                #:checked-unsafe-html
+                #:checked-width
+                #:checked-tree-options
+                #:parse-option-bits
+                #:html-option-bits
+                #:plaintext-option-bits
+                #:document-attributes
+                #:*max-input-octets*
+                #:*max-nodes*
+                #:*max-output-octets*
+                #:effective-maximum
+                #:check-limit
+                #:table-cell-bound
+                #:footnote-entity-index
+                #:decimal-width
+                #:html-sourcepos-octets
+                #:html-block-quote-bound
+                #:html-list-bound
+                #:html-item-bound
+                #:html-task-item-bound
+                #:html-heading-bound
+                #:code-block-language-octets
+                #:html-code-block-bound
+                #:html-html-block-bound
+                #:html-thematic-break-bound
+                #:html-paragraph-bound
+                #:html-text-bound
+                #:html-softbreak-bound
+                #:html-linebreak-bound
+                #:html-code-bound
+                #:html-html-inline-bound
+                #:html-emph-bound
+                #:html-strong-bound
+                #:html-strikethrough-bound
+                #:html-link-bound
+                #:html-image-bound
+                #:html-table-bound
+                #:html-table-header-bound
+                #:html-table-row-bound
+                #:html-table-cell-bound
+                #:html-footnote-definition-bound
+                #:html-footnote-reference-bound
+                #:html-footnote-backref-bound
+                #:html-footnote-section-bound
+                #:html-footnote-suffix-bound
+                #:html-footnote-backrefs-bound
+                #:footnote-reference-bound
+                #:plaintext-item-marker-width
+                #:plaintext-prefix-width
+                #:plaintext-out-bound
+                #:plaintext-event-steps
+                #:plaintext-steps-bound)
   (:import-from #:parachute
                 #:define-test
                 #:is
@@ -38,4 +158,16 @@
                 #:true
                 #:false
                 #:fail
-                #:of-type))
+                #:of-type)
+  ;; For the native suite (M2 design §8.2, §8.3; ADR-0018): the corpus
+  ;; reader, and the fixture ASTs of witness 4 (tests/native/copier.lisp).
+  (:export #:corpus-examples
+           #:corpus-example
+           #:corpus-example-p
+           #:corpus-example-file
+           #:corpus-example-section
+           #:corpus-example-number
+           #:corpus-example-markdown
+           #:corpus-example-html
+           #:corpus-example-options
+           #:*oracle-cases*))

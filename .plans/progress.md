@@ -24,7 +24,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   (ADR-0004).
 - The project compiles no C. It binds libcmark-gfm directly through CFFI
   (ADR-0008) and loads the pinned pair by absolute path (ADR-0009).
-- The AST and HTML-tree systems load and pass tests with no C library present.
+- The pure systems (util, conditions, AST, HTML tree and native-core) load
+  and pass tests with no C library present.
 - The pure systems depend on nothing outside the project (no alexandria, no
   UTF-8 library).
 - The HTML tree is LHTML-shaped (ADR-0010) and oracle-tested against cmark's
@@ -33,8 +34,18 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 - The AST vocabulary is the plan's table (ADR-0005). Changing it needs an ADR.
 - No walk over a tree recurses on its depth: walks loop over explicit stacks
   (ADR-0015).
+- No input reaches cmark past the three limits, `*max-input-octets*`,
+  `*max-nodes*` and `*max-output-octets*`, or past the input guard. Each
+  limit is checked before cmark does the work it guards (ADR-0016). With
+  footnotes on, the guard rejects what triggers cmark's footnote-entity bug,
+  before parsing (ADR-0019).
 - Tests use Parachute, run with the quiet reporter and exit non-zero on
   failure (ADR-0007).
+- Every native suite ends with the open counters (parsers, roots and
+  buffers) at zero (ADR-0008).
+- Tests keep large values out of assertions. Parachute keeps every result
+  until the run ends, with each assertion's closure and the values it
+  compared, so large data is built in a helper or inside the asserted form.
 - CI is one amd64 job in a `debian:trixie` container (ADR-0013).
 - TDD. A test is done when it has been seen to fail.
 
@@ -44,7 +55,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 |-----------|--------|
 | M0 design freeze | closed 2026-09-27; GitHub CI proof deferred to October |
 | M1 pure core | closed 2026-09-28; GitHub CI proof deferred to October |
-| M2 stack-safe walks and the native layer | in progress: M2a |
+| M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`); M2b in PR #5, green on GitHub CI |
 | M3 unknown extensions and version probes | not started — evaluate property-based testing (ADR-0007) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
@@ -88,7 +99,8 @@ Plan: [implementation](2026-09-27-m1-pure-core-implementation.md)
 ### M2 checklist
 
 Spec: [M2 design](2026-09-30-m2-native-layer-design.md) ·
-Plan: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md)
+Plans: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md),
+[M2b implementation](2026-09-30-m2b-native-layer-implementation.md)
 
 **M2a, stack-safe walks** (branch `m2a-stack-safe-walks`):
 
@@ -101,43 +113,39 @@ Plan: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md)
 - [x] Local `debian:trixie` CI proof against the commit, green and seen to
   fail (Task 6)
 
-**M2b, the native layer** (branch `m2b-native-layer`; its plan follows
-M2a), one line per spec section:
+**M2b, the native layer** (branch `m2b-native-layer`):
 
-- [ ] Bindings: `/ffi`'s declarations and one native walker (§5.1)
-- [ ] Startup: once per process, under a lock (§5.2)
-- [ ] Saved images: the save hooks (§5.3)
-- [ ] Lifetimes and counters: `with-native-document`, the alive flag (§5.4)
-- [ ] Limits: the three variables, the table-cell and output bounds (§5.5)
-- [ ] The copier's walk: `copy-native-tree` (§6.1)
-- [ ] Classification: `classify-node` (§6.2)
-- [ ] Attributes, footnote labels included (§6.3)
-- [ ] Source positions (§6.4)
-- [ ] Text: UTF-8 in and out (§6.5)
-- [ ] Entry points: `parse` and the three `markdown->…` functions (§7.1)
-- [ ] Options and their defaults (§7.2)
-- [ ] Option bits (§7.3)
-- [ ] Conditions (§7.4)
-- [ ] Threads (§7.5)
-- [ ] Pure suite additions (§8.1)
-- [ ] The corpus reader (§8.2)
-- [ ] The four oracles (§8.3)
-- [ ] Other native tests: deep documents, crash guards, lifetimes (§8.4)
-- [ ] Runner, `make check-native` and CI (§8.5)
-- [ ] Seen to fail (§8.6)
-- [ ] Documents: ADRs 0016 to 0018, and the corrections to ADR-0005, 0011,
-  0013 and 0014 and to the plan (§9, §10)
+- [x] Dependencies, the encoder and the conditions (Task 1)
+- [x] `/native-core`: constants, classification and discovery (Task 2)
+- [x] `/native-core`: options, option bits and limits (Task 3)
+- [x] `/ffi` and `/native`: startup, lifetimes, walking and rendering
+  (Task 4)
+- [x] Threads and saved images (Task 5)
+- [x] The copier and `parse` (Task 6)
+- [x] The renderers, the corpus and two oracles (Task 7)
+- [x] The XML oracle (Task 8)
+- [x] Output bounds and the crash guards (Task 9)
+- [x] The input guard, with ADR-0019 (Task 9b)
+- [x] Documents: ADRs 0016 to 0018, the amended ADRs, the plan, this file
+  (Task 10)
+- [x] Review, fixes, a second review and close-out (Task 11)
+- [x] Local `debian:trixie` CI proof against the commit, green and seen to
+  fail; covers the CCL start watchdog too, now that `run-suite` always
+  runs CCL through it (ADR-0013) (Task 11)
 
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
-refused for billing, never started).
+refused for billing, never started). They came back on 2026-10-01: PR #5's
+run, the project's first to start, passed (M2b close-out). The `main` run
+follows its merge.
 - [ ] Confirm the first `main` run of `.github/workflows/ci.yml` is green,
   that its `make info` log shows the versions recorded below, and that its
   `make -k test` step shows each Lisp's test counts (M1).
 - [ ] See it fail once: push a throwaway branch with one byte of
-  `tests/fixtures/vocabulary.xml` flipped. The job must go red at
-  `make check-vocabulary`. Delete the branch.
+  `tests/fixtures/vocabulary.xml` flipped, and open a draft PR for it. CI
+  runs only on pull requests and on pushes to `main`. The job must go red
+  at `make check-vocabulary`. Close the PR and delete the branch.
 - [ ] Record both here and tick them.
 
 ## Manual macOS runs
@@ -148,6 +156,163 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-01 — M2b native layer (branch `m2b-native-layer`)
+
+- **Built** (M2 spec §3 and §5 to §8, ADRs 0016 to 0019):
+  - the dependencies, pinned in `ocicl.csv`: CFFI and bordeaux-threads,
+    with alexandria, babel, trivial-features, global-vars and
+    trivial-garbage;
+  - `/util`: the UTF-8 encoder (a lone surrogate becomes U+FFFD) and
+    `decode-utf8` (U+FFFD for each maximal subpart);
+  - the conditions: `invalid-option` over `invalid-parse-option` and
+    `invalid-render-option`; `resource-limit-exceeded`;
+    `unsupported-input`; and `native-error` with its six subtypes;
+  - `/native-core`, pure, tested on all three Lisps:
+    - cmark's constants, checked against its header;
+    - `classify-node` and `resolve-cmark-libraries`;
+    - options and their bits;
+    - the three limits and the table-cell bound;
+    - the output bounds' per-node terms;
+    - the input guard's scanner;
+  - `/ffi`, and `/native`:
+    - startup under a lock;
+    - holds, and the save and restore hooks;
+    - the finish lock;
+    - documents with an alive flag, and counters;
+    - interrupts deferred around each cmark call;
+    - the walker, the copier, rendering, and the output-bound walks;
+  - `cl-commonmark-gfm`: `parse`, `markdown->html`, `markdown->plaintext`
+    and `markdown->html-tree`, with the re-exports;
+  - tests: the corpus reader, the four oracles, the crash guards, threads,
+    saved images and interrupts; `tests/run-native.lisp`,
+    `make check-native`, and the CCL start watchdog (`make
+    check-watchdog`).
+
+  Eleven tasks and a task 9b, run by subagents one at a time, with the
+  documents alongside:
+  - Sonnet for the dependencies, `/native-core`, the renderers and the
+    corpus, the input guard, and the mechanical fixes;
+  - Opus for the native layer, threads and images, the copier, the XML
+    oracle, the output bounds, the documents, the reviews and the subtle
+    fixes.
+- **Tests,** in the Guix container, from a cold cache:
+  - the pure suite runs 528 tests on SBCL 2.6.4, CCL 1.13 and ECL 24.5.10
+    (1,569 assertions on SBCL and ECL, 1,568 on CCL, whose
+    `(code-char #xD800)` is `nil`). M2a ran 280;
+  - the native suite runs 137 tests with 1,280 assertions on SBCL;
+  - the watchdog's test passes 37 checks under bash and dash;
+  - all 28 fixtures match, and `check-help` and `check-guix` pass;
+  - `make test` takes 122 s, three Lisps and the native suite included.
+
+  Every check was seen to fail: under each task's listed mutations, and
+  for each review fix, before the fix.
+- **The four oracles:**
+  - cmark's own expectations: 741 of 741 examples, byte for byte;
+  - the HTML oracle: 2,241 of 2,241 (747 examples, three softbreaks), and
+    668 of 668 comparing `:link-policy :unsafe` with `:unsafe-html t`;
+  - the XML oracle: 747 of 747, positions included;
+  - the fixture ASTs: 28 of 28.
+
+  The corpus hits neither of ADR-0014's divergences. Two minimal inputs
+  pin them, with exact HTML.
+- **Crash guards:**
+  - no bound ever undercounted:
+    - across the corpus, 8,964 HTML and 4,482 plaintext comparisons;
+    - crafted inputs and 20 of cmark's stress inputs;
+    - a reviewer's fuzz of 324,000 comparisons, and 48,212 more
+      footnote-heavy ones;
+  - the table-cell bound is tight on cmark's tables stress input (89,998
+    cells against 90,000);
+  - each source of blowup is rejected, and the monotonic counters show
+    when: before any parser for the input and table-cell limits, before
+    any buffer for the output limit;
+  - a 1 MiB prose document bounds to about 5.9 MiB of HTML.
+- **Reviews:**
+  - **two Opus reviewers,** split by area:
+    - the native runtime's reviewer ran three rounds;
+    - the pure core, test validity and the documents' reviewer ran two;
+  - **round 1** found 8 must-fixes, among them:
+    - a save hook that closed cmark under other threads' parses;
+    - a raw decoder error on valid input;
+    - a parsed document's `:extensions` that could alias the global
+      list;
+    - a circular override that hung startup;
+  - **round 2** found the interrupt deadlock and a wrong document claim,
+    and **round 3** two should-fixes. All are fixed;
+  - **accepted as nits:** conditions naming internal operations, and
+    CFFI's library table growing by two entries per startup.
+- **Found** (spec findings 14 to 21; each changed the design):
+  - **14. Concurrent parses corrupt each other** through cmark's global
+    tables: 246 of 320 wrong. Fixed by the finish lock.
+  - **15. A restart in one process needs both libraries to unload.**
+    `/proc/self/maps` checks guard it.
+  - **16. cmark misreads a footnote label that starts with an entity for
+    `^`:** heap bytes in the output, and a fault on a long label. Fixed by
+    the input guard and `unsupported-input` (ADR-0019). It's an upstream
+    bug, unfixed at cmark-gfm's newest commit.
+  - **17. References inside a dropped definition still render backrefs.**
+    The HTML bound counts openers in the input.
+  - **18. SBCL runs save hooks before it refuses a save with threads
+    running.** Fixed by holds: closing refuses while a call holds the
+    state.
+  - **19. cmark can cut a character in a dangling label.** Output is
+    decoded with U+FFFD.
+  - **20. CCL 1.13's release binary sometimes hangs before it starts,**
+    under Docker on Linux 7.1.1 (6 hangs in 30). Fixed by the watchdog
+    (ADR-0013).
+  - **21. An interrupt that unwinds out of a cmark call can deadlock** on
+    glibc's malloc lock: 20 of 20 runs without the deferral. Fixed by
+    deferring interrupts during each call, which costs about 6 to 9% on a
+    1 MiB document.
+- **Found, besides:**
+  - A source mutated, run and restored within a second keeps its mutated
+    fasl. Mutation series now delete fasls before every run.
+  - Debian's SBCL 2.5.2 trips an internal AVER after many aborted saves
+    with threads running. The saved-image test makes one deterministic
+    attempt.
+  - `markdown->html` returned babel's octet count as a second value; it
+    now returns one value.
+  - CFFI on SBCL loads libraries without `:dont-save`, so a saved image
+    would reopen cmark; the save hook closes it first.
+  - Task 4 was implemented before its tests were run, and made up for it
+    with a mutation for each of its 39 tests.
+- **For M4:**
+  - the native suite on CCL and ECL;
+  - ECL's `:dffi` check and its deferred interrupts;
+  - `strlen` and `memcpy` through `foreign-funcall` on ECL;
+  - whether CCL's save path unwinds threads that hold the state.
+- **CI evidence.** The workflow's steps ran three times, with the same
+  results each time:
+  - **locally,** in `debian:trixie` under Docker, against the working tree
+    before the commit, the step M2a lacked;
+  - **locally again,** against commit `cf88cfd`. The clone included
+    submodules, and both toolchain checksums matched;
+  - **on GitHub:** PR #5's run, the project's first to start, passed in
+    3 min 23 s (run 36934771014).
+
+  In each run:
+  - **`make info`** reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10,
+    CCL 1.13, cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - **The other checks:** `check-help`, the launcher tests (28 of 28),
+    `check-vocabulary`, `check-pins`, `check-notice` and `make deps`
+    passed.
+  - **`make -k test` passed,** in 117 s and 115 s locally and 158 s on
+    GitHub:
+    - the watchdog's 37 checks;
+    - the pure suite's 528 tests on each Lisp;
+    - the fixtures;
+    - the native suite's 137 tests, which found Debian's libraries by
+      directory search.
+
+  **With one fixture byte flipped,** both local runs failed every suite:
+  the pure suite on all three Lisps, `check-fixtures` (naming
+  `paragraphs`) and the native suite.
+
+  **The watchdog at work:** in both local runs' flipped pass, the pure
+  suite's first CCL start hung (finding 20). Each time the watchdog killed
+  it after 30 s, and the second start ran. No other suite run needed a
+  restart, on GitHub either.
 
 ### 2026-09-30 — M2a stack-safe walks (branch `m2a-stack-safe-walks`)
 
@@ -314,9 +479,13 @@ _None yet._
   - [x] Recursive traversals overflow the stack at 10,000 nested block
     quotes on SBCL and CCL (50,000 on ECL). cmark handles 50,000. Done in
     M2a (ADR-0015).
-  - [ ] Settle the two footnote divergences against the oracle.
-  - [ ] The copier gives each reference its definition's label as written.
-  - [ ] Show that each hand-built fixture AST equals the copier's.
+  - [x] Settle the two footnote divergences against the oracle. Done in
+    M2b: the HTML oracle hits neither over the whole corpus (Task 7), so
+    both stay documented in ADR-0014, and two direct tests pin them.
+  - [x] The copier gives each reference its definition's label as written.
+    Done in M2b: Task 6's label test (ADR-0018).
+  - [x] Show that each hand-built fixture AST equals the copier's. Done in
+    M2b: Task 6's witness 4 compares all 28 cases (ADR-0018).
   - [x] Add a non-copying child accessor for internal walks, and share the
     duplicated `proper-list-p` (from the code review). Done in M2a:
     `walk-ast`, and `cl-commonmark-gfm/util`.

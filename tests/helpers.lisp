@@ -1,6 +1,17 @@
-;;;; Small AST builders shared by the AST, HTML-tree and oracle tests.
+;;;; Small AST builders and condition helpers shared across the test suite.
 
 (in-package #:cl-commonmark-gfm.tests)
+
+;;; Condition helpers
+
+(defun signalled (type thunk)
+  "Call THUNK. Return the condition of TYPE it signalled, or NIL when it
+returned normally or signalled a COMMONMARK-GFM-ERROR of another type."
+  (handler-case (progn (funcall thunk) nil)
+    (commonmark-gfm-error (condition)
+      (and (typep condition type) condition))))
+
+;;; AST builders
 
 (defun n (kind attributes &rest children)
   "Build a NODE of KIND with plist ATTRIBUTES and the given CHILDREN."

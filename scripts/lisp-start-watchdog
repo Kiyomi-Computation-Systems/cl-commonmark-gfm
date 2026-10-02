@@ -1,0 +1,155 @@
+#!/bin/sh
+# scripts/lisp-start-watchdog WINDOW TRIES MARKER CMD [ARG...]
+#
+# Runs CMD (with its arguments) in the background, output captured to a
+# temporary file, and waits up to WINDOW seconds for MARKER to appear in
+# that output: tests/run.lisp and tests/run-native.lisp print one fixed
+# marker line, flushed, as their first act. CCL 1.13's release binary
+# sometimes hangs inside its own startup, before any Lisp code runs, and
+# is deaf to SIGTERM (finding 20, M2 design §8.5; ADR-0013). On silence
+# this kills the run with SIGKILL and starts it again, up to TRIES times,
+# reporting each attempt on standard error.
+#
+# Once the marker appears, or CMD exits on its own (a load error, say,
+# before it ever reaches the marker), the run is never retried past that
+# point: this script waits for it, prints its captured output, and exits
+# with its exit status. So a test that fails, or hangs, after starting
+# still fails.
+#
+# Detecting "has CMD exited" cannot use `kill -0`: a child that has
+# exited but not yet been reaped is a zombie, and `kill -0` on a zombie
+# still succeeds, so it can never tell "still running" from "exited, not
+# yet collected". Instead CMD runs inside a small background wrapper that
+# is CMD's real parent, so it can `wait` on CMD with no such ambiguity;
+# the wrapper drops CMD's pid and exit status into files this script
+# polls, both plain file checks.
+#
+# SIGINT and SIGTERM (a CI job killed, say) SIGKILL whatever run is in
+# progress, show what it wrote, and exit 130 or 143: a signal must never
+# leave the watchdog waiting on a hung run forever, or leave a started one
+# running on its own after the watchdog is gone. A signal in an attempt's
+# first moments, before the wrapper has recorded CMD's pid, waits up to
+# about a second for it.
+set -u
+
+if [ "$#" -lt 4 ]; then
+  echo "usage: lisp-start-watchdog WINDOW TRIES MARKER CMD [ARG...]" >&2
+  exit 2
+fi
+
+reject_argument() {  # NAME VALUE
+  echo "lisp-start-watchdog: $1 must be a positive integer, got '$2'" >&2
+  exit 2
+}
+
+require_positive_integer() {  # NAME VALUE
+  case $2 in
+    ''|*[!0-9]*|0*) reject_argument "$1" "$2" ;;
+  esac
+}
+
+window=$1; shift
+tries=$1; shift
+marker=$1; shift
+
+require_positive_integer WINDOW "$window"
+require_positive_integer TRIES "$tries"
+
+workdir=$(mktemp -d) || exit 2
+out=$workdir/out
+pidfile=$workdir/pid
+exitfile=$workdir/exit
+
+trap 'rm -rf "$workdir"' EXIT
+
+# A run in progress when INT or TERM lands: SIGKILL it -- a hung CCL
+# ignores SIGTERM too -- show what it wrote, and exit with the signal's
+# usual status. Without this, INT or TERM only removed the work
+# directory: a hung run was left waiting forever, and a finished one was
+# orphaned.
+#
+# The wrapper records CMD's pid a moment after it starts. A signal in
+# that moment would find no pid file, kill nothing, and leave the run
+# going on its own, so this waits for the file, up to about a second.
+# -s, not -f: the shell creates the file before it writes the pid. With
+# no attempt under way, no file comes, and nothing is killed after the
+# wait.
+on_signal() {
+  waited=0
+  while [ ! -s "$pidfile" ] && [ "$waited" -lt 10 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if [ -s "$pidfile" ]; then
+    kill -KILL "$(cat "$pidfile")" 2>/dev/null
+  fi
+  cat "$out" 2>/dev/null
+  exit "$1"
+}
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+attempt=1
+started=0
+while :; do
+  : >"$out"
+  rm -f "$pidfile" "$exitfile"
+
+  # The wrapper: forks CMD as its own child (so it, not this script, is
+  # the one whose `wait` is unambiguous), records CMD's pid for us to
+  # signal, then CMD's exit status once `wait` returns.
+  (
+    "$@" >"$out" 2>&1 &
+    gpid=$!
+    echo "$gpid" >"$pidfile"
+    wait "$gpid"
+    echo "$?" >"$exitfile"
+  ) &
+  wrapper_pid=$!
+
+  elapsed=0
+  while [ "$elapsed" -lt "$window" ]; do
+    if grep -qF -- "$marker" "$out" 2>/dev/null || [ -f "$exitfile" ]; then
+      started=1
+      break
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  # The window's last second counts too: one more check, right at the
+  # edge, before anything is killed. Without it, a marker written after
+  # the last poll but before the window closed (at 1.6s of a 2s window,
+  # say) was missed, and a perfectly good run was killed and retried.
+  if [ "$started" -ne 1 ]; then
+    if grep -qF -- "$marker" "$out" 2>/dev/null || [ -f "$exitfile" ]; then
+      started=1
+    fi
+  fi
+
+  [ "$started" -eq 1 ] && break
+
+  # Silence: a hung CCL ignores SIGTERM, so SIGKILL is the only way out.
+  if [ -f "$pidfile" ]; then
+    kill -KILL "$(cat "$pidfile")" 2>/dev/null
+  fi
+  wait "$wrapper_pid" 2>/dev/null
+
+  if [ "$attempt" -ge "$tries" ]; then
+    echo "lisp-start-watchdog: gave up after $tries attempts;" \
+         "no marker within ${window}s each time" >&2
+    cat "$out"
+    exit 1
+  fi
+
+  echo "lisp-start-watchdog: attempt $attempt timed out after ${window}s;" \
+       "killed, retrying" >&2
+  attempt=$((attempt + 1))
+done
+
+# Started (by marker or by exiting on its own): wait for it, whatever
+# that takes, then its own exit status is the one that counts.
+wait "$wrapper_pid"
+status=$(cat "$exitfile" 2>/dev/null || echo 1)
+cat "$out"
+exit "$status"
