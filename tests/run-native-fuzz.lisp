@@ -15,6 +15,27 @@
 
 (asdf:load-system "cl-commonmark-gfm/native-tests")
 
+;; Fail fast, before any property case runs, when cmark-gfm's pinned
+;; libraries can't be found (ADR-0009), exactly as tests/run-native.lisp
+;; does, with the same arguments START-NATIVE-LAYER gives
+;; RESOLVE-CMARK-LIBRARIES (src/native/startup.lisp).
+(handler-case
+    (cl-commonmark-gfm.native-core:resolve-cmark-libraries
+     :libraries (cl-commonmark-gfm.native::native-override
+                 cl-commonmark-gfm.native-core:*cmark-gfm-libraries*)
+     :environment (uiop:getenv "CL_COMMONMARK_GFM_LIBS")
+     :os (cl-commonmark-gfm.native::current-os)
+     :multiarch (cl-commonmark-gfm.native::current-multiarch)
+     :regular-file-p #'cl-commonmark-gfm.native::regular-file-p)
+  (cl-commonmark-gfm.conditions:native-library-not-found (condition)
+    (format *error-output* "~&fuzz-native: ~A~%" condition)
+    (format *error-output*
+            "~&On a Guix host, run it in the project's container: scripts/guix-env ~
+             make <target>, which sets CL_COMMONMARK_GFM_LIBS. Elsewhere, install ~
+             libcmark-gfm 0.29.0.gfm.13, or set CL_COMMONMARK_GFM_LIBS to the two ~
+             library paths.~%")
+    (uiop:quit 2)))
+
 (load (merge-pathnames "runner.lisp" *load-truename*))
 
 ;; A bad CL_COMMONMARK_GFM_SEED or CL_COMMONMARK_GFM_CASES must fail loudly

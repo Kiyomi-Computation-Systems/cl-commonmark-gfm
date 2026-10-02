@@ -6,6 +6,14 @@
 SBCL ?= sbcl
 CCL  ?= ccl
 
+# The make target to name in a missing-tool hint (scripts/require-tools):
+# what the user typed, $(MAKECMDGOALS), stripped -- so `make test` hints
+# `scripts/guix-env make test`, never an inner prerequisite's own name
+# such as check-purity -- or, when MAKECMDGOALS is empty, the recipe's own
+# target, $@. Recursively expanded (=, not :=), so each reference picks up
+# whichever recipe is running it.
+GOAL = $(strip $(if $(MAKECMDGOALS),$(MAKECMDGOALS),$@))
+
 # The container's ocicl, pinned by tag AND commit (ADR-0003, ADR-0004).
 # `make ocicl` refuses a tag that has moved. Outside Guix, use your own ocicl:
 # nothing else in this Makefile names .guix-env/.
@@ -41,7 +49,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog test fuzz check-guix check-guix-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-guix check-guix-inside clean
 
 help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_.-]+:.*?## / \
@@ -85,15 +93,18 @@ ocicl: ## Build the pinned ocicl from source into .guix-env/bin
 	cd "$(OCICL_SRC)" && SBCL=$(SBCL) $(SBCL) --non-interactive --no-userinit --load setup.lisp
 
 deps: ## Install the Lisp dependencies pinned in ocicl.csv
+	@scripts/require-tools "$(GOAL)" ocicl
 	@ocicl install </dev/null
 
 # The AST vocabulary table in the plan was read off this output. If a pin
 # bump changes it, the table (and ADR-0005) must be revisited.
 check-vocabulary: ## Diff the pinned cmark-gfm's XML for the vocabulary fixture against the record
+	@scripts/require-tools "$(GOAL)" cmark-gfm
 	@cmark-gfm $(VOCAB_FLAGS) -t xml $(VOCAB_MD) | diff -u $(VOCAB_XML) - \
 	  && echo "check-vocabulary: cmark-gfm output matches $(VOCAB_XML)"
 
 check-fixtures: ## Diff the pinned cmark-gfm's HTML for every oracle case against its committed .html
+	@scripts/require-tools "$(GOAL)" cmark-gfm
 	@if [ ! -f $(FIXTURES_CASES) ]; then \
 	  echo "check-fixtures: $(FIXTURES_CASES) is missing" >&2; \
 	  exit 1; \
@@ -125,6 +136,7 @@ check-fixtures: ## Diff the pinned cmark-gfm's HTML for every oracle case agains
 	echo "check-fixtures: every case matches cmark-gfm's output"
 
 fixtures-html: ## Write missing tests/fixtures/html/*.html files from cmark-gfm; never overwrites
+	@scripts/require-tools "$(GOAL)" cmark-gfm
 	@failed=""; \
 	while read -r name file rest; do \
 	  case "$$name" in ""|\#*) continue ;; esac; \
@@ -232,6 +244,16 @@ if [ -z "$(strip $(2))" ]; then \
   echo "$(1): no Lisps given" >&2; \
   exit 1; \
 fi; \
+needed=""; \
+for lisp in $(2); do \
+  case "$$lisp" in \
+    sbcl) needed="$$needed $(firstword $(SBCL))" ;; \
+    ccl)  needed="$$needed $(CCL)" ;; \
+    ecl)  needed="$$needed ecl" ;; \
+    *) ;; \
+  esac; \
+done; \
+[ -z "$$needed" ] || scripts/require-tools "$(GOAL)" $$needed || exit 2; \
 failed=""; \
 for lisp in $(2); do \
   if [ "$$lisp" = ccl ]; then \
@@ -288,7 +310,10 @@ check-native: ## Run the native suite on $(NATIVE_LISPS); replay with PROPERTY_S
 check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
 	@sh tests/lisp-start-watchdog.sh
 
-test: check-watchdog check-purity check-fixtures check-native ## Run the full test suite
+check-preflight: ## Test that make fails fast, with a hint, when its tools are missing
+	@sh tests/make-preflight.sh
+
+test: check-watchdog check-preflight check-purity check-fixtures check-native ## Run the full test suite
 
 # The property tests' own CI case counts (ADR-0020) give `make test` about
 # 30 s in the container. `make fuzz` replaces every property's own count
@@ -308,8 +333,10 @@ fuzz: ## Run the property tests, more cases (FUZZ_CASES); replay with FUZZ_SEED 
 	  exit 1; \
 	fi; \
 	pure=0; native=0; \
-	( $(call run-suite,fuzz-purity,$(LISPS),tests/run-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ) || pure=1; \
-	( $(call run-suite,fuzz-native,$(NATIVE_LISPS),tests/run-native-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ) || native=1; \
+	( $(call run-suite,fuzz-purity,$(LISPS),tests/run-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ); pure=$$?; \
+	if [ $$pure -eq 2 ]; then exit 2; fi; \
+	( $(call run-suite,fuzz-native,$(NATIVE_LISPS),tests/run-native-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ); native=$$?; \
+	if [ $$native -eq 2 ]; then exit 2; fi; \
 	if [ $$pure -ne 0 ] || [ $$native -ne 0 ]; then \
 	  echo "fuzz: failed" >&2; \
 	  exit 1; \

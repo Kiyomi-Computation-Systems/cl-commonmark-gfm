@@ -302,6 +302,13 @@ _None yet._
     silently emptied two tests. Task 9 caught it.
   - Debian's own libcmark-gfm survived every property case in the
     `debian:trixie` run. A reviewer had feared it keeps cmark's `assert()`s.
+  - **Run on the host,** outside `scripts/guix-env`, `make deps` and `make
+    fuzz` failed obscurely, the maintainer found after the PR opened. So:
+    - the toolchain targets now fail fast, before any Lisp starts, naming
+      the missing tool and the command to run instead, `scripts/guix-env
+      make <goal>` (`scripts/require-tools`);
+    - the native runners check cmark-gfm's libraries before any test;
+    - `make check-preflight`, part of `make test`, pins both, in 26 checks.
 - **For M4:** the native properties on CCL and ECL.
 - **Follow-up:** a footnote-aware generator, with excuses or fixes for
   finding 9's inputs.

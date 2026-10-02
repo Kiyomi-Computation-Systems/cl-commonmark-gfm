@@ -20,6 +20,32 @@
 
 (asdf:load-system "cl-commonmark-gfm/native-tests")
 
+;; Fail fast, before any test compiles or runs, when cmark-gfm's pinned
+;; libraries can't be found (ADR-0009), instead of every test and property
+;; case failing on its own with NATIVE-LIBRARY-NOT-FOUND, the real cause
+;; buried in the details. RESOLVE-CMARK-LIBRARIES
+;; runs with the same arguments START-NATIVE-LAYER gives it
+;; (src/native/startup.lisp): the override, as native namestrings;
+;; CL_COMMONMARK_GFM_LIBS; this machine's OS and multiarch; and a real file
+;; check. So the search that fails here is exactly the one a parse would
+;; run, just before any test, not during one.
+(handler-case
+    (cl-commonmark-gfm.native-core:resolve-cmark-libraries
+     :libraries (cl-commonmark-gfm.native::native-override
+                 cl-commonmark-gfm.native-core:*cmark-gfm-libraries*)
+     :environment (uiop:getenv "CL_COMMONMARK_GFM_LIBS")
+     :os (cl-commonmark-gfm.native::current-os)
+     :multiarch (cl-commonmark-gfm.native::current-multiarch)
+     :regular-file-p #'cl-commonmark-gfm.native::regular-file-p)
+  (cl-commonmark-gfm.conditions:native-library-not-found (condition)
+    (format *error-output* "~&check-native: ~A~%" condition)
+    (format *error-output*
+            "~&On a Guix host, run it in the project's container: scripts/guix-env ~
+             make <target>, which sets CL_COMMONMARK_GFM_LIBS. Elsewhere, install ~
+             libcmark-gfm 0.29.0.gfm.13, or set CL_COMMONMARK_GFM_LIBS to the two ~
+             library paths.~%")
+    (uiop:quit 2)))
+
 (load (merge-pathnames "runner.lisp" *load-truename*))
 
 ;; CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES (M3 plan, Task 9) must
