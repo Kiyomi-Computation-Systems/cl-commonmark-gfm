@@ -63,7 +63,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M0 design freeze | closed 2026-09-27; GitHub CI proven 2026-10-02 |
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
-| M3 unknown extensions and version probes | closed 2026-10-02, with its close-out: property-based testing adopted (ADR-0020) |
+| M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
 
@@ -161,7 +161,7 @@ Plan: [implementation](2026-10-02-m3-extensions-versions-properties-implementati
   this file (Task 10)
 - [x] Documents, part 2: decision 26 and, if adopted, the plan's Tests
   section and a global constraint (Task 10)
-- [ ] Review, fixes and a second review; the local `debian:trixie` CI run,
+- [x] Review, fixes and a second review; the local `debian:trixie` CI run,
   green and seen to fail; close-out; a green GitHub run on the PR
   (Task 11)
 
@@ -323,8 +323,21 @@ _None yet._
     and the native suite.
   - **The CCL watchdog** restarted one hung start, in the first run's
     flipped pass. The second run needed none.
+- **CI evidence (GitHub):** PR #8's runs passed on both commits: `97a66c6`
+  in 4 min 19 s (run 37070701938), and `80954e0`, with the fail-fast
+  checks, in 4 min 22 s (run 37074812870).
+  - **The results matched the local runs:** the same `make info` versions;
+    the pure suite's 579 tests on each Lisp; the native suite's 183; and
+    the preflight's 26 checks.
+  - **`make -k test` took 213 s** on GitHub, in both runs, 55 s more than
+    M2b's 158 s. In the first run:
+    - the native suite took 71 s (M2b: 34 s), mostly the native
+      properties;
+    - the pure suite took 119 s (M2b: 101 s), with the UTF-8 property on
+      three Lisps and 51 new tests.
 
-  The PR's GitHub run follows.
+    So the properties cost roughly 40 to 45 s there, close to ADR-0020's
+    projection of 39 to 42 s.
 
 ### 2026-10-01 — M2b native layer (branch `m2b-native-layer`)
 

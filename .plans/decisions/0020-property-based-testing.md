@@ -247,6 +247,11 @@ As spec §6.7 sets out:
   0.608 s for property 5 on SBCL. GitHub's runner was 1.3 to 1.4 times
   slower than local runs for M2b's `make test` (`progress.md`), so about 39
   to 42 s there.
+  - **Measured on PR #8:** `make -k test` took 213 s on GitHub, against
+    M2b's 158 s. In its first run, the native suite grew from 34 s to
+    71 s, and the pure suite from 101 s to 119 s, M3's other new tests
+    included.
+  - **So the properties take roughly 40 to 45 s there,** as projected.
 - **CI is a regression guard.** A fixed seed gives it the same cases on
   every run, so it never fails by chance; M3 finding 7's case is among
   them. `make fuzz` explores new cases, and a failure there replays from
