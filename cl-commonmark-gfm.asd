@@ -64,6 +64,7 @@
   :pathname "src/native-core/"
   :components ((:file "package")
                (:file "constants")
+               (:file "version")
                (:file "classify")
                (:file "discovery")
                (:file "options")
@@ -93,7 +94,9 @@
                (:file "serialize")
                (:file "html-tree")
                (:file "oracle")
-               (:file "deep")))
+               (:file "deep")
+               (:file "property-harness")
+               (:file "properties")))
 
 (asdf:defsystem "cl-commonmark-gfm/ffi"
   :description "CFFI declarations of the cmark-gfm functions the native layer calls"
@@ -145,6 +148,7 @@
                (:file "walk")
                (:file "render")
                (:file "copier")
+               (:file "extensions")
                (:file "parse")
                (:file "limits")
                (:file "renderers")
@@ -155,4 +159,6 @@
                (:file "stress")
                (:file "image")
                (:file "interrupts")
-               (:file "guard")))
+               (:file "guard")
+               (:file "properties")
+               (:file "divergences")))

@@ -308,3 +308,12 @@ around one paragraph."
 
 (define-test the-xml-writer-caps-indentation-at-40-spaces
   (true (xml-oracle-match-p (nested-quotes 25) '() #'identity)))
+
+;;; M3 finding 7: the table extension can rebuild a paragraph with no
+;;; position, giving an inline inside it a negative column. The writer must
+;;; still match cmark's XML once the AST accepts a negative column
+;;; (ADR-0005).
+
+(define-test the-xml-writer-matches-cmark-for-an-autolink-with-a-negative-column
+  (true (xml-oracle-match-p (format nil "a~%www.g~%b~%|-") '() #'identity))
+  (true (open-counts-zero-p)))

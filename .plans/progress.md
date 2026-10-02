@@ -41,6 +41,9 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   before parsing (ADR-0019).
 - Tests use Parachute, run with the quiet reporter and exit non-zero on
   failure (ADR-0007).
+- CI runs the property tests from a fixed seed with fixed case counts:
+  seed 1 and ADR-0020's counts, so every run tests the same cases.
+  `make fuzz` explores with random seeds (ADR-0020).
 - Every native suite ends with the open counters (parsers, roots and
   buffers) at zero (ADR-0008).
 - Tests keep large values out of assertions. Parachute keeps every result
@@ -60,7 +63,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M0 design freeze | closed 2026-09-27; GitHub CI proven 2026-10-02 |
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
-| M3 unknown extensions and version probes | not started — evaluate property-based testing (ADR-0007) |
+| M3 unknown extensions and version probes | closed 2026-10-02, with its close-out: property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | not started |
 | M5 release candidate | not started |
 
@@ -137,6 +140,31 @@ Plans: [M2a implementation](2026-09-30-m2a-stack-safe-walks-implementation.md),
   fail; covers the CCL start watchdog too, now that `run-suite` always
   runs CCL through it (ADR-0013) (Task 11)
 
+### M3 checklist
+
+Spec: [M3 design](2026-10-02-m3-extensions-versions-properties-design.md) ·
+Plan: [implementation](2026-10-02-m3-extensions-versions-properties-implementation.md)
+
+- [x] The version cross-check: `version-number`, `number-version` and the
+  startup check of `cmark_version()` (Task 1)
+- [x] Unknown extensions, on nodes built through cmark's public API
+  (Task 2)
+- [x] The spike's harness, our contender and the UTF-8 property (Task 3)
+- [x] The bounds and clean-outcome properties (Task 4)
+- [x] The oracle properties and the divergences (Task 5)
+- [x] check-it, the second contender (Task 6)
+- [x] The benchmark (Task 7)
+- [x] Fixes for real bugs the spike finds, if any (Step 7b)
+- [x] ADR-0020, confirmed by the user (Task 8)
+- [x] Integration or removal, as ADR-0020 decides (Task 9)
+- [x] Documents, part 1: the amended ADR-0008 and ADR-0009, the plan's M3,
+  this file (Task 10)
+- [x] Documents, part 2: decision 26 and, if adopted, the plan's Tests
+  section and a global constraint (Task 10)
+- [ ] Review, fixes and a second review; the local `debian:trixie` CI run,
+  green and seen to fail; close-out; a green GitHub run on the PR
+  (Task 11)
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -178,6 +206,118 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-02 — M3 unknown extensions, version probes and property testing (branch `m3-extensions-versions-properties`)
+
+- **Built** (M3 spec §4 to §6; ADR-0020; ADRs 0005, 0007, 0008, 0009, 0014
+  and 0018 amended):
+  - **the version cross-check:**
+    - `version-number` and `number-version` in `/native-core`;
+    - startup also requires `cmark_version()` to return `#x001D000D`;
+  - **unknown-extension tests:** six native tests on nodes built through
+    cmark's public API, with test-only bindings. They pin what M2b's
+    copier already did:
+    - unknown nodes are kept as `:extension`;
+    - custom nodes are rejected;
+    - the output bounds and the HTML tree refuse unknown nodes;
+  - **property-based testing** (ADR-0020):
+    - our own splitmix64 generator and delta-debugging shrinker;
+    - three generators;
+    - five properties as nine Parachute tests: the HTML and XML oracles,
+      the bounds, clean outcomes, and UTF-8;
+    - exact excuses for ADR-0014's two divergences;
+    - `PROPERTY_SEED` and `PROPERTY_CASES` for the suites;
+    - `make fuzz`, with `FUZZ_SEED` and `FUZZ_CASES`;
+  - **a fix for the bug the properties found** (M3 finding 7): positions
+    accept any integer, as cmark reports them (ADR-0005). By the user's
+    decision, M1's rejection test lost its two negative cases, which an
+    acceptance test now covers.
+
+  Eleven tasks and a step 7b, run by subagents one at a time, with the
+  documents alongside:
+  - Sonnet for:
+    - the version check and the unknown-extension tests;
+    - two properties, check-it and the benchmark;
+    - the fix and the integration;
+    - the mechanical review fixes;
+  - Opus for the harness, the oracle properties, ADR-0020, the documents
+    and the reviews.
+- **Tests,** in the Guix container, from a cold cache:
+  - the pure suite runs 579 tests on SBCL, CCL and ECL (M2b: 528). That's
+    1,692 assertions on SBCL and ECL, and 1,691 on CCL;
+  - the native suite runs 183 tests with 1,436 assertions on SBCL (M2b:
+    137);
+  - `make test` takes 155 s, of which the properties take about 29 s;
+  - `make fuzz`, at 150,000 cases a property, takes about 2.5 minutes.
+
+  Every check was seen to fail, under its task's mutations and under each
+  review fix's.
+- **The spike** (spec §6; [the benchmark](2026-10-02-m3-benchmark.md)):
+  check-it ran against our own generator, on the same generators and
+  properties.
+  - **The existing suite caught all seven benchmark mutations.**
+  - **The properties caught five,** the same five with each contender,
+    shrunk to inputs of 0 to 37 characters. They missed the footnote bound
+    (finding 8) and a loose table-cell bound.
+  - **2.2 million cases** on the fixed code found nothing.
+  - **They found one real bug,** finding 7, which the corpus never reached.
+
+  ADR-0020 adopted property testing with our own generator, and the user
+  confirmed it. Ours is as effective as check-it and fits the project
+  better, with replay on every Lisp and no dependency. It is not stronger.
+- **Reviews:**
+  - **Round 1:** two Opus reviewers, split by area.
+    - One found no must-fix and five should-fixes.
+    - The other found two must-fixes: the repeat excuse hid real converter
+      bugs, and ADR-0018 contradicted itself.
+  - **Fix rounds** F1 (Opus) and F2 (Sonnet), with the documents.
+  - **Round 2:** one Opus reviewer.
+    - Every fix checked out, and seven converter mutations couldn't break
+      the exact repeat excuse.
+    - One should-fix: a docstring claimed cmark reports negative lines,
+      which it doesn't. Fixed in F3.
+- **Found** (spec findings 1 to 10):
+  - **1 and 2:** M2b already checked the version string, and
+    `cmark_version()` packs the version as gfm does, not as its header
+    says;
+  - **3 and 4:** cmark's public API builds unknown nodes, and new node
+    types are process-wide state;
+  - **5 and 10:** check-it replays only on the Lisp that made a run, and
+    its generator language can't express Markdown generators;
+  - **6 and 8:** generated inputs rarely hold footnotes;
+  - **7:** cmark reports a negative start column inside a paragraph that
+    the table extension rebuilt;
+  - **9:** ADR-0014's list of divergences was incomplete: three more
+    shapes, and a fourth failing input.
+- **Found, besides:**
+  - `ocicl install`, run from a directory inside the repository, writes to
+    the project's `ocicl.csv`. A probe's install was undone.
+  - Two Parachute traps caught vacuous tests: `is` with an ordering
+    comparator reads its arguments in reverse, and a bare `fail` passes on
+    any error, an undefined function included.
+  - ECL compiles a call to a function in the same file directly, so
+    `with-redefined` can't replace it there. The three library functions
+    the tests redefine that way are now `notinline`.
+  - A helper's name, reused in a second test file of the same package,
+    silently emptied two tests. Task 9 caught it.
+  - Debian's own libcmark-gfm survived every property case in the
+    `debian:trixie` run. A reviewer had feared it keeps cmark's `assert()`s.
+- **For M4:** the native properties on CCL and ECL.
+- **Follow-up:** a footnote-aware generator, with excuses or fixes for
+  finding 9's inputs.
+- **CI evidence (local, before the commit):** the workflow's steps ran in
+  `debian:trixie` under Docker, against the working tree, twice: after the
+  first review's fixes, and again on the final tree.
+  - **`make info`** reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10,
+    CCL 1.13, cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - **Every step passed** both times, and `make -k test` took 152 s.
+  - **With one fixture byte flipped,** every suite failed both times: the
+    pure suite on all three Lisps, `check-fixtures` (naming `paragraphs`)
+    and the native suite.
+  - **The CCL watchdog** restarted one hung start, in the first run's
+    flipped pass. The second run needed none.
+
+  The PR's GitHub run follows.
 
 ### 2026-10-01 — M2b native layer (branch `m2b-native-layer`)
 

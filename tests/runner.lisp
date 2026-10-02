@@ -20,13 +20,16 @@ more than once when a report's results are walked (as FAILING-LEAVES walks
 them); REMOVE-DUPLICATES with EQL leaves one of each."
   (remove-duplicates (coerce (parachute:results report) 'list) :test #'eql))
 
-(defun run-suite (package label)
-  "Run PACKAGE's tests under the quiet reporter and return Parachute's
-report. Parachute records a test's errors, but a serious condition that
-isn't an error, such as a stack overflow, escapes it. Exit 1 when one does,
-naming LABEL: ECL's top level would otherwise exit 0 after an overflow, and
-the make target would report a pass."
-  (handler-case (parachute:test package :report 'parachute:quiet)
+(defun run-suite (designator label)
+  "Run DESIGNATOR's tests under the quiet reporter and return Parachute's
+report. DESIGNATOR is a package, as tests/run.lisp and tests/run-native.lisp
+give it, or a list of test names, as the fuzz runners give it
+(tests/run-fuzz.lisp, tests/run-native-fuzz.lisp): whatever Parachute's own
+TEST accepts. Parachute records a test's errors, but a serious condition
+that isn't an error, such as a stack overflow, escapes it. Exit 1 when one
+does, naming LABEL: ECL's top level would otherwise exit 0 after an
+overflow, and the make target would report a pass."
+  (handler-case (parachute:test designator :report 'parachute:quiet)
     (serious-condition (condition)
       (format *error-output* "~&~A: the run was aborted by ~S~%" label (type-of condition))
       (uiop:quit 1))))

@@ -22,6 +22,16 @@
 
 (load (merge-pathnames "runner.lisp" *load-truename*))
 
+;; CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES (M3 plan, Task 9) must
+;; be read, and a bad value must fail loudly, before any property test runs.
+;; Caught explicitly, rather than left to escape: an uncaught condition
+;; doesn't reliably exit non-zero on every Lisp (progress.md: ECL's top
+;; level can exit 0 after one).
+(handler-case (cl-commonmark-gfm.tests::initialize-property-settings)
+  (cl-commonmark-gfm.tests::property-setting-error (condition)
+    (format *error-output* "~&check-native: ~A~%" condition)
+    (uiop:quit 2)))
+
 (let* ((passed (report-suite (run-suite :cl-commonmark-gfm.native-tests "check-native")
                              "check-native"))
        (counts (cl-commonmark-gfm.native:native-open-counts))

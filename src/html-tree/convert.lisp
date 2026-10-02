@@ -531,6 +531,9 @@ pre-pass counts it (M2 design §4.4)."
   "FOOTNOTE's label, percent-encoded, as its ids and hrefs carry it."
   (href-encode (footnote-label (footnote-definition footnote))))
 
+;;; NOTINLINE as in document.lisp: a test redefines this, called elsewhere here.
+(declaim (notinline reference-id))
+
 (defun reference-id (footnote k)
   "The id of the K-th reference to FOOTNOTE: fnref-L, then fnref-L-K."
   (if (= k 1)

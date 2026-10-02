@@ -56,13 +56,19 @@ CALL-WITH-PUBLISHED-STATE, a refused reset's by RESET-NATIVE-STATE."
 
 ;;; Wrappers a test can redefine, NOTINLINE as in document.lisp
 
-(declaim (notinline %version-string %find-extension %allocator-free))
+(declaim (notinline %version-string %version-number %find-extension %allocator-free))
 
 (defun %version-string ()
   "cmark_version_string's result, as a Lisp string. The call runs with
 interrupts deferred, as every cmark call does."
   (cffi:foreign-string-to-lisp (with-interrupts-deferred (cmark-version-string))
                                :encoding :utf-8))
+
+(defun %version-number ()
+  "cmark_version's result (M3 design §5): a C int, so a packed value with
+bit 31 set (a major version of 128 or more) can come back negative. The call
+runs with interrupts deferred, as every cmark call does."
+  (with-interrupts-deferred (cmark-version)))
 
 (defun %find-extension (name)
   "cmark_find_syntax_extension's pointer for the extension called NAME, or
@@ -164,8 +170,9 @@ closes the other."
 ;;; Steps 4 to 7: what every parse needs
 
 (defun check-version (state)
-  "Signal NATIVE-ABI-MISMATCH unless cmark reports the pinned version (M2
-design §5.2 step 4); otherwise record it in STATE."
+  "Signal NATIVE-ABI-MISMATCH unless cmark reports the pinned version, first
+by string and then by number (M2 design §5.2 step 4; M3 design §5);
+otherwise record the string in STATE."
   (let ((found (%version-string)))
     (unless (and (stringp found) (string= found *cmark-gfm-version*))
       (error 'native-abi-mismatch
@@ -175,7 +182,32 @@ design §5.2 step 4); otherwise record it in STATE."
              :expected-version *cmark-gfm-version*
              :found-version found
              :paths (state-paths state)))
+    (check-version-number state)
     (setf (state-version state) found)))
+
+(defun check-version-number (state)
+  "Signal NATIVE-ABI-MISMATCH unless cmark_version()'s number matches
+(VERSION-NUMBER *CMARK-GFM-VERSION*), once CHECK-VERSION's string check has
+passed (M3 design §5). cmark_version() is a C int: FOUND is read through
+(LDB (BYTE 32 0) ...) first, so a packed value with bit 31 set (a major
+version of 128 or more), which a C int reads back as negative, is compared
+and reported as the unsigned 32-bit value it actually is. Without the LDB, a
+negative FOUND would still make CALL-STARTUP-STEP signal NATIVE-ABI-MISMATCH
+-- NUMBER-VERSION's own range check signals an ERROR like any other step 4
+failure -- but with a NIL FOUND-VERSION, naming no version at all. The
+reason names both version strings and both numbers, in hex."
+  (let* ((found (ldb (byte 32 0) (%version-number)))
+         (expected (version-number *cmark-gfm-version*)))
+    (unless (= found expected)
+      (error 'native-abi-mismatch
+             :operation 'start-native-layer
+             :datum found
+             :reason (format nil "cmark_version() returned #x~8,'0X (~A), not the pinned ~
+                                  cmark-gfm's #x~8,'0X (~A)"
+                             found (number-version found) expected *cmark-gfm-version*)
+             :expected-version *cmark-gfm-version*
+             :found-version (number-version found)
+             :paths (state-paths state)))))
 
 (defun find-extensions ()
   "An alist from each of *EXTENSION-KEYWORDS* to cmark's pointer for that

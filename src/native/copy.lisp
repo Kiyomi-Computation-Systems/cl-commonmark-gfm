@@ -7,6 +7,9 @@
 
 (in-package #:cl-commonmark-gfm.native)
 
+;;; NOTINLINE as in document.lisp: tests redefine both, called elsewhere here.
+(declaim (notinline copied-attributes copied-sourcepos))
+
 ;;; Frames
 
 (defstruct (copy-frame

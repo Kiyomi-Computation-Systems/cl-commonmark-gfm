@@ -6,7 +6,9 @@
 
 (defpackage #:cl-commonmark-gfm.native-tests
   (:use #:cl)
-  (:local-nicknames (#:native #:cl-commonmark-gfm.native))
+  (:local-nicknames (#:native #:cl-commonmark-gfm.native)
+                     (#:native-core #:cl-commonmark-gfm.native-core)
+                     (#:html-tree #:cl-commonmark-gfm.html-tree))
   (:import-from #:cl-commonmark-gfm
                 #:parse
                 #:markdown->html
@@ -40,7 +42,18 @@
                 #:corpus-example-markdown
                 #:corpus-example-html
                 #:corpus-example-options
-                #:*oracle-cases*)
+                #:*oracle-cases*
+                ;; The property-testing harness (ADR-0020; tests/property-harness.lisp):
+                ;; shared by tests/native/properties.lisp and divergences.lisp.
+                #:register-property
+                #:run-case
+                #:run-property
+                #:property-generators
+                #:oracle-option-sets
+                #:*property-seed*
+                #:property-cases
+                #:summary-problems
+                #:summary-report)
   (:import-from #:cl-commonmark-gfm.conditions
                 #:condition-operation
                 #:condition-datum
@@ -53,13 +66,20 @@
                 #:condition-found-version
                 #:native-initialization-error
                 #:native-parse-error
-                #:native-render-error)
+                #:native-render-error
+                #:unsupported-extension-node)
   (:import-from #:cl-commonmark-gfm.native-core
                 #:*cmark-gfm-version*
                 #:*cmark-gfm-libraries*
                 #:*extension-keywords*
                 #:check-options
-                #:table-cell-bound)
+                #:checked-footnotes
+                #:table-cell-bound
+                #:classify-node
+                #:+cmark-node-custom-block+
+                #:+cmark-node-custom-inline+)
+  (:import-from #:cl-commonmark-gfm.ffi
+                #:cmark-get-default-mem-allocator)
   (:import-from #:cl-commonmark-gfm.native
                 #:native-state
                 #:with-native-document
@@ -93,6 +113,8 @@
                 #:render-plaintext
                 #:render-xml
                 #:copy-native-tree
+                #:html-output-bound
+                #:plaintext-output-bound
                 #:reset-native-state
                 #:native-state-published-p
                 #:native-open-counts

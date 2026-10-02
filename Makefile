@@ -41,7 +41,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog test check-guix check-guix-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog test fuzz check-guix check-guix-inside clean
 
 help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_.-]+:.*?## / \
@@ -213,9 +213,11 @@ CCL_START_WINDOW ?= 30
 CCL_START_TRIES  ?= 3
 LISP_START_MARKER := ;; lisp started
 
-# $(call run-suite,TARGET,LISPS,RUNNER) runs RUNNER (tests/run.lisp or
-# tests/run-native.lisp) on each Lisp in LISPS, reports each Lisp under
-# TARGET's name, and fails when any Lisp fails or is unknown.
+# $(call run-suite,TARGET,LISPS,RUNNER,ENV) runs RUNNER (tests/run.lisp,
+# tests/run-native.lisp or one of the fuzz runners below) on each Lisp in
+# LISPS, with ENV's environment assignments, if any, set for that run only;
+# reports each Lisp under TARGET's name; and fails when any Lisp fails or is
+# unknown.
 #
 # SBCL gets a 2 GB heap wherever it runs. Debian's SBCL, which CI uses
 # (ADR-0013), defaults to 1 GB and Guix's to 3 GB. The deep tests need more
@@ -226,14 +228,14 @@ LISP_START_MARKER := ;; lisp started
 # times, leaving $$failed empty: nothing would run, yet TARGET would report
 # a pass. $(strip ...) catches that first: both "" and " " strip to "".
 define run-suite
-@if [ -z "$(strip $(2))" ]; then \
+if [ -z "$(strip $(2))" ]; then \
   echo "$(1): no Lisps given" >&2; \
   exit 1; \
 fi; \
 failed=""; \
 for lisp in $(2); do \
   if [ "$$lisp" = ccl ]; then \
-    if CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" scripts/lisp-start-watchdog \
+    if $(4) CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" scripts/lisp-start-watchdog \
          "$(CCL_START_WINDOW)" "$(CCL_START_TRIES)" "$(LISP_START_MARKER)" \
          $(CCL) -n -b -l $(3) </dev/null; then \
       echo "$(1): $$lisp passed"; \
@@ -249,7 +251,7 @@ for lisp in $(2); do \
     *) echo "$(1): unknown Lisp '$$lisp'" >&2; cmd=""; failed="$$failed $$lisp" ;; \
   esac; \
   if [ -n "$$cmd" ]; then \
-    if CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" $$cmd </dev/null; then \
+    if $(4) CL_SOURCE_REGISTRY="$(TEST_SOURCE_REGISTRY)" $$cmd </dev/null; then \
       echo "$(1): $$lisp passed"; \
     else \
       echo "$(1): $$lisp failed" >&2; \
@@ -264,16 +266,54 @@ fi; \
 echo "$(1): passed on all of: $(2)"
 endef
 
-check-purity: ## Run the pure test suite (tests/run.lisp) on each Lisp in $(LISPS)
-	$(call run-suite,check-purity,$(LISPS),tests/run.lisp)
+# PROPERTY_SEED and PROPERTY_CASES (ADR-0020) replay a property run: given,
+# check-purity and check-native, and so `make test`, pass them to the Lisp
+# runs as CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES. Unset (the
+# default), nothing is passed and the harness's own defaults hold (seed 1,
+# the CI counts). scripts/guix-env preserves only TERM, COLORTERM and LANG
+# into the container, so these must be make variables, never an inherited
+# environment variable: `scripts/guix-env make check-native
+# PROPERTY_SEED=42` replays seed 42.
+PROPERTY_SEED  ?=
+PROPERTY_CASES ?=
+PROPERTY_ENV := $(strip $(if $(PROPERTY_SEED),CL_COMMONMARK_GFM_SEED=$(PROPERTY_SEED)) \
+                        $(if $(PROPERTY_CASES),CL_COMMONMARK_GFM_CASES=$(PROPERTY_CASES)))
 
-check-native: ## Run the native test suite (tests/run-native.lisp) on each Lisp in $(NATIVE_LISPS)
-	$(call run-suite,check-native,$(NATIVE_LISPS),tests/run-native.lisp)
+check-purity: ## Run the pure suite on $(LISPS); replay with PROPERTY_SEED/PROPERTY_CASES
+	@$(call run-suite,check-purity,$(LISPS),tests/run.lisp,$(PROPERTY_ENV))
+
+check-native: ## Run the native suite on $(NATIVE_LISPS); replay with PROPERTY_SEED/PROPERTY_CASES
+	@$(call run-suite,check-native,$(NATIVE_LISPS),tests/run-native.lisp,$(PROPERTY_ENV))
 
 check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
 	@sh tests/lisp-start-watchdog.sh
 
 test: check-watchdog check-purity check-fixtures check-native ## Run the full test suite
+
+# The property tests' own CI case counts (ADR-0020) give `make test` about
+# 30 s in the container. `make fuzz` replaces every property's own count
+# with the flat FUZZ_CASES, from FUZZ_SEED (random by default): a few
+# minutes, not hours, at the default. FUZZ_SEED=N FUZZ_CASES=M replays a
+# fuzz failure. Empty is refused, not silently treated as unset.
+FUZZ_CASES ?= 150000
+FUZZ_SEED  ?= random
+
+fuzz: ## Run the property tests, more cases (FUZZ_CASES); replay with FUZZ_SEED (random)
+	@if [ -z "$(strip $(FUZZ_SEED))" ]; then \
+	  echo "fuzz: FUZZ_SEED is empty" >&2; \
+	  exit 1; \
+	fi; \
+	if [ -z "$(strip $(FUZZ_CASES))" ]; then \
+	  echo "fuzz: FUZZ_CASES is empty" >&2; \
+	  exit 1; \
+	fi; \
+	pure=0; native=0; \
+	( $(call run-suite,fuzz-purity,$(LISPS),tests/run-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ) || pure=1; \
+	( $(call run-suite,fuzz-native,$(NATIVE_LISPS),tests/run-native-fuzz.lisp,CL_COMMONMARK_GFM_SEED=$(FUZZ_SEED) CL_COMMONMARK_GFM_CASES=$(FUZZ_CASES)) ) || native=1; \
+	if [ $$pure -ne 0 ] || [ $$native -ne 0 ]; then \
+	  echo "fuzz: failed" >&2; \
+	  exit 1; \
+	fi
 
 check-guix: ## Test scripts/guix-env on the host, then run the checks inside the container
 	@sh tests/guix-env-launcher.sh

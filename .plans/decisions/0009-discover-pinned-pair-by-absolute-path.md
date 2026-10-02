@@ -1,6 +1,9 @@
 # ADR-0009: Discover the pinned pair by absolute path
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-02 by the
+  [M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md) §5
+  and M3 findings 1 and 2: startup also checks `cmark_version()`'s number
+  against the pin, `#x001D000D`
 - **Date:** 2026-09-27
 - **Scope:** native library discovery, loading, initialization
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.2
@@ -63,7 +66,11 @@ filenames wins.
 1. `cffi:load-foreign-library` the core, then the extensions, by absolute
    path.
 2. `cmark_version_string()` must equal `"0.29.0.gfm.13"`, else signal
-   `native-abi-mismatch` with both versions.
+   `native-abi-mismatch` with both versions. Then `cmark_version()` must
+   return the pin as a number, `#x001D000D`: one byte per component, not
+   the header comment's layout (M3 finding 2). A mismatch also signals
+   `native-abi-mismatch`, naming both versions and both numbers
+   (M3 spec §5).
 3. Register the core extensions.
 4. Smoke parse: a table, a checked task item and a footnote under `:gfm`.
    They must classify to `:table`, `:task-item` and `:footnote-reference`,

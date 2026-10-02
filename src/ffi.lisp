@@ -58,6 +58,7 @@
            #:cmark-render-plaintext
            #:cmark-render-xml
            ;; Other
+           #:cmark-version
            #:cmark-version-string
            #:cmark-get-default-mem-allocator))
 
@@ -234,6 +235,13 @@ read as its one byte (ADR-0008)."
   (options :int))
 
 ;;; Other (src/cmark-gfm.h)
+
+(cffi:defcfun ("cmark_version" cmark-version) :int
+  "int cmark_version(void): CMARK_GFM_VERSION, an int packed as (major << 24)
+| (minor << 16) | (patch << 8) | gfm (src/cmark-gfm_version.h.in, src/cmark.c;
+M3 design §3 finding 2). The comment above this declaration in cmark-gfm.h
+describes upstream cmark's own layout instead, major in bits 16-23; it
+doesn't hold for gfm's packing, so it isn't followed here.")
 
 (cffi:defcfun ("cmark_version_string" cmark-version-string) :pointer
   "const char *cmark_version_string(void)")

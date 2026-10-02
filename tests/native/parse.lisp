@@ -102,6 +102,19 @@ when www.example.com became a link."
   (is string= "“q” it’s" (text-of (parse "\"q\" it's" :smart t)) ":smart t")
   (is string= "\"q\" it's" (text-of (parse "\"q\" it's")) ":smart nil, the default"))
 
+;;; M3 finding 7: the table extension can rebuild a paragraph with no
+;;; position, so inline positions inside it are computed from a missing
+;;; origin (cmark_parse_inlines, src/inlines.c), and an autolink at the
+;;; start of a line gets a negative column (www_match,
+;;; extensions/autolink.c). PARSE keeps cmark's report, not a repaired one
+;;; (ADR-0005).
+
+(define-test parse-keeps-cmarks-negative-column-for-an-autolink
+  (let* ((ast (parse (format nil "a~%www.g~%b~%|-")))
+         (link (first (ast-nodes-of-kind ast :link))))
+    (is equal (cons (cons 1 -1) (cons 1 4)) (node-sourcepos link)))
+  (true (open-counts-zero-p)))
+
 ;;; The primary package (M2 design §3): one package for a caller, holding
 ;;; the public symbols of the conditions, the AST and the HTML tree, the
 ;;; four variables, and the entry points.

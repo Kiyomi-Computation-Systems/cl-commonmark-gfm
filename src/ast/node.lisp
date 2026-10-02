@@ -64,14 +64,20 @@ NODE's kind has no such attribute."
 ;;; Sourcepos validation
 
 (defun valid-position-p (value)
-  "True when VALUE is a (LINE . COLUMN) cons of non-negative integers."
+  "True when VALUE is a (LINE . COLUMN) cons of integers. cmark has been
+seen to report a negative start column (M3 finding 7 -- a table's rebuilt
+paragraph has no position of its own, so an inline inside it gets a
+position computed from a missing origin, and an autolink at the start of
+a line gets column -1); line and end positions have not. The AST accepts
+any integer in either slot, as cmark reports it, by design (ADR-0005)."
   (and (consp value)
-       (typep (car value) '(integer 0))
-       (typep (cdr value) '(integer 0))))
+       (integerp (car value))
+       (integerp (cdr value))))
 
 (defun valid-sourcepos-p (value)
   "True when VALUE is NIL or ((LINE . COLUMN) . (LINE . COLUMN)) of
-non-negative integers. Inverted ranges are allowed."
+integers: the AST accepts any integer in all four slots, as cmark reports
+them, by design (M3 finding 7; ADR-0005). Inverted ranges are allowed."
   (or (null value)
       (and (consp value)
            (valid-position-p (car value))

@@ -22,6 +22,8 @@
                 #:*cmark-gfm-version*
                 #:*extension-keywords*
                 #:*cmark-gfm-libraries*
+                #:version-number
+                #:number-version
                 #:+cmark-bullet-list+
                 #:+cmark-ordered-list+
                 #:+cmark-period-delim+
@@ -120,6 +122,7 @@
                 #:cmark-render-html
                 #:cmark-render-plaintext
                 #:cmark-render-xml
+                #:cmark-version
                 #:cmark-version-string
                 #:cmark-get-default-mem-allocator)
   (:export ;; Startup (M2 design §5.2), and holding the state (§5.3)

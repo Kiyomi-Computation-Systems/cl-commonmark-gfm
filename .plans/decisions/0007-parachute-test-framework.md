@@ -1,6 +1,8 @@
 # ADR-0007: Parachute for tests; property-based testing evaluated in M3
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by ADR-0020 (2026-10-02): property tests
+  join the suites, with a seeded generator and shrinker of our own, not
+  check-it or cl-quickcheck
 - **Date:** 2026-09-27
 - **Scope:** test framework, CI reporting
 

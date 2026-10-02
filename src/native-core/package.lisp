@@ -26,6 +26,9 @@
   (:export ;; The pin, and the extensions this library can attach
            #:*cmark-gfm-version*
            #:*extension-keywords*
+           ;; The version cross-check's pure half (M3 design §5)
+           #:version-number
+           #:number-version
            ;; cmark's constants, transcribed from cmark-gfm.h, and the table
            ;; mapping each one back to its C name (M2 design §8.1)
            #:*cmark-header-constants*

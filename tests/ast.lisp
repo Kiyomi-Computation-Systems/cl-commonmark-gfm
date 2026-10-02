@@ -221,13 +221,27 @@
   (fail (make-node :paragraph :sourcepos 42) 'invalid-ast-node)
   (fail (make-node :paragraph :sourcepos (cons 1 5)) 'invalid-ast-node)
   (fail (make-node :paragraph :sourcepos (cons 1 (cons 1 5))) 'invalid-ast-node)
-  (fail (make-node :paragraph :sourcepos (cons (cons -1 1) (cons 1 5))) 'invalid-ast-node)
-  (fail (make-node :paragraph :sourcepos (cons (cons 1 1.5) (cons 1 5))) 'invalid-ast-node)
-  (fail (make-node :paragraph :sourcepos (cons (cons 1 1) (cons 1 -5))) 'invalid-ast-node))
+  (fail (make-node :paragraph :sourcepos (cons (cons 1 1.5) (cons 1 5))) 'invalid-ast-node))
 
 (define-test make-node-accepts-inverted-sourcepos
   (let ((sourcepos (cons (cons 5 1) (cons 1 1))))
     (is equal sourcepos (node-sourcepos (make-node :paragraph :sourcepos sourcepos)))))
+
+(define-test make-node-accepts-negative-sourcepos
+  ;; M3 finding 7: the table extension can rebuild a paragraph with no
+  ;; position, so an inline inside it gets a position computed from a
+  ;; missing origin, and cmark has been seen to report a negative start
+  ;; column from it. The AST keeps whatever cmark reports and never
+  ;; repairs it, accepting any integer in any of the four slots by design
+  ;; (ADR-0005). All four are negative here to check that schema, not to
+  ;; claim cmark reports them so: MAKE-NODE, COPY-NODE and NODE= are all
+  ;; shown keeping a negative end, not only a negative start.
+  (let* ((sourcepos (cons (cons -1 -2) (cons -3 -4)))
+         (node (make-node :paragraph :sourcepos sourcepos)))
+    (is equal sourcepos (node-sourcepos node))
+    (is equal sourcepos (node-sourcepos (copy-node node)))
+    (true (node= node (make-node :paragraph :sourcepos sourcepos)))
+    (false (node= node (make-node :paragraph :sourcepos (cons (cons -2 -1) (cons -3 -4)))))))
 
 (define-test make-node-signals-invalid-ast-node-with-operation-make-node
   (handler-case (progn (make-node :not-a-real-kind) (true nil "expected invalid-ast-node"))

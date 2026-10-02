@@ -6,7 +6,8 @@
                 #:proper-list-p
                 #:char-utf8-octets
                 #:utf8-length
-                #:encode-utf8)
+                #:encode-utf8
+                #:decode-utf8)
   (:import-from #:cl-commonmark-gfm.conditions
                 #:commonmark-gfm-error
                 #:condition-operation
@@ -54,6 +55,8 @@
   (:import-from #:cl-commonmark-gfm.native-core
                 #:*cmark-gfm-version*
                 #:*extension-keywords*
+                #:version-number
+                #:number-version
                 #:*cmark-header-constants*
                 #:+cmark-node-document+
                 #:+cmark-node-block-quote+
