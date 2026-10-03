@@ -1756,3 +1756,38 @@ request is left pending."
 
 (define-test footnote-entity-index-returns-the-first-match
   (is = 3 (footnote-entity-index "abc[&#94;x] [&Hat;y]")))
+
+;;;; VERSION-NUMBER and NUMBER-VERSION: the version cross-check's pure half
+;;;; (M3 design §5; M3 plan Task 1). Startup's step 4
+;;;; (tests/native/startup.lisp) uses both to check cmark_version()'s number
+;;;; against *CMARK-GFM-VERSION*, on top of M2's cmark_version_string check.
+
+(defun version-error-signalled (thunk)
+  "Call THUNK. Return the SIMPLE-ERROR it signals, or NIL. Narrower than
+generic ERROR on purpose: before VERSION-NUMBER or NUMBER-VERSION exists,
+calling either signals UNDEFINED-FUNCTION, itself a subtype of ERROR, which
+would otherwise make a bad-input test pass for the wrong reason."
+  (handler-case (progn (funcall thunk) nil)
+    (simple-error (condition) condition)))
+
+(define-test version-number-of-the-pin
+  (is = #x001D000D (version-number *cmark-gfm-version*)))
+
+(define-test number-version-of-the-pin
+  (is string= *cmark-gfm-version* (number-version #x001D000D)))
+
+(define-test version-number-and-number-version-round-trip
+  (dolist (string '("0.0.0.gfm.0" "1.2.3.gfm.4" "255.255.255.gfm.255"))
+    (is string= string (number-version (version-number string))
+        "~S should round-trip" string)))
+
+(define-test version-number-rejects-malformed-strings
+  (dolist (string (list "0.29.0" "0.29.0.gfm" "a.29.0.gfm.13" "0.256.0.gfm.1" ""
+                        "0.29.0.gfm.13 "))
+    (true (version-error-signalled (lambda () (version-number string)))
+          "~S should signal" string)))
+
+(define-test number-version-rejects-out-of-range-numbers
+  (dolist (number (list -1 #x100000000))
+    (true (version-error-signalled (lambda () (number-version number)))
+          "~S should signal" number)))

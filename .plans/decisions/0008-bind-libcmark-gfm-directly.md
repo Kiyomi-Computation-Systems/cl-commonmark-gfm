@@ -7,7 +7,12 @@
   `calloc` or `realloc` wrapper (`src/cmark.c`) gets the buffer and
   whatever a register holds. On SBCL 2.6.4 x86-64 both aborted the
   process at the first render, so the native suite dies there. Elsewhere,
-  a reordering could leak silently
+  a reordering could leak silently; amended 2026-10-02 by the
+  [M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md) §4
+  and M3 finding 3: no parse produces an `:extension` node, so M3 tests
+  unknown nodes on real ones, built through cmark's public API; and by its
+  §5: the version probe also calls `cmark_version()`, for the number check
+  (ADR-0009)
 - **Date:** 2026-09-27
 - **Scope:** native boundary, node classification, native lifetimes
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.1, §3.3,
@@ -46,15 +51,21 @@ thing is missing: a getter for an extension's name.
 | Free render output | the `free` slot of `cmark_get_default_mem_allocator()` |
 | Classify nodes | pure Lisp over type code, extension identity and type string |
 | Table and task metadata | `cmark_gfm_extensions_get_table_alignments`, `…_get_table_columns`, `…_get_table_row_is_header`, `…_get_tasklist_item_checked` |
-| Version probe | `cmark_version_string()` |
+| Version probe | `cmark_version_string()`, and `cmark_version()` for the number check (M3 spec §5) |
 
 ### What we give up
 
 There is no public getter for an extension's **name**. We only ever attach
 the five core extensions, so we identify an extension node by comparing its
 extension pointer with the five we cached. An `:extension` fallback node
-therefore cannot occur under this pin. If one ever does, it keeps its type
-string and records `:extension-name` as `nil`.
+therefore cannot occur in a parse under this pin. If one ever does, it
+keeps its type string and records `:extension-name` as `nil`.
+
+M3 tests the fallback anyway, on real nodes that cmark's public API builds
+from a parsed document, with no C (M3 finding 3). The tests cover the
+copier's `:extension` path and what each entry point does with an unknown
+node (M3 spec §4). Only the native tests bind the calls that build those
+nodes; the library binds none of them.
 
 ### Lifetimes
 
@@ -142,4 +153,5 @@ fails. Either one is recorded in an ADR first.
 - Core type codes live in Lisp now. The header check is what keeps them
   honest.
 - An `:extension` node's `:extension-name` is always `nil`. Under this pin
-  no such node occurs.
+  no parse produces such a node, so M3's tests build their own through
+  cmark's public API.

@@ -236,18 +236,21 @@ multi-line code span or raw HTML drift, so =:sourcepos nil= gives no
 positions at all (ADR-0018).  Copy them as
 =((start-line . start-column) . (end-line . end-column))=, or =nil= when
 cmark reports none (a start line of 0: softbreaks, linebreaks and email
-autolinks).  They are reported as-is and
-never repaired: cmark emits end-before-start ranges, zero end columns and
-children that start before their parent.  =make-node= checks only their shape
-(non-negative integers) and accepts inverted ranges.  cmark's columns are
-bytes; the API must not imply Unicode grapheme-column semantics.
+autolinks).  They are reported as-is and never repaired: cmark emits
+end-before-start ranges, zero end columns and children that start before
+their parent.  Inside a paragraph the table extension rebuilt, inline
+positions are wrong, and can be negative (M3 finding 7).  =make-node= checks
+only their shape (integers, possibly negative) and accepts inverted ranges.
+cmark's columns are bytes; the API must not imply Unicode grapheme-column
+semantics.
 
 Unknown extension nodes must not disappear.  Represent a recognized but
 otherwise unsupported extension as =:extension= with its type string, source
 position, safely copied attributes, and children.  cmark has no public getter
 for an extension's name, so =:extension-name= is =nil=; since only the five
-core extensions are ever attached, this node cannot occur under the pin
-(ADR-0008).  If even that cannot be represented safely, signal
+core extensions are ever attached, this node cannot occur in a parse under
+the pin (ADR-0008).  M3 tests it on nodes built through cmark's public API.
+If even that cannot be represented safely, signal
 =unsupported-extension-node=.
 
 * FFI architecture
@@ -290,7 +293,7 @@ a public entry point of 0.29.0.gfm.13:
 | Free render output | the =free= slot of =cmark_get_default_mem_allocator()= |
 | Classify nodes | pure Lisp over the type code, extension identity and type string |
 | Table and task metadata | =cmark_gfm_extensions_get_table_alignments=, =…_get_table_columns=, =…_get_tasklist_item_checked=; the header row is known by its type string |
-| Version probe | =cmark_version_string()= |
+| Version probe | =cmark_version_string()=, and =cmark_version()= for the number check (ADR-0009) |
 
 The functions =/ffi= declares are listed in the
 [[file:2026-09-30-m2-native-layer-design.md][M2 design]], §5.1.
@@ -422,7 +425,8 @@ is passed in, so every branch is tested against synthetic listings.
    the =-dev= packages).  Nothing found signals =native-library-not-found=,
    listing every directory searched and the override variable's name.
 3. *Load and verify.*  Load the core, then the extensions, by absolute path.
-   =cmark_version_string()= must equal ="0.29.0.gfm.13"=, else
+   =cmark_version_string()= must equal ="0.29.0.gfm.13"=, then
+   =cmark_version()= must equal =#x001D000D=, the pin as a number; else
    =native-abi-mismatch= with both versions.  Register the core extensions,
    and cache the five extensions and the allocator's =free=.  Smoke-parse a
    table, a checked task item and a footnote under =:gfm=; they must classify
@@ -635,13 +639,15 @@ native tree with the one native walker (=cmark_node_first_child=,
 =cmark_node_next= and =cmark_node_parent=, with its own stack and no
 =cmark_iter=), copies values through cmark's public accessors, classifies
 each node with the pure =classify-node= (ADR-0008), and builds the AST
-bottom-up through =make-node=.  It copies every node kind but =:extension=,
-and counts nodes against =*max-nodes*= (ADR-0016).  Its attributes,
-positions and text follow the M2 design's §6.3 to §6.5, and four oracles
-check it over the whole corpus (see Tests).
+bottom-up through =make-node=.  It copies every node kind, and counts nodes
+against =*max-nodes*= (ADR-0016).  Its attributes, positions and text
+follow the M2 design's §6.3 to §6.5, and four oracles check it over the
+whole corpus (see Tests).
 
 Its default behavior is not data loss: emit =:extension= if it can safely
 identify the foreign extension; otherwise signal =unsupported-extension-node=.
+An =:extension= node cannot occur in a parse under the pin (ADR-0008), so
+M3 tests this path on nodes built through cmark's public API.
 
 ** HTML tree contract
 
@@ -687,7 +693,7 @@ leaves out the newlines around block elements.
 | footnote definitions | moved to one section at the end: =(:section ((:class "footnotes") (:data-footnotes "")) (:ol nil (:li ((:id "fn-L")) ...)))=, with back-references.  Only one definition per label counts, the first the walk leaves (cmark's registration order), and only if a reference resolves to it.  Numbered in definition order (ADR-0014) |
 | =:softbreak= | =:softbreak= policy: ="\n"=, =" "= or =(:br nil) "\n"= |
 | raw HTML | =:raw-html= policy (see Rendering policy) |
-| =:extension= | signals =unsupported-extension-node=; cannot occur under the pin (ADR-0008) |
+| =:extension= | signals =unsupported-extension-node=; cannot occur in a parse under the pin (ADR-0008), so M3 tests it on nodes built through cmark's public API |
 
 =ast->html-tree= takes its options as =&rest= and validates them by hand
 before converting anything (ADR-0014).  An odd-length list, an unknown key, a
@@ -832,6 +838,8 @@ Pure tests:
   guard's matches and near misses; the UTF-8 encoder, and the decoder
   against the Unicode Standard's well-formed sequences and its
   maximal-subpart examples; the corpus reader's counts.
+- *The UTF-8 property* (ADR-0020): =decode-utf8= never signals on random
+  octets, and what it returns survives encoding and decoding again.
 - *Purity:* =make check-purity= runs the pure suite on SBCL, CCL and ECL,
   each even if an earlier one failed, and fails if a =CFFI= package exists
   after the run.
@@ -865,6 +873,8 @@ Native tests, on SBCL (CCL and ECL join in M4):
 - *The input guard* (ADR-0019): each entity form is rejected through every
   entry point, before any parser is created; near misses parse; with
   footnotes off, the rejected inputs parse.
+- *Four properties* (ADR-0020) over generated Markdown: the HTML and XML
+  oracles, the bounds, and clean outcomes.
 - *Deep documents:* cmark's own stress inputs, through the tree path and
   =markdown->html= alike.
 - *Lifetimes:* the live-handle counters (parsers, roots, render buffers) are
@@ -899,6 +909,12 @@ started; =make check-watchdog= tests it against a fake CCL (ADR-0013).
 =make test= is =check-watchdog=, =check-purity=, =check-fixtures= and
 =check-native=.  Every check is seen to fail under a targeted change.
 The rules: [[file:2026-09-30-m2-native-layer-design.md][M2 design]] §8.
+
+The five properties draw their cases from a seeded generator of our own,
+and shrink a failure with our own shrinker (ADR-0020).  =make test=, and so
+CI, runs each from a fixed seed with fixed case counts.  =make fuzz= runs
+many more cases from a random seed, and prints a failure's seed and shrunk
+input.
 
 There is no sanitizer or Valgrind gate (ADR-0013).  M2 was to revisit that
 if the counters proved too weak, and M2b added none: the counters, the
@@ -969,7 +985,8 @@ slices, each with its own plan, branch and PR
    pinned libraries; native lifetimes; limits that keep cmark from aborting
    (ADR-0016), and a guard against cmark's footnote-entity bug (ADR-0019);
    the public =parse= and render functions (ADR-0017); a copier for every
-   node kind but =:extension=, and four oracles (ADR-0018).
+   node kind but =:extension=, which M3 tests, and four oracles
+   (ADR-0018).
 
 Exit, for each slice:
 - *M2a:* =make test= is green on SBCL, CCL and ECL.  M1's 226 tests and 28
@@ -985,14 +1002,20 @@ October, as M0's and M1's did.
 
 *** M3 — unknown extensions and version probes
 
-M2 copies every node kind but =:extension=.  M3 implements version probes and
-unknown-extension behavior.
+Three deliverables, in one slice with its own plan, branch and PR
+([[file:2026-10-02-m3-extensions-versions-properties-design.md][M3 design]]):
 
-Evaluate property-based testing here (ADR-0007).  Candidate properties:
-copying any generated Markdown yields a tree with no foreign pointer; copy then
-=ast->html-tree= is deterministic; parse/render cycles survive GC pressure.
-check-it (generators with shrinking) loads on all three Lisps through ocicl;
-cl-quickcheck is the fallback.  Adopting one needs its own ADR.
+1. *Unknown-extension tests.*  No parse produces an unknown extension node
+   under the pin (ADR-0008), so the tests build real ones through cmark's
+   public API, with no C.  They cover the copier's =:extension= path and
+   what each entry point does with an unknown node.
+2. *The version cross-check.*  Startup also checks the number
+   =cmark_version()= returns against the pin's, =#x001D000D=, after the
+   version string (ADR-0009).
+3. *The property-testing spike.*  It pitted check-it against a small
+   generator of our own, on real targets.  ADR-0020 adopted property-based
+   testing with our own generator and shrinker, amending ADR-0007: the
+   spike found a real bug that the corpus missed (M3 finding 7).
 
 Exit: version probes and unknown-extension behavior are tested, and
 property-based testing has been evaluated.
@@ -1086,11 +1109,16 @@ never an invalid-free crash or unexplained unresolved symbol.
 24. The copier copies every node kind but =:extension=, takes each
     reference's label from its definition, and copies positions only with
     =SOURCEPOS=.  Four witnesses check it over the whole corpus in M2.
-    Amends 11, 17, 19 and 20 (ADR-0018).
+    Amends 11, 17, 19 and 20 (ADR-0018).  /M3 tests the =:extension= path
+    too, on nodes built through cmark's public API (ADR-0018, amended)./
 25. An input guard: with footnotes on, every entry point rejects a =[=
     followed by an entity that decodes to =^=, which trips a memory bug in
     cmark's parser.  It runs with the limits, before any native call, and
     signals a new condition, =unsupported-input=.  Amends 23 (ADR-0019).
+26. Property-based testing is adopted, with a seeded generator and shrinker
+    of our own, not check-it.  Five properties join the suites; CI runs
+    them from a fixed seed with fixed case counts, and =make fuzz= from a
+    random seed.  Amends 13 (ADR-0020).
 
 Full records live in =.plans/decisions/=.
 

@@ -171,6 +171,52 @@ open; and that the next ordinary call starts up."
         (is equal paths (condition-paths condition)))
       (check-nothing-left-behind paths))))
 
+;;; Step 4, the number cross-check (M3 design §5): once the string check
+;;; passes, cmark_version()'s number must also match
+;;; (VERSION-NUMBER *CMARK-GFM-VERSION*).
+
+(define-test another-version-number-signals-native-abi-mismatch
+  ;; Through the version-number wrapper, once the string check passes.
+  (let ((paths (state-paths)))
+    (with-startup-reset
+      (let ((condition (with-redefined ((native::%version-number (constantly #x001D000E)))
+                         (raised native-abi-mismatch (native-state)))))
+        (is string= *cmark-gfm-version* (condition-expected-version condition))
+        (is string= "0.29.0.gfm.14" (condition-found-version condition))
+        (is equal paths (condition-paths condition))
+        (true (search "001D000D" (condition-reason condition)) "the expected number, in hex")
+        (true (search "001D000E" (condition-reason condition)) "the found number, in hex"))
+      (check-nothing-left-behind paths))))
+
+(define-test an-error-reading-the-version-number-signals-native-abi-mismatch
+  ;; Through the version-number wrapper: an error that isn't the project's.
+  (let ((paths (state-paths)))
+    (with-startup-reset
+      (let ((condition (with-redefined ((native::%version-number
+                                         (lambda () (error "no version number here"))))
+                         (raised native-abi-mismatch (native-state)))))
+        (when condition
+          (is eql 'simple-error (type-of (condition-datum condition)) "the datum")
+          (is string= *cmark-gfm-version* (condition-expected-version condition))
+          (is equal paths (condition-paths condition))))
+      (check-nothing-left-behind paths))))
+
+(define-test a-negative-version-number-is-reported-as-its-unsigned-version
+  ;; cmark_version() is a C int: a packed value with bit 31 set (a major
+  ;; version of 128 or more) reads back as negative. CHECK-VERSION-NUMBER
+  ;; reinterprets FOUND as an unsigned 32-bit value before comparing and
+  ;; decoding it, so a negative wrapper result is reported as
+  ;; NATIVE-ABI-MISMATCH with a proper FOUND-VERSION -- not, as without the
+  ;; LDB, one left NIL once NUMBER-VERSION's own range check fails instead.
+  (let ((paths (state-paths)))
+    (with-startup-reset
+      (let ((condition (with-redefined ((native::%version-number (constantly -1)))
+                         (raised native-abi-mismatch (native-state)))))
+        (is string= *cmark-gfm-version* (condition-expected-version condition))
+        (is string= "255.255.255.gfm.255" (condition-found-version condition)
+            "-1's bit pattern, read unsigned, is 0xFFFFFFFF"))
+      (check-nothing-left-behind paths))))
+
 (define-test a-missing-extension-signals-native-initialization-error
   ;; Step 6, through the find-extension wrapper.
   (let ((paths (state-paths)))

@@ -4,7 +4,11 @@
   finding 19): cmark can return bytes that aren't UTF-8, so its output is
   decoded with U+FFFD for them; and the Rejected text is corrected;
   amended 2026-10-01, after M2b's second review (spec §8.3): ADR-0014's
-  two divergences are also pinned directly
+  two divergences are also pinned directly; amended 2026-10-02 by the
+  [M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md) §4
+  and M3 findings 3 and 7: the copier already keeps an unknown node as
+  `:extension`, and M3 tests that path on nodes built through cmark's
+  public API; positions copied as reported can be negative
 - **Date:** 2026-09-30
 - **Scope:** `copy-native-tree`, with its attributes, positions and text;
   the UTF-8 encoder and decoder; the corpus reader; the four oracles
@@ -59,13 +63,16 @@ while both are wrong.
 
 ## Decision
 
-### Every node kind but `:extension` (D1)
+### Every node kind (D1)
 
-`copy-native-tree` copies every kind of the vocabulary but `:extension`,
-which can't occur under the pin (ADR-0008, finding 9). It walks the parsed
-tree with the one native walker, and builds nodes bottom-up through
-`make-node`, so a copied AST passes the schema (spec §6). Unknown
-extensions, version probes and property tests stay in M3.
+`copy-native-tree` copies every kind of the vocabulary. It walks the
+parsed tree with the one native walker, and builds nodes bottom-up through
+`make-node`, so a copied AST passes the schema (spec §6).
+- **M2 tested every kind a parse produces.** No parse produces
+  `:extension` under the pin (ADR-0008, finding 9), so M2 left that kind,
+  version probes and property tests to M3.
+- **M3 tests `:extension`** on real nodes built through cmark's public
+  API (M3 spec §4; M3 finding 3).
 
 ### Labels from the parent definition (D15)
 
@@ -79,7 +86,7 @@ which the converter matches with `string=` (ADR-0014).
 position reaches the AST (spec §6.4). Positions parsed without the bit are
 present, but wrong after a multi-line code span or raw HTML, so the copier
 never copies them (chez ADR-0009). The others stay as ADR-0005 has them:
-copied as reported, never repaired.
+copied as reported, never repaired, negative ones included (M3 finding 7).
 
 ### One encoder, with U+FFFD for a lone surrogate
 

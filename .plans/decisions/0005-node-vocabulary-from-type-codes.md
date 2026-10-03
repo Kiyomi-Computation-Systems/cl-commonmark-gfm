@@ -3,7 +3,13 @@
 - **Status:** Accepted; the classification decision is superseded by ADR-0008;
   footnote numbering amended by ADR-0014 (2026-09-27); finding 2 amended by
   ADR-0018 (2026-09-30): after parsing, a reference's literal is its number,
-  and its label comes from `cmark_node_parent_footnote_def`
+  and its label comes from `cmark_node_parent_footnote_def`; positions
+  amended 2026-10-02 by M3 finding 7
+  ([M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md)
+  §3), as the user decided: they are the integers cmark reports, negative
+  ones included, never repaired. That changed M1's rule of
+  non-negative integers: two rejection cases in its test moved to a new
+  acceptance test
 - **Date:** 2026-09-27
 - **Scope:** AST vocabulary, node classification
 - **Evidence:** `tests/fixtures/vocabulary.md` and cmark-gfm's XML for it,
@@ -48,7 +54,11 @@ the node kinds. None of this had been checked against a real release.
    - end column 0 (`9:0` on a list);
    - a child starting before its parent (a `www.` autolink at `8:3` inside a
      paragraph at `8:4`);
-   - absent altogether (finding 3).
+   - absent altogether (finding 3);
+   - wrong, and even negative, inside a paragraph the table extension
+     rebuilt (M3 finding 7). cmark computes its inline positions from a
+     missing origin: for `"a\nwww.g\nb\n|-"` it reports the link, on
+     line 2, at `1:-1-1:4`.
 9. **Empty text nodes occur**, e.g. the trailing spaces of a hard line
    break leave a `text` node with literal `""`.
 10. **`custom_block` / `custom_inline` never come from parsing.** Only API
@@ -79,8 +89,10 @@ the node kinds. None of this had been checked against a real release.
 - **Alignment is copied onto each `:table-cell` as `:align`**, looked up
   by column index. A cell then renders without its table, and pure rewrites
   cannot desynchronize a table-level vector from its cells.
-- **Source positions may be `nil`.** The AST stores what cmark reports and
-  never repairs it.
+- **Source positions may be `nil`.** Otherwise they are integers, as cmark
+  reports them, negative ones included. The AST stores what cmark reports
+  and never repairs it. For negative positions, the user decided this on
+  2026-10-02 (M3 finding 7).
 - **Footnote numbers are computed in Lisp** (definition order, ADR-0014)
   during HTML-tree conversion. The AST carries labels only.
 - **The HTML-tree raw-HTML policy is the only guard on raw HTML.** Tagfilter

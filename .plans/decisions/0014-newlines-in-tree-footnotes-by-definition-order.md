@@ -3,7 +3,10 @@
 - **Status:** Accepted; amended by ADR-0015 (2026-09-30): places are keyed
   by owner and ordinal, not by path; and by ADR-0018 (2026-09-30): its
   hand-offs to M2 (the copier's labels, the two divergences and the fixture
-  ASTs) are settled in M2b
+  ASTs) are settled in M2b; amended 2026-10-02 by M3 finding 9
+  ([M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md)
+  §3): three more divergence shapes, with the same two causes, and repeat
+  references can differ with no body reference
 - **Date:** 2026-09-27
 - **Scope:** HTML tree layout and footnotes, serializer rules, M1's tree
   tests, `ast->html-tree`'s options
@@ -154,16 +157,33 @@ copier gives each reference its definition's label as written, so a parsed
 AST always matches. A hand-built reference whose case differs from its
 definition renders as `[^label]`.
 
-**Known divergences,** left for M2's oracle. Both come from information a
-parsed tree no longer has. The oracle will show whether the corpus hits
-either one.
+**Known divergences.** Both come from information a parsed tree no longer
+has. M2's oracle showed that the corpus hits neither (ADR-0018).
 - **Repeat references are counted in tree order.** cmark counts them in
-  source order. The two differ only when a repeat reference inside a
-  definition came before a body reference in the source. Ordering by
-  source position would fix that, if needed.
+  source order. The two differ when a repeat reference inside a
+  definition came before a body reference in the source. They can also
+  differ with no body reference: repeat references in two definitions can
+  be swapped (M3 finding 9, below). Ordering by source position would fix
+  that, if needed.
 - **A definition referenced only from a dropped (unreferenced or
   duplicate) definition** survives in cmark, with a dangling backref. The
   parsed tree has no reference left to it, so the pre-pass drops it.
+
+**Three more shapes** have the same two causes (M3 finding 9), each
+confirmed with the pinned CLI:
+- `"[^a]: [^b]\n\n[^b]: B\n\nx[^c]\n\n[^c]: C\n"`: the dangling `b` takes
+  number 1 in cmark, so `c` becomes 2 there but 1 in the tree;
+- `"x[^b] y[^a]\n\n[^a]: [^c]\n\n[^b]: [^c]\n\n[^c]: C\n"`: repeat
+  references in two definitions, with no body reference, are swapped;
+- `"[^a]: [^b]\n\nx[^b]\n\n[^b]: text\n"`: a footnote referenced from the
+  body and from a dropped definition gets two backrefs in cmark, one of
+  them dangling.
+
+Property 1's excuses don't cover these, by design, so it reports each as a
+failure (ADR-0020). No generated input reached them. Nor do they cover the
+repeat divergence with a reference in an image's alt text, such as
+`"[^b]:[^b]\n\n[^b] ![x[^b]](u)\n"`. cmark writes no anchor in alt
+text, so the tree's ids for `b` skip a number (M3 finding 9).
 
 ### The serializer's rules (spec §6)
 
@@ -252,7 +272,8 @@ must be valid, so `:softbreak :space :softbreak :bogus` signals
 - Footnote numbers are exact on parsed ASTs. On a hand-built AST,
   definitions are numbered in the order they appear.
 - M2's copier must give each reference its definition's label as written.
-- The two divergences stay open until M2's oracle runs over the corpus.
+- The divergences stay open, and documented: the corpus hits none of them
+  (ADR-0018).
 - M1 checks conversion and serialization against cmark before any native
   code exists. Whether each hand-built AST is what the parser builds waits
   for M2.
