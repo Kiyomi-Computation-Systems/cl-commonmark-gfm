@@ -43,18 +43,17 @@ interruptible between its cmark calls. Returns PROTECTED-FORM's values.
 
 SBCL and ECL enter the UNWIND-PROTECT with interrupts deferred, and let
 them back in for PROTECTED-FORM alone, with WITH-LOCAL-INTERRUPTS, which
-keeps them deferred when an outer use already did. CCL already runs every
-cleanup form with interrupts disabled (its *INTERRUPT-LEVEL* is -1 there),
-so a plain UNWIND-PROTECT does: the CCL:WITHOUT-INTERRUPTS around its
-cleanup forms changes nothing, and only states the deferral."
+keeps them deferred when an outer use already did. On CCL a plain
+UNWIND-PROTECT is enough: CCL runs every cleanup form with interrupts
+disabled, its *INTERRUPT-LEVEL* at -1, however the protected form is
+left."
   #+sbcl `(sb-sys:without-interrupts
             (unwind-protect (sb-sys:with-local-interrupts ,protected-form)
               ,@cleanup-forms))
   #+ecl `(mp:without-interrupts
            (unwind-protect (mp:with-local-interrupts ,protected-form)
              ,@cleanup-forms))
-  #+ccl `(unwind-protect ,protected-form
-           (ccl:without-interrupts ,@cleanup-forms))
+  #+ccl `(unwind-protect ,protected-form ,@cleanup-forms)
   #-(or sbcl ccl ecl)
   (error "cl-commonmark-gfm defers interrupts on SBCL, CCL and ECL only, not ~A"
          (lisp-implementation-type)))
