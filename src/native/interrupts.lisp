@@ -8,8 +8,10 @@
 ;;;; or freed: the document's own pointers, the counters and the holds. An
 ;;;; interrupt lands once the call returns. Each Lisp's own construct is
 ;;;; named here, and only here: these are reader conditionals the library
-;;;; allows in /native alone (M2 design §3). CCL and ECL are exercised in
-;;;; M4.
+;;;; allows in /native alone (M2 design §3). CCL and ECL are exercised from
+;;;; M4a, though on ECL the deferral doesn't hold in a region that
+;;;; allocates, so interrupting a thread during a call isn't safe there (M4
+;;;; finding 13; ADR-0017).
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -20,9 +22,11 @@ timeout's, runs once BODY has returned or exited, never inside it (M2
 design §5.4). Nested uses keep interrupts deferred until the outermost one
 ends. BODY can still signal, and a handler can still unwind out of it.
 
-Every call into cmark runs inside one, so no interrupt runs on top of a C
-frame: SB-SYS:WITHOUT-INTERRUPTS on SBCL, CCL:WITHOUT-INTERRUPTS on CCL and
-MP:WITHOUT-INTERRUPTS on ECL."
+Every call into cmark runs inside one: SB-SYS:WITHOUT-INTERRUPTS on SBCL,
+CCL:WITHOUT-INTERRUPTS on CCL and MP:WITHOUT-INTERRUPTS on ECL. So no
+interrupt runs on top of a C frame, except on ECL, where the deferral
+doesn't hold in a region that allocates, and an interrupt can land during
+a call (M4 finding 13; ADR-0017)."
   #+sbcl `(sb-sys:without-interrupts ,@body)
   #+ccl `(ccl:without-interrupts ,@body)
   #+ecl `(mp:without-interrupts ,@body)

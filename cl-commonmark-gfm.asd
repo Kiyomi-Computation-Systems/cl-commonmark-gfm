@@ -157,6 +157,7 @@
                (:file "xml")
                (:file "threads")
                (:file "stress")
+               (:file "children")
                (:file "image")
                (:file "interrupts")
                (:file "guard")

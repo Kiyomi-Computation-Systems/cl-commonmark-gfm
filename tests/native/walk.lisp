@@ -119,6 +119,65 @@ including the matching (:EXIT TYPE-STRING): what :SKIP leaves of a walk."
                                          for node = (first (nodes-of-kind document kind))
                                          collect (native-extension document node))))))
 
+;;; CLASSIFY-NODE reads a node's type string only when the node has an
+;;; extension. Reading it costs three foreign calls, each a symbol lookup
+;;; under ECL's dynamic FFI (M4 design §5.7), so NATIVE-KIND reads it for
+;;; no other node.
+
+(defun type-string-reads (document)
+  "Classify every node of DOCUMENT with NATIVE-KIND, and return the nodes
+whose type string it read, through cmark_node_get_type_string. That CFFI
+function is wrapped for the walk and restored however the walk ends."
+  (let ((original (fdefinition 'cl-commonmark-gfm.ffi:cmark-node-get-type-string))
+        (read-for '()))
+    (unwind-protect
+         (progn
+           (setf (fdefinition 'cl-commonmark-gfm.ffi:cmark-node-get-type-string)
+                 (lambda (node)
+                   (push node read-for)
+                   (funcall original node)))
+           (walk-native (lambda (event node)
+                          (when (eql event :enter)
+                            (native-kind document node))
+                          nil)
+                        document))
+      (setf (fdefinition 'cl-commonmark-gfm.ffi:cmark-node-get-type-string) original))
+    read-for))
+
+(defun type-string-read-facts ()
+  "For vocabulary.md: how many nodes have an extension, and for how many of
+those NATIVE-KIND read a type string; how many have none, and for how many
+of those it read one; as (WITH READ-WITH WITHOUT READ-WITHOUT)."
+  (call-with-native-document
+   (fixture-string "vocabulary.md") '()
+   (lambda (document checked-options)
+     (declare (ignore checked-options))
+     (let ((read-for (type-string-reads document))
+           (with 0)
+           (read-with 0)
+           (without 0)
+           (read-without 0))
+       (walk-native (lambda (event node)
+                      (when (eql event :enter)
+                        (let ((read (member node read-for :test #'cffi:pointer-eq)))
+                          (cond ((native-extension document node)
+                                 (incf with)
+                                 (when read (incf read-with)))
+                                (t (incf without)
+                                   (when read (incf read-without)))))))
+                    document)
+       (list with read-with without read-without)))))
+
+(define-test native-kind-reads-no-type-string-for-a-node-without-an-extension
+  (destructuring-bind (with read-with without read-without) (type-string-read-facts)
+    (true (plusp with) "nodes with an extension: ~D" with)
+    ;; The control: the wrapper sees every read NATIVE-KIND makes, so a read
+    ;; that went around it can't make the last assertion pass.
+    (is = with read-with "type strings read for nodes with an extension: each one")
+    (true (plusp without) "nodes without one: ~D" without)
+    (is = 0 read-without "type strings read for nodes without an extension"))
+  (true (open-counts-zero-p)))
+
 ;;; The accessors, against tests/fixtures/vocabulary.xml's attributes
 
 (defun first-of-kind (document kind)

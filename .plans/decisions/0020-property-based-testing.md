@@ -1,6 +1,9 @@
 # ADR-0020: Property-based testing, with a generator and shrinker of our own
 
-- **Status:** Accepted 2026-10-02, confirmed by the user after the spike
+- **Status:** Accepted 2026-10-02, confirmed by the user after the spike;
+  amended 2026-10-03 by the [M4 spec](../2026-10-03-m4-ccl-ecl-design.md)
+  D3 and §5.5: the native properties run on CCL and ECL too, in CI on
+  `main` and on dispatch, at the same counts from the same seed
 - **Date:** 2026-10-02
 - **Scope:** property-based tests: their generators, shrinker and
   properties; their seeds and case counts; `make fuzz`
@@ -189,8 +192,11 @@ Criteria 4 and 5 don't change the outcome:
 
 As spec §6.7 sets out:
 - **The properties join the existing suites.** The native ones go to
-  `/native-tests`, on SBCL until M4. The harness, the generators, the
-  shrinker and property 5 go to `/tests`, on all three Lisps.
+  `/native-tests`, on SBCL in M3, and on SBCL, CCL and ECL from M4a, at
+  the same counts from the same seed. CI runs them on SBCL in every run,
+  and on CCL and ECL on `main` and on dispatch (ADR-0013). The harness,
+  the generators, the shrinker and property 5 go to `/tests`, on all three
+  Lisps.
 - **One Parachute test per property and generator:** nine tests, each
   with one assertion over its summary. No assertion captures a generated
   input (`progress.md`'s global constraint).
@@ -272,4 +278,7 @@ As spec §6.7 sets out:
     finding 9, which property 1 reports as failures. It needs excuses for
     them, or fixes.
   - **The native properties on CCL and ECL,** with the native suite, in M4
-    (spec §9).
+    (spec §9). M4a takes this up: they run on CCL and ECL with the native
+    suite, and CI runs them there on `main` and on dispatch. In the Guix
+    container, at the CI counts from seed 1, the eight native property
+    tests took 24 s on SBCL, 61 s on CCL and 198 s on ECL (M4 finding 5).

@@ -1,10 +1,9 @@
 ;;;; Unknown extensions (M3 design §4; M3 plan Task 2; M3 findings 3 and 4):
 ;;;; nodes cmark's public API can build that no parse under this pin ever
 ;;;; produces, exercised through the real copier, the output bounds and
-;;;; AST->HTML-TREE. .guix-env/tmp/m3-probes/inject.lisp is the throwaway
-;;;; probe that first tried these calls; these tests are written fresh,
-;;;; reusing only CALL-WITH-NATIVE-DOCUMENT and NODES-OF-KIND from
-;;;; helpers.lisp.
+;;;; AST->HTML-TREE. M3 finding 3's probe first tried these calls; these
+;;;; tests are written fresh, reusing only CALL-WITH-NATIVE-DOCUMENT and
+;;;; NODES-OF-KIND from helpers.lisp.
 ;;;;
 ;;;; The seven test-only bindings below live here, not in /ffi (M3 design
 ;;;; §4.2): the library never builds a node of a syntax extension it doesn't

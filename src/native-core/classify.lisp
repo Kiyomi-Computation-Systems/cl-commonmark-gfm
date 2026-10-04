@@ -74,7 +74,10 @@ TYPE-CODE is its CMARK_NODE_GET_TYPE result. EXTENSION is NIL for a node
 with no syntax extension; otherwise the keyword naming which of the five
 cached core extensions it carries -- :TABLE, :STRIKETHROUGH, :AUTOLINK,
 :TAGFILTER or :TASKLIST -- or :OTHER when its extension pointer is some
-other one entirely. TYPE-STRING is its CMARK_NODE_GET_TYPE_STRING result.
+other one entirely. TYPE-STRING is its CMARK_NODE_GET_TYPE_STRING result,
+for a node with an extension; the shell passes NIL for a node with none,
+since a node with no extension is decided by its type code alone (M4
+finding 17).
 
 A CMARK_NODE_CUSTOM_BLOCK or CMARK_NODE_CUSTOM_INLINE node signals
 UNSUPPORTED-EXTENSION-NODE, whatever EXTENSION is: this library never

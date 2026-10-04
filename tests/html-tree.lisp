@@ -699,6 +699,66 @@ signals, or NIL."
       (ast->html-tree (doc (para (txt "x") (fn-ref "A"))
                            (fn-def "a" (para (txt "lower")))))))
 
+;;; The label table (M4 design §5.7): labels are found by LABEL-HASH, and
+;;; the labels that share a hash are told apart with STRING=.
+
+(define-test ast->html-tree-footnote-labels-sharing-a-hash-stay-apart
+  ;; costarring and liquid share a LABEL-HASH, and so do altarage and zinke.
+  ;; Each reference gets its own copy of its label, as a parsed document's
+  ;; references do: equal literals in one file can be one object.
+  (is = (cl-commonmark-gfm.html-tree::label-hash "costarring")
+      (cl-commonmark-gfm.html-tree::label-hash "liquid"))
+  (is = (cl-commonmark-gfm.html-tree::label-hash "altarage")
+      (cl-commonmark-gfm.html-tree::label-hash "zinke"))
+  ;; Both defined: each reference reaches its own definition.
+  (is equal
+      (tree `((:p nil "x" ,(expected-ref "liquid" 2) ,(expected-ref "costarring" 1)) "~%"
+              ,@(expected-section (expected-note "costarring" "C" 1)
+                                  (expected-note "liquid" "L" 2))))
+      (ast->html-tree (doc (para (txt "x")
+                                 (fn-ref (copy-seq "liquid"))
+                                 (fn-ref (copy-seq "costarring")))
+                           (fn-def "costarring" (para (txt "C")))
+                           (fn-def "liquid" (para (txt "L"))))))
+  ;; Only zinke defined: altarage, with zinke's hash, still dangles.
+  (is equal
+      (tree `((:p nil "x[^altarage]" ,(expected-ref "zinke" 1)) "~%"
+              ,@(expected-section (expected-note "zinke" "Z" 1))))
+      (ast->html-tree (doc (para (txt "x")
+                                 (fn-ref (copy-seq "altarage"))
+                                 (fn-ref (copy-seq "zinke")))
+                           (fn-def "zinke" (para (txt "Z")))))))
+
+(defun short-labels ()
+  "Every label of one to three characters from 0 to 9 and a to z: 47,988."
+  (let* ((alphabet "0123456789abcdefghijklmnopqrstuvwxyz")
+         (ones (map 'list #'string alphabet))
+         (twos (loop for one in ones
+                     append (loop for char across alphabet
+                                  collect (format nil "~A~C" one char))))
+         (threes (loop for two in twos
+                       append (loop for char across alphabet
+                                    collect (format nil "~A~C" two char)))))
+    (append ones twos threes)))
+
+(defun short-label-spread ()
+  "How many SHORT-LABELS there are, and how many LABEL-HASH values they
+take, as (COUNT DISTINCT)."
+  (let ((labels (short-labels))
+        (hashes (make-hash-table :test 'eql)))
+    (dolist (label labels)
+      (setf (gethash (cl-commonmark-gfm.html-tree::label-hash label) hashes) t))
+    (list (length labels) (hash-table-count hashes))))
+
+(define-test label-hash-spreads-short-labels
+  ;; Short labels are where CCL's SXHASH clusters: 71,705 labels of one to
+  ;; four such characters take 41,145 of its values, and an EQUAL table of
+  ;; them takes seconds. LABEL-HASH must keep them apart: at most one
+  ;; label in a thousand shares a value.
+  (destructuring-bind (count distinct) (short-label-spread)
+    (is = 47988 count)
+    (true (>= distinct (- count (floor count 1000))) "~D values for ~D labels" distinct count)))
+
 (define-test ast->html-tree-footnote-reference-in-a-dropped-definition-keeps-its-target
   ;; u is never referenced, so it is dropped. Its reference to c still
   ;; counts, as in cmark's parser, so c survives as 1.

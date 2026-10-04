@@ -9,7 +9,16 @@
   caveat; amended 2026-10-01, after M2b's second review (spec §5.3, §5.4,
   §11, finding 21): interrupts are deferred during each cmark call, so
   timeouts are coarse; and a restore hook clears any published state when
-  an image starts
+  an image starts; amended 2026-10-03 by the
+  [M4 spec](../2026-10-03-m4-ccl-ecl-design.md) §4, §5.2, §5.3 and §5.4,
+  and M4 findings 13 to 15 and 22: CCL's hooks and deferred interrupts are
+  exercised; a CCL image's restore hook records a pair CCL reopened;
+  CCL unwinds other threads before its save hooks run, and the save hook
+  refuses a hold that's left; every close on CCL, and the save hook, make
+  CCL forget the pair's library records that nothing holds open; ECL's
+  deferred interrupts were tried, and don't hold where a region allocates,
+  so on ECL, interrupting or timing out a thread during a call isn't safe,
+  and the interrupt race skips ECL
 - **Date:** 2026-09-30
 - **Scope:** `parse`, `markdown->html`, `markdown->plaintext` and
   `markdown->html-tree`; their options and conditions; the
@@ -67,6 +76,28 @@ native layer runs, have to meet these facts:
   next allocation waits on itself, and the C heap can be left
   inconsistent.
 
+M4, running the native suite on CCL and ECL, found three more facts (M4
+spec §3, 2026-10-03):
+- **CCL never refuses a save because other threads run** (M4 finding 14).
+  `ccl:save-application` first unwinds every other thread with an
+  interrupt, waiting up to 50 ms for each, and only then runs the save
+  hooks. A thread inside a cmark call defers that interrupt. When CCL
+  saved past a thread it couldn't stop, it died of SIGSEGV, leaving an
+  image it couldn't load: 3 saves of 3, and the same with no cmark-gfm
+  loaded.
+- **A saved CCL image reopens cmark-gfm by bare name** (M4 finding 15).
+  CCL keeps a record of each library it opened, and closing leaves it
+  there. As an image starts, CCL reopens every library on that list by its
+  soname, from wherever the loader finds it, not by ADR-0009's absolute
+  paths.
+- **ECL doesn't defer interrupts in a region that allocates** (M4 finding
+  13). In a minimal program with no cmark, 517 of 2,000 interrupts sent
+  with `mp:interrupt-process` ran inside an `mp:without-interrupts` region
+  that consed, on the Guix container's ECL 24.5.10, and 571 on Debian's.
+  Every deferred region in `/native` allocates: CFFI's ECL calls cons, and
+  so does the bookkeeping. With the deferral in place, the interrupt race
+  fails on ECL, leaving holds and open parsers, roots and buffers.
+
 ## Decision
 
 ### Four entry points, their options checked first
@@ -106,6 +137,8 @@ publishes nothing, and the next call starts again.
 - A caller can set `*cmark-gfm-libraries*` after loading, and can retry a
   failed startup without restarting the process. That's unsafe while
   something else in the process keeps libcmark-gfm loaded (finding 15).
+  On CCL, a retry can start only the pair the process loaded first
+  (ADR-0009).
 - Errors from the loaded libraries, such as a missing function when an
   override names some other library, become project conditions that name
   the original (spec §5.2). So a handler for `native-error` catches every
@@ -129,12 +162,47 @@ state (spec §5.3). The image starts up again on its first call, wherever
 it runs. It never asks the loader to reopen cmark at a path from the
 machine that built it, and holds no stale pointer.
 
+On CCL, closing isn't enough: a saved image would reopen cmark-gfm by
+bare name (M4 finding 15). So, by the user's decision, every close on CCL,
+by a reset or a failed startup, also makes CCL forget the libraries it
+closes: off its list, and every entry point it resolved in them detached
+(M4 spec §5.4).
+- **Forgetting doesn't last.** Whenever CCL opens any library, it records
+  again every library it maps but doesn't list, and it still maps a pair
+  it has called into (ADR-0009). CFFI's close also leaves a record listed,
+  emptied but for its soname.
+- **So the save hook also forgets.** After its reset, it makes CCL forget
+  every listed record of the recorded pair's libraries, matched by their
+  sonames, which startup records with the pair, whether or not anything
+  was published.
+- **Only a record nobody holds open is forgotten,** by every close and by
+  the save hook: CCL's open count for it must be 0. Our own closes bring
+  it to 0, so a pair only we opened is always forgotten. A record that
+  other code still holds open, such as a user's own CFFI load of the same
+  files, is left alone, and that code's image reopens it, as it expects.
+
+This is the one exception to the project's "CFFI only" rule (M4 spec §4):
+to keep a saved image from reopening cmark-gfm, `/native` edits a Lisp's
+own records of the libraries it loaded, here through CCL 1.13's internal
+symbols and CFFI's unexported handle reader. No foreign call goes around
+CFFI.
+
 ### No closing under a parse (finding 18)
 
 A call holds the published state until its document is released, and
 closing refuses while any call holds it (spec §5.3). So a save hook can't
 unload cmark under another thread's parse. The save fails instead, before
 anything is unloaded, and the state stays published.
+
+CCL saves differently (M4 finding 14, above; M4 spec §5.4):
+- **A thread that holds the state outside a cmark call** is unwound: its
+  document is released and its hold ends. The save hook then closes
+  cmark-gfm, and the image starts clean.
+- **A thread that stays inside a cmark call** past CCL's wait still holds
+  the state when the save hook runs. The hook refuses, as on SBCL, and the
+  save fails with the thread untouched: CCL's batch mode exits 255, and
+  the image file stays empty. That refusal is what keeps a busy save safe
+  on CCL.
 
 ### A restore hook as well
 
@@ -143,13 +211,25 @@ user skips the save hook from the debugger. The image's state would then
 hold pointers from the process that saved it. So a function on
 `sb-ext:*init-hooks*` and `ccl:*restore-lisp-functions*` clears the
 published state and the holds when an image starts, before any call
-(spec §5.3).
+(spec §5.3). On CCL it also clears the pair record (ADR-0009), unless
+CCL has already reopened the pair: before the hook runs, CCL reopens by
+soname every record it still listed, one that other code held open
+across the save, or any record if the save hook was skipped (M4 findings
+15 and 22). Then the hook records the files CCL reopened instead, so the
+image refuses another pair, whose calls would otherwise run the reopened
+pair's code. When CCL reopened only one of the two, the hook can't name
+both, and clears the record: that case stays open (M4 finding 22).
 
 ### Interrupts wait for each cmark call (finding 21)
 
 Every call into cmark runs with interrupts deferred, and so does the
 bookkeeping of holds and counters (spec §5.4). An interrupt, a timeout for
 instance, lands when the call returns, never inside cmark's allocator.
+
+**Not on ECL** (M4 finding 13, above). By the user's decision,
+interrupting or timing out a thread during a call isn't safe on ECL. The
+interrupt race runs on SBCL and CCL only, and M5's documentation warns
+ECL users.
 
 ### An alive flag (D13)
 
@@ -170,6 +250,8 @@ nothing is freed twice (chez ADR-0006).
 - **Letting an interrupt unwind out of a cmark call,** and documenting a
   leak, as this ADR first did. Finding 21 shows the thread can deadlock,
   and the C heap can be left inconsistent.
+- **Deferred regions that never allocate,** for ECL's sake. They aren't
+  practical (M4 finding 13, above).
 
 ## Consequences
 
@@ -179,21 +261,37 @@ nothing is freed twice (chez ADR-0006).
   in parallel, but take turns inside `cmark_parser_finish` (spec §7.5).
 - **Another cmark-gfm user in the same process,** such as a second
   binding, doesn't take the finish lock, and can still race with this
-  library (spec §7.5).
-- **Timeouts are coarse.** An interrupt, such as a timeout, waits for the
-  current cmark call to return, so it can't cut one long call short
-  (spec §5.4, §11). The limits keep calls short: a 1 MiB parse takes
-  about 70 ms. In exchange, no interrupt leaves cmark's allocator locked,
-  or stops `cmark_parser_finish` halfway, with its extensions' characters
-  still in cmark's tables. A failed startup's condition is signalled after
-  the startup lock is released, so a caller's handler, or the debugger,
-  runs with interrupts as the caller had them and blocks no other thread.
+  library (spec §7.5). On SBCL and ECL, one that loaded the same files
+  also loses them at a reset, which unloads them (M4 finding 20).
+- **Timeouts are coarse,** and on ECL unsafe (above). An interrupt, such
+  as a timeout, waits for the current cmark call to return, so it can't
+  cut one long call short (spec §5.4, §11). The limits keep calls short: a
+  1 MiB parse takes about 70 ms. In exchange, no interrupt leaves cmark's
+  allocator locked, or stops `cmark_parser_finish` halfway, with its
+  extensions' characters still in cmark's tables. A failed startup's
+  condition is signalled after the startup lock is released, so a caller's
+  handler, or the debugger, runs with interrupts as the caller had them
+  and blocks no other thread.
 - A save made while another thread is in a call fails, with an error that
-  says so, and leaves cmark loaded (spec §5.3).
+  says so, and leaves cmark loaded (spec §5.3). On CCL, only a thread
+  that stays inside a cmark call makes it fail (above).
 - The save and restore hooks, and deferring interrupts, need reader
-  conditionals. With ECL's `:dffi` check, they are the library's only
-  ones, all in `/native` (spec §3).
-- CCL's hooks and its deferred interrupts are first exercised in M4, with
-  the native suite on CCL (spec §11). ECL doesn't save images.
+  conditionals. With ECL's `:dffi` check, and SBCL's library designator
+  since M2b, they are the library's only ones, all in `/native` (spec §3).
+  M4a adds two there, both CCL's: the pair record (ADR-0009) and
+  forgetting the libraries it closes (M4 spec §4).
+- **CCL's forgetting relies on CCL 1.13's internals,** and on CFFI's
+  unexported handle reader. CCL's image tests break if an upgrade changes
+  them (M4 finding 15).
+- **Exercised from M4a,** with the native suite on CCL (M4 spec §5.2,
+  §5.4):
+  - **CCL's hooks,** in children: images saved after startup, after a
+    failed startup, after the core is loaded again, while other code holds
+    the pair open, and with the save hook skipped; and both busy saves;
+  - **CCL's deferred interrupts,** by the interrupt race, which fails on
+    CCL without them.
+- **ECL's deferred interrupts were tried** by the race, and don't hold
+  where a region allocates (above), so the race skips ECL. ECL doesn't
+  save images, so it has no hooks.
 - The native systems depend on CFFI and bordeaux-threads (D7). The pure
   systems still depend on nothing outside the project (spec §3).

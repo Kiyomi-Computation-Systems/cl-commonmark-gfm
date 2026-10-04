@@ -9,7 +9,12 @@
   2026-10-01, after M2b's second review (the same spec's §8.5): the
   watchdog handles SIGINT and SIGTERM, polls once more before it kills,
   and checks its arguments; `make info` starts CCL through it; and `make
-  test` runs `check-watchdog`
+  test` runs `check-watchdog`; amended 2026-10-03 by the
+  [M4 spec](../2026-10-03-m4-ccl-ecl-design.md) D3 and §5.6, and M4
+  finding 5: CCL's and ECL's native suites run on a push to `main` and on
+  `workflow_dispatch` only, while pull requests keep SBCL's; the job's
+  timeout goes from 20 to 30 minutes; and a pending run on `main` that a
+  newer one cancels is accepted
 - **Date:** 2026-09-27
 - **Scope:** CI workflow, CI toolchain, native memory checks, the CCL
   start watchdog
@@ -28,6 +33,13 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
 - **CCL 1.13 has no arm64 build** (ADR-0001).
 - **The repository is private.** CI minutes are billed, and the free arm64
   Linux runners are not available to it.
+- **CCL's and ECL's native suites are slow** (M4 finding 5, 2026-10-03).
+  In the Guix container, with compiled files cached, the native suite took
+  43 s on SBCL, 82 s on CCL and 332 s on ECL (403 s compiling first). By
+  M3's ratio of GitHub's time to the container's, 1.37, the finding
+  estimates that CCL's would add about 2.3 minutes to a run, and ECL's
+  about 9. Both count compiling first: CCL's 82 s plus about 20 s, and
+  ECL's 403 s.
 
 ## Decision
 
@@ -35,16 +47,26 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
 
 - **One file, one job:** `.github/workflows/ci.yml`, on `ubuntu-latest`
   (amd64) in `container: debian:trixie`.
-- **Triggers:** `pull_request`, and `push` to `main`.
+- **Triggers:** `pull_request`, `push` to `main` and, from M4a,
+  `workflow_dispatch`, with no inputs, which runs `main`'s steps on any
+  branch (M4 spec D3). GitHub's documentation says a dispatch runs only if
+  the workflow file exists on the default branch, so whether a branch can
+  use the trigger before it reaches `main` isn't confirmed (M4 finding 11).
 - **Limits:** `permissions: contents: read` on the workflow;
-  `timeout-minutes: 20`; `concurrency` cancels superseded runs on
-  `pull_request` only, not on `push` to `main`.
+  `timeout-minutes: 30`, 20 before M4a; `concurrency` cancels a superseded
+  run in progress on `pull_request` only, not on `push` to `main`.
 - **The three Lisps run in sequence in one job**, since private-repo
   minutes are billed per job. Each runs even if an earlier one fails, and
   the job fails if any did. A job skips its later steps once one fails, so
   the Lisp steps, `make deps` and `make test` (M1), run with
   `if: ${{ !cancelled() }}`; `make -k test` runs `check-fixtures` even
   when `check-purity` fails.
+- **CCL's and ECL's native suites run on `main` and on dispatch only**
+  (M4 spec D3, §5.6). A step after `make -k test` runs `make check-native
+  NATIVE_LISPS="ccl ecl"`, with
+  `if: ${{ !cancelled() && github.event_name != 'pull_request' }}`. Pull
+  requests keep SBCL's native suite: `NATIVE_LISPS` keeps its `sbcl`
+  default, so `make test` stays what a pull request runs.
 - **Container gotchas.** Install `git` and `ca-certificates` before
   `actions/checkout`: without `git`, a checkout with `submodules: true`
   fails, because it cannot fall back to the REST API for submodules. Add
@@ -75,7 +97,8 @@ Each step comes into use as its milestone arrives.
 | `make check-vocabulary` against Debian's CLI | now |
 | `make check-pins`, `make check-notice` | now |
 | `make deps`, then `make -k test`, both `if: ${{ !cancelled() }}`: `check-purity` (the pure suite on each Lisp; fails if a `CFFI` package is loaded) and `check-fixtures` | M1 |
-| `make -k test` adds `check-native`, the native suite, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 (SBCL) / M4 (CCL, ECL) |
+| `make -k test` adds `check-native`, the native suite on SBCL, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
+| `make check-native NATIVE_LISPS="ccl ecl"`, the native suite on CCL and ECL, with no override set, on a push to `main` or a dispatch only | M4a |
 | The corpus oracles, over the whole corpus (ADR-0011, ADR-0018), in the native suite | M2 |
 
 ### CCL start watchdog
@@ -112,7 +135,7 @@ M2b's second review added four rules (M2 design §8.5):
   positive integer fails at once, instead of misbehaving.
 - **`make info`** asks CCL its version, which starts CCL, so it runs
   through the watchdog too. CI runs it before any other `make` step, and a
-  hang there would stall the job until its 20-minute timeout.
+  hang there would stall the job until its timeout.
 
 ### Left out on purpose
 
@@ -131,6 +154,16 @@ M2b's second review added four rules (M2 design §8.5):
 ## Consequences
 
 - One billed job per run covers all three Lisps.
+- **A pull request's run tests the native layer on SBCL only.** A native
+  failure on CCL or ECL alone first shows in `main`'s run, or in a
+  dispatched one (M4 spec D3).
+- **`main`'s runs grow** by about 2.3 minutes for CCL and 9 for ECL, by M4
+  finding 5's estimate. The timeout grows to 30 minutes with them.
+- **A commit on `main` can miss its CCL and ECL suites** (M4 spec §5.6).
+  GitHub cancels a pending run in a concurrency group when a newer one
+  queues, even with `cancel-in-progress` false. `main`'s run takes near 15
+  minutes, by the same estimate, so a quick third merge can cancel the
+  second merge's run, and its CCL and ECL suites with it. Accepted.
 - CI's cmark-gfm is a distribution package, loaded the way a user's would
   be. That makes CI a real test of discovery (ADR-0009).
 - CCL is covered on Linux amd64 only.

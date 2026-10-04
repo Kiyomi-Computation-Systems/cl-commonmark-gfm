@@ -1,11 +1,11 @@
-;;;; Interrupts (M2 design §5.4, §8.4; finding 21): a worker rendering in a
-;;;; loop, interrupted again and again with a THROW, as SB-EXT:WITH-TIMEOUT
-;;;; would unwind it, keeps rendering, and ends with no hold and the open
-;;;; counters at zero. A throw out of cmark's malloc or free would leave a
-;;;; lock of the C heap held, and the worker's next allocation would wait on
-;;;; it forever. So the race runs in a child SBCL with a time limit
-;;;; (RUN-CHILD, in image.lisp), and a deadlock fails the test instead of
-;;;; hanging the suite. CCL's and ECL's runs arrive in M4.
+;;;; Interrupts (M2 design §5.4, §8.4; finding 21; M4 design §5.2): a worker
+;;;; rendering in a loop, interrupted again and again with a THROW, as a
+;;;; timeout would unwind it, keeps rendering, and ends with no hold and the
+;;;; open counters at zero. A throw out of cmark's malloc or free would leave
+;;;; a lock of the C heap held, and the worker's next allocation would wait
+;;;; on it forever. So the race runs in a child with a time limit (RUN-CHILD,
+;;;; children.lisp), and a deadlock fails the test instead of hanging the
+;;;; suite.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -65,32 +65,36 @@ have passed. Return whether it returned true."
           do (bt2:thread-yield))
     (and (funcall predicate) t)))
 
-#+sbcl
 (defun interrupt-race (interrupts)
-  "In a child SBCL: start a worker rendering in a loop, and interrupt it
+  "In a child: start a worker rendering in a loop, and interrupt it
 INTERRUPTS times with CUT-FUNCTION's throw. The interrupts are paced as
-the probe that found finding 21 paced them: a random number of yields
-before each, and the next sent only once the last was taken, since a flood
-of pending interrupts overflows SBCL's interrupt nesting. Then wait for
-the worker to render 100 more times, and stop it. Return a plist:
+the probe that found finding 21 paced them: a random number of yields,
+below 2,000, before each, and the next sent only once the last was taken,
+since a flood of pending interrupts overflows SBCL's interrupt nesting.
+The yields are drawn from the property harness's splitmix64 stream
+(tests/property-harness.lisp), seeded 1, so every Lisp paces the race the
+same way. Then wait for the worker to render 100 more times, and stop it.
+Return a plist:
 - :SENT and :TAKEN, the interrupts sent and taken, and :CUTS, those that
   threw;
 - :RENDERS-AFTER, the renders completed after the last interrupt, within
   10 seconds;
 - :JOINED, whether the worker then stopped within 10 seconds;
 - :FAULTS, the type of each condition the worker signalled;
-- :HOLDS and :OPEN, the holds and the open counters left."
-  (let* ((tally (make-tally))
-         (worker (sb-thread:make-thread (race-worker tally) :name "interrupted worker"))
+- :HOLDS and :OPEN, the holds and the open counters left;
+- :SECONDS, how long the race took, rounded."
+  (let* ((start (get-internal-real-time))
+         (tally (make-tally))
+         (worker (make-test-thread (race-worker tally) :name "interrupted worker"))
          (cut (cut-function tally))
-         (random-state (sb-ext:seed-random-state 1))
+         (stream (cl-commonmark-gfm.tests::make-splitmix64 1))
          (sent 0))
     (wait-until (lambda () (plusp (tally-renders tally))) 30)
     (loop repeat interrupts
           for taken = (tally-taken tally)
-          do (loop repeat (random 2000 random-state)
-                   do (sb-thread:thread-yield))
-             (sb-thread:interrupt-thread worker cut)
+          do (loop repeat (cl-commonmark-gfm.tests::draw-below stream 2000)
+                   do (bt2:thread-yield))
+             (bt2:interrupt-thread worker cut)
              (incf sent)
           while (wait-until (lambda () (/= taken (tally-taken tally))) 10))
     (let* ((renders (tally-renders tally))
@@ -102,30 +106,37 @@ the worker to render 100 more times, and stop it. Return a plist:
             :taken (tally-taken tally)
             :cuts (tally-cuts tally)
             :renders-after renders-after
-            :joined (not (eql :timed-out
-                              (sb-thread:join-thread worker :default :timed-out :timeout 10)))
+            :joined (not (eql :timed-out (join-within worker 10)))
             :faults (remove-duplicates (tally-faults tally))
             :holds (startup-holds)
-            :open (native-open-counts)))))
+            :open (native-open-counts)
+            :seconds (round (- (get-internal-real-time) start) internal-time-units-per-second)))))
 
-#+sbcl
 (defun interrupt-race-run ()
   "Run INTERRUPT-RACE, for *INTERRUPTS* interrupts, in a child that loads
 this suite, and return the child's RUN-CHILD plist."
-  (run-child sb-ext:*core-pathname*
-             (suite-child-forms
+  (run-child (suite-child-forms
               :race
               (format nil "(cl-commonmark-gfm.native-tests::interrupt-race ~D)" *interrupts*))))
 
-#+sbcl
+;;; Not on ECL (M4 finding 13): ECL 24.5.10's MP:WITHOUT-INTERRUPTS lets
+;;; MP:INTERRUPT-PROCESS's interrupts run inside it whenever the region
+;;; allocates, and every deferred region here allocates. So on ECL the race
+;;; fails with the deferral in place, leaving holds and open parsers,
+;;; roots and buffers: interrupting a thread during a call isn't safe there
+;;; (ADR-0017).
+#-ecl
 (define-test a-worker-interrupted-again-and-again-keeps-rendering
-  ;; Without interrupts deferred around each cmark call, the worker soon
-  ;; stops for good (finding 21), still holding the state, and leaves
-  ;; parsers, roots or buffers open.
-  (destructuring-bind (&key killed exit-code reports errors) (interrupt-race-run)
+  ;; Without interrupts deferred around each cmark call, this fails: on
+  ;; SBCL the worker soon stops for good (finding 21), still holding the
+  ;; state; on CCL it keeps rendering, but leaves parsers, roots and
+  ;; buffers open (three runs each without the deferral, 2026-10-03).
+  (destructuring-bind (&key killed exit-code reports errors &allow-other-keys)
+      (interrupt-race-run)
     (false killed "the child reported within ~D seconds" *child-seconds*)
     (is eql 0 exit-code "the child exits 0; its error output starts:~%~A" errors)
-    (destructuring-bind (&key sent taken cuts renders-after joined faults holds open)
+    (destructuring-bind (&key sent taken cuts renders-after joined faults holds open
+                         &allow-other-keys)
         (getf reports :race)
       (is eql *interrupts* sent "interrupts sent")
       (is eql *interrupts* taken "interrupts taken")

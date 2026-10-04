@@ -12,7 +12,10 @@ Decisions: [decisions/](decisions/)
 Every task brief is bound by these, on top of `AGENTS.md`.
 
 - Common Lisp: SBCL, CCL and ECL from one source tree. No `sb-alien`, CCL or
-  ECL FFI in library sources; CFFI only.
+  ECL FFI in library sources; CFFI only. One exception: to keep a saved
+  image from reopening cmark-gfm, `/native` may edit a Lisp's own records
+  of the libraries it loaded. No foreign call goes around CFFI (M4 design
+  §4).
 - Linux and macOS, amd64 and arm64. No Windows. CI is Linux only; macOS is
   checked by hand before a release (ADR-0001).
 - CCL is amd64-only: Linux amd64 in CI, macOS amd64 (Intel or Rosetta) by
@@ -24,6 +27,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   (ADR-0004).
 - The project compiles no C. It binds libcmark-gfm directly through CFFI
   (ADR-0008) and loads the pinned pair by absolute path (ADR-0009).
+- A CCL process keeps the first pair it loads, even one whose startup
+  failed, and refuses any other (ADR-0009).
 - The pure systems (util, conditions, AST, HTML tree and native-core) load
   and pass tests with no C library present.
 - The pure systems depend on nothing outside the project (no alexandria, no
@@ -49,12 +54,19 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 - Tests keep large values out of assertions. Parachute keeps every result
   until the run ends, with each assertion's closure and the values it
   compared, so large data is built in a helper or inside the asserted form.
-- CI is one amd64 job in a `debian:trixie` container (ADR-0013).
+- No test thread lets a condition escape: every thread a test starts goes
+  through `make-test-thread`. On CCL, an escaped condition ends the whole
+  run (M4 finding 1).
+- CI is one amd64 job in a `debian:trixie` container (ADR-0013). It runs
+  CCL's and ECL's native suites on `main` and on dispatch; pull requests
+  run SBCL's.
 - TDD. A test is done when it has been seen to fail.
-- Mutation runs delete the fasl cache before every run, the restoring run
-  included; in the Guix container it's `.guix-env/cache/common-lisp/`.
-  ASDF compares file dates to the second, so a source mutated and restored
-  within one second keeps its mutated fasl.
+- Mutation runs delete the project's fasls before every run, the restoring
+  run included: its `src` and `tests` trees under the fasl cache, which in
+  the Guix container is `.guix-env/cache/common-lisp/`. ASDF compares file
+  dates to the second, so a source mutated and restored within one second
+  keeps its mutated fasl. Deleting those trees is enough, since mutations
+  never touch the dependencies.
 
 ## Milestones
 
@@ -64,7 +76,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
-| M4 CCL and ECL | not started |
+| M4 CCL and ECL | in progress: M4a |
 | M5 release candidate | not started |
 
 ### M0 checklist
@@ -165,6 +177,35 @@ Plan: [implementation](2026-10-02-m3-extensions-versions-properties-implementati
   green and seen to fail; close-out; a green GitHub run on the PR
   (Task 11)
 
+### M4 checklist
+
+Spec: [M4 design](2026-10-03-m4-ccl-ecl-design.md) ·
+Plan: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md)
+
+**M4a, CCL and ECL with dynamic FFI** (branch `m4a-ccl-ecl-dynamic-ffi`):
+
+- [x] Tests that run on every Lisp: test threads, lock waits and joins, the
+  star path and the interrupt checks (Task 1)
+- [x] Children on every Lisp, with a start retry for CCL, and the interrupt
+  race on CCL; not on ECL, which doesn't defer interrupts in a region that
+  allocates (M4 finding 13) (Task 2)
+- [x] CCL: one pair per process (Task 3)
+- [x] Saved images on CCL, with a save while a worker holds the state
+  (Task 4)
+- [x] Performance hand-offs: CCL's footnote labels and ECL's 75-second test
+  (Task 5)
+- [x] Makefile and CI: CCL's and ECL's native suites on `main` and on
+  dispatch (Task 6)
+- [x] Documents, part 1: the plan's M4, this file (Task 7)
+- [x] Documents, part 2: ADRs 0008, 0009, 0013, 0017 and 0020 amended, the
+  plan, decision 27 and the global constraints (Task 7)
+- [x] Review, fixes and a second review; the local `debian:trixie` CI run
+  of `main`'s steps, green and seen to fail; close-out; a green GitHub run
+  on the PR, and CCL's and ECL's native suites green on GitHub, on the
+  branch or in `main`'s first run (Task 8)
+
+**M4b, ECL static deployment** gets its own plan once M4a has merged.
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -206,6 +247,125 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-03 — M4a CCL and ECL with dynamic FFI (branch `m4a-ccl-ecl-dynamic-ffi`)
+
+- **Built** (M4 spec §5; ADRs 0008, 0009, 0013, 0017 and 0020 amended):
+  - **native tests that run on every Lisp:** test threads hand back what
+    they signal, and lock waits and joins poll a deadline (M4 finding 1);
+  - **children on every Lisp,** with a start retry for a CCL child that
+    hangs before it starts; the interrupt race on SBCL and CCL;
+  - **CCL's one pair per process** (ADR-0009): the first pair a process
+    loads is its pair, even when its startup fails; another is refused
+    before any call into it;
+  - **CCL forgets each library it closes that nothing holds open,** and the
+    save hook forgets the recorded pair's re-learned records, so a saved
+    image doesn't reopen cmark-gfm by bare name. A restored image records
+    the pair CCL reopened, if it did. This edits CCL 1.13's own records,
+    the one exception to "CFFI only" (ADR-0017);
+  - **saved images on CCL:** the SBCL tests run there too, with new ones
+    for a failed startup, a reloaded core, a pair other code holds open,
+    and both outcomes of a save while a worker is busy;
+  - **two speedups, in our own code:** footnote labels hashed by the
+    converter itself (CCL hashes short strings into few values), and a
+    node's type string read only when it has an extension (each foreign
+    call is slow under ECL's dynamic FFI);
+  - **CI:** CCL's and ECL's native suites run on pushes to `main` and on
+    `workflow_dispatch`; the job's timeout is 30 minutes (ADR-0013).
+
+  Eight tasks, run by subagents one at a time, with the documents
+  alongside. Sonnet took the portable test helpers and the CI change; Opus
+  the children, CCL's pair record and images, the performance work, the
+  documents and the reviews.
+- **Tests,** in the Guix container, from fresh fasls:
+
+  | Suite | SBCL | CCL | ECL |
+  |---|---|---|---|
+  | Pure | 581 tests, 1,698 assertions | 581, 1,697 | 581, 1,698 |
+  | Native | 197 tests, 1,521 assertions | 207, 1,658 | 188, 1,449 |
+
+  M3's native suite ran 183 tests on SBCL alone. The watchdog's test
+  passes 37 checks, and the preflight's 26. `make test` and `make
+  check-native NATIVE_LISPS="ccl ecl"` take about 9 minutes together.
+
+  Every new check was seen to fail, under its task's mutations and each
+  fix round's.
+- **Decisions the user made during M4a:** two slices under one design;
+  CCL keeps one pair per process; CCL's and ECL's native suites run on
+  `main` only; ECL's interrupt deferral is recorded as a limitation;
+  CCL forgets the libraries it closes, with its internals; a restored CCL
+  image keeps the pair CCL reopened. One refinement was mine, within the
+  forgetting decision: only a record nothing holds open is forgotten.
+- **Reviews:**
+  - **Round 1,** two Opus reviewers, split by area:
+    - the library and native tests: one must-fix, a CCL image test that
+      failed 3 times in 20 under CPU contention; two should-fixes;
+    - test validity, CI and the documents: one must-fix, the plan's
+      classification paragraph; six should-fixes, among them wait tests
+      that would hang rather than fail, and an ECL rule never checked.
+  - **Fix round F1,** code and documents in parallel.
+  - **Round 2:** no must-fix. One should-fix, finding 22, which the user
+    chose to close in code (F2).
+  - **Round 3:** no must-fix; five document items, fixed.
+- **Found** (M4 findings 1 to 22):
+  - **1:** on CCL, an error that escapes a thread ends the whole batch run;
+    bordeaux-threads doesn't implement lock timeouts there;
+  - **2, 3:** CCL never unloads a library it has called into, and CFFI
+    looks names up globally on CCL, so a later pair can run an earlier
+    pair's code;
+  - **4, 12:** ECL passes nearly everything, but can't find a library whose
+    path holds a `*`;
+  - **5, 16 to 18:** ECL's native suite took 332 s, against SBCL's 43 s,
+    much of it CFFI's lookup on every call; CCL's string hashing slowed
+    the footnote tables;
+  - **6 to 9:** ECL links cmark-gfm into a program (`:c/c++`); Debian
+    ships the archives; Guix builds an ECL without dynamic FFI (for M4b);
+  - **13:** ECL 24.5.10 runs interrupts inside `mp:without-interrupts`
+    when the region allocates. On ECL, interrupting a thread during a call
+    isn't safe. A report for ECL's maintainers is drafted at
+    `.guix-env/tmp/m4-probe/ecl-deferral/ecl-issue.md`;
+  - **14:** CCL never refuses a busy save: it unwinds other threads, and
+    without the save hook's refusal it crashes;
+  - **15, 22:** a saved CCL image reopens libraries by soname;
+  - **19:** tests of label matching need fresh strings;
+  - **20:** on SBCL and ECL, a reset unloads cmark-gfm from under other
+    code that loaded the same files, since M2b; unsupported;
+  - **21:** each Lisp needs its own way to end a child at once.
+- **For M4b:** static deployment, as the spec's §6 designs it.
+- **For M5's documentation:**
+  - on ECL, interrupting or timing out a thread during a call isn't safe
+    (finding 13);
+  - on CCL, a process keeps the first pair it loads, even after a failed
+    startup (§5.3);
+  - loading cmark-gfm's own library files beside this library is
+    unsupported (finding 20);
+  - the manual macOS run is to cover CCL's image tests (finding 22).
+- **CI evidence (local, before the commit):** the workflow's steps,
+  `main`'s included, ran in `debian:trixie` under Docker against the
+  working tree, twice: after the first fix round, and on the final tree.
+  - **`make info`** reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10,
+    CCL 1.13, cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - **Every step passed** both times. `make -k test` and `main`'s CCL and
+    ECL step took 628 s and 588 s.
+  - **With one fixture byte flipped,** every suite failed both times: the
+    pure suite on all three Lisps, `check-fixtures` (naming `paragraphs`),
+    and the native suite on all three.
+  - **The CCL watchdog** restarted one hung start in each pass of the
+    first run, both in the pure suite. The second run needed none.
+- **CI evidence (GitHub),** on PR #9's commit `7a90ad7`:
+  - **The PR's run** (37164973677) passed in 4 min 26 s. `make -k test`
+    took 218 s; the CCL and ECL step was skipped, as on every pull request.
+  - **A dispatched run of `main`'s steps** (37164985716,
+    `workflow_dispatch` on the branch) passed in 11 min 37 s: `make -k
+    test` in 174 s, then CCL's native suite in 112 s and ECL's in 363 s,
+    compiling included. That answers finding 11: a branch can add the
+    trigger and be dispatched before it reaches `main`.
+  - **Both matched the local runs:** `make info`'s versions, the pure
+    suite's 581 tests on each Lisp, and the native suite's 197, 207 and
+    188. The CCL watchdog restarted nothing.
+  - `main`'s full run takes under 12 minutes, not the 16 finding 5
+    estimated: ECL's suite took 363 s, not about 9 minutes, partly from
+    Task 5's speedup.
 
 ### 2026-10-02 — M3 unknown extensions, version probes and property testing (branch `m3-extensions-versions-properties`)
 

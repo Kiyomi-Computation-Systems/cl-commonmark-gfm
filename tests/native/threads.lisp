@@ -1,6 +1,10 @@
 ;;;; Threads (M2 design §5.2, §7.5, §8.4; finding 14): renders from many
 ;;;; threads at once give the results they give alone, and a first call
 ;;;; from many threads at once starts up once.
+;;;;
+;;;; Every thread below goes through MAKE-TEST-THREAD (helpers.lisp), so no
+;;;; condition it signals can escape it and end the whole run (M4 finding
+;;;; 1).
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -82,8 +86,8 @@ thread has reached it. Every thread is joined, however this exits."
          (progn
            (dolist (function functions)
              (let ((function function))
-               (push (bt2:make-thread (lambda () (call-at-gate gate function))
-                                      :name "cl-commonmark-gfm native test")
+               (push (make-test-thread (lambda () (call-at-gate gate function))
+                                       :name "cl-commonmark-gfm native test")
                      threads)))
            (open-gate gate (length threads)))
       ;; However we got here, no thread is left waiting at the gate.
@@ -266,7 +270,7 @@ SECONDS: its threads are then left waiting."
                           (error "a thread failed before it reached the gate"))
                         (funcall arrive gate counted))))
       (let* ((outcomes :timed-out)
-             (caller (bt2:make-thread
+             (caller (make-test-thread
                       (lambda ()
                         (setf outcomes (call-together (loop for index below 4
                                                             collect (let ((index index))
@@ -377,7 +381,7 @@ what is left, and let the worker go on. Return a plist:
      (lambda ()
        (unwind-protect
             (progn
-              (setf worker (bt2:make-thread
+              (setf worker (make-test-thread
                             (lambda ()
                               (handler-case (list :returned (funcall render *held-markdown*))
                                 (serious-condition (condition) (list :signalled condition))))
@@ -433,7 +437,7 @@ condition a reset signalled."
          (held 0)
          (closed 0)
          (other '())
-         (worker (bt2:make-thread
+         (worker (make-test-thread
                   (lambda ()
                     (unwind-protect
                          (loop repeat *reset-renders*
