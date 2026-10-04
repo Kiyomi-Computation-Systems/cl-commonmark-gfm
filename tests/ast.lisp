@@ -642,15 +642,52 @@
     (is = 2 enter-count)
     (is = 2 exit-count)))
 
-(define-test walk-ast-signals-type-error-for-a-non-node
-  (fail (walk-ast (lambda (event node) (declare (ignore event node))) "not-a-node")
-        'type-error))
+(defun signal-report (condition)
+  "CONDITION, while it is being signalled, as NON-NODE-SIGNAL reports it."
+  (let ((type-error-p (typep condition 'type-error)))
+    (list :type-error-p type-error-p
+          :datum (and type-error-p (type-error-datum condition))
+          :expected-type (and type-error-p (type-error-expected-type condition))
+          :store-value-p (and (find-restart 'store-value condition) t))))
 
-(define-test walk-ast-does-not-call-function-for-a-non-node
-  (let ((called nil))
-    (ignore-errors (walk-ast (lambda (event node) (declare (ignore event node)) (setf called t))
-                              42))
-    (false called)))
+(defun non-node-signal (walk value)
+  "How WALK, a function of a function and a node, signals when given VALUE,
+which isn't a node: a plist of :TYPE-ERROR-P, :DATUM, :EXPECTED-TYPE,
+:STORE-VALUE-P (whether a STORE-VALUE restart was there when it signalled)
+and :CALLED-P (whether WALK called its function at all)."
+  (let ((called nil)
+        (report '()))
+    (block walk
+      (handler-bind ((error (lambda (condition)
+                              (setf report (signal-report condition))
+                              (return-from walk))))
+        (funcall walk (lambda (&rest arguments)
+                        (declare (ignore arguments))
+                        (setf called t))
+                 value)))
+    (list* :called-p called report)))
+
+(define-test every-walk-checks-its-node-with-check-type
+  ;; CHECK-TYPE signals a TYPE-ERROR naming NODE, with a STORE-VALUE restart,
+  ;; before the walk calls its function. A walk that reached a node accessor
+  ;; first would signal a TYPE-ERROR too, from inside the accessor: on CCL it
+  ;; names STRUCTURE, it offers no restart, and under (SAFETY 0) the accessor
+  ;; may not check at all.
+  (dolist (walk (list (cons 'walk-ast (lambda (function node) (walk-ast function node)))
+                      (cons 'fold-ast (lambda (function node) (fold-ast function 0 node)))
+                      (cons 'map-ast (lambda (function node) (map-ast function node)))
+                      (cons 'transform-ast
+                            (lambda (function node) (transform-ast function node)))))
+    (dolist (value (list 42 nil "not-a-node"))
+      (destructuring-bind (&key called-p type-error-p datum expected-type store-value-p)
+          (non-node-signal (cdr walk) value)
+        (true type-error-p "~A of ~S signals a TYPE-ERROR" (car walk) value)
+        (true (eql value datum) "~A of ~S: the datum is the value" (car walk) value)
+        (true (eql 'node expected-type) "~A of ~S: the expected type is NODE"
+              (car walk) value)
+        (true store-value-p "~A of ~S: a STORE-VALUE restart, as CHECK-TYPE gives"
+              (car walk) value)
+        (false called-p "~A of ~S: the function is never called" (car walk) value)))))
 
 (define-test walk-ast-returns-nil
   (is eql nil (walk-ast (lambda (event node) (declare (ignore event node)) :ignored)

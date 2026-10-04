@@ -1,6 +1,7 @@
 # ADR-0015: Walks loop over explicit stacks
 
-- **Status:** Accepted
+- **Status:** Accepted. From M2a until 2026-10-04, `transform-ast` kept a
+  stack of its own, against D8; it now acts on `walk-ast`'s events
 - **Date:** 2026-09-30
 - **Scope:** the AST walks, `ast->html-tree` and its footnote pre-pass,
   `html-tree->string`, `proper-list-p`

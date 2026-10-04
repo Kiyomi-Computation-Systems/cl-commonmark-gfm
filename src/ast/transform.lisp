@@ -1,9 +1,8 @@
-;;;; AST traversal and transformation: WALK-AST; FOLD-AST and MAP-AST, built
-;;;; on it; and TRANSFORM-AST, which keeps its own stack of frames. Every
-;;;; walk here loops over an explicit stack instead of recursing, so depth
-;;;; is bounded by memory rather than by the Lisp call stack. cmark-gfm
-;;;; parses trees deeper than the Lisps' stacks allow a recursive walk: its
-;;;; own stress tests nest 130,000 levels
+;;;; AST traversal and transformation: WALK-AST, and FOLD-AST, MAP-AST and
+;;;; TRANSFORM-AST, built on it. WALK-AST loops over an explicit stack
+;;;; instead of recursing, so depth is bounded by memory rather than by the
+;;;; Lisp call stack. cmark-gfm parses trees deeper than the Lisps' stacks
+;;;; allow a recursive walk: its own stress tests nest 130,000 levels
 ;;;; (vendor/cmark-gfm/test/pathological_tests.py).
 
 (in-package #:cl-commonmark-gfm.ast)
@@ -23,7 +22,8 @@ reads each node's children without copying them. Signals a TYPE-ERROR,
 via CHECK-TYPE, when NODE is not a NODE, before FUNCTION is ever called.
 Whatever FUNCTION signals propagates out of WALK-AST, abandoning the walk."
   (check-type node node)
-  ;; FOLD-AST, MAP-AST and AST->HTML-TREE's walks are all built on WALK-AST.
+  ;; FOLD-AST, MAP-AST, TRANSFORM-AST and AST->HTML-TREE's walks are all
+  ;; built on WALK-AST.
   ;; Each frame is (NODE . CHILDREN), CHILDREN the tail of NODE's own child
   ;; list still to visit. Popping it moves only the frame's CDR, so the
   ;; list, from %NODE-CHILDREN, is never copied or changed.
@@ -73,15 +73,13 @@ Linear in the number of nodes."
 ;;; TRANSFORM-AST
 
 (defstruct (transform-frame
-             (:constructor make-transform-frame (node remaining))
+             (:constructor make-transform-frame (node))
              (:conc-name %frame-)
              (:copier nil))
-  "One TRANSFORM-AST stack frame: NODE, and its REMAINING not-yet-transformed
-children (a tail of NODE's own child list, read through %NODE-CHILDREN).
-COLLECTED gathers NODE's already-transformed children, consed on in reverse
-order as each one finishes, and reversed once when NODE itself finishes."
+  "One TRANSFORM-AST frame: NODE, entered and not yet left, and COLLECTED,
+its already-transformed children, consed on in reverse order as each one
+finishes, and reversed once when NODE itself finishes."
   node
-  remaining
   (collected nil))
 
 (defun finish-transform-frame (function frame)
@@ -117,30 +115,27 @@ anything else, or when the root doesn't come back as exactly one node, bare
 or alone in a list; its datum is then what FUNCTION returned. When no child
 of a node changed, FUNCTION is called on that same node object, not a copy.
 
-Loops over an explicit stack of frames, each collecting its node's
-transformed children in order, instead of recursing, so depth is bounded by
-memory rather than by the Lisp call stack."
-  (let ((stack (list (make-transform-frame node (%node-children node)))))
-    (loop
-      (let ((frame (first stack)))
-        (cond
-          ;; FRAME's node still has children to transform: descend into the
-          ;; next one, pushing a frame for it.
-          ((%frame-remaining frame)
-           (let ((child (pop (%frame-remaining frame))))
-             (push (make-transform-frame child (%node-children child)) stack)))
-          ;; FRAME's node is done: pop it, finish it, and hand the result to
-          ;; its parent's frame, now on top -- or, when the stack is now
-          ;; empty, FRAME was the root, so return.
-          (t
-           (pop stack)
-           (let ((result (finish-transform-frame function frame)))
-             (if stack
-                 (dolist (r result)
-                   (push r (%frame-collected (first stack))))
-                 (return (if (and result (null (rest result)))
-                             (first result)
-                             (error 'invalid-ast-node
-                                    :operation 'transform-ast
-                                    :datum result
-                                    :reason "root did not transform to exactly one node")))))))))))
+Acts on WALK-AST's events, so it doesn't recurse over NODE's depth, and
+signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE."
+  ;; A node's frame is pushed when WALK-AST enters it, and finished when
+  ;; WALK-AST leaves it: the result goes into the parent's frame, now on
+  ;; top, or, for the root, becomes ROOT-RESULT.
+  (let ((frames '())
+        (root-result '()))
+    (walk-ast (lambda (event n)
+                (ecase event
+                  (:enter (push (make-transform-frame n) frames))
+                  (:exit (let ((result (finish-transform-frame function (pop frames))))
+                           (if frames
+                               (dolist (r result)
+                                 (push r (%frame-collected (first frames))))
+                               (setf root-result result)))))
+                ;; Never :SKIP: every node is transformed.
+                nil)
+              node)
+    (if (and root-result (null (rest root-result)))
+        (first root-result)
+        (error 'invalid-ast-node
+               :operation 'transform-ast
+               :datum root-result
+               :reason "root did not transform to exactly one node"))))

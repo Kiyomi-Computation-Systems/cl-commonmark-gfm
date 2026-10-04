@@ -251,6 +251,14 @@ before the documentation.
 - [x] Two reviews, fixes and a second review; the test suites; AGENTS.md's
   comment rules; close-out
 
+**TRANSFORM-AST on WALK-AST** (branch `m5-transform-on-walk-ast`), the
+sweep's "for later" items 1 and 2:
+
+- [x] One test that every walk checks its node with CHECK-TYPE, in place of
+  WALK-AST's two type tests, one of which passed without it
+- [x] TRANSFORM-AST acts on WALK-AST's events, as ADR-0015 decided
+- [x] The suites on all three Lisps; close-out
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -292,6 +300,45 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-04 — TRANSFORM-AST on WALK-AST (branch `m5-transform-on-walk-ast`)
+
+- **Done:** the comment sweep's "for later" items 1 and 2.
+  - TRANSFORM-AST acts on WALK-AST's events, as ADR-0015 (D8) decided: a
+    node's frame is pushed when WALK-AST enters the node, and finished when
+    it leaves. The stack loop TRANSFORM-AST had kept since M2a is gone, and
+    its frame no longer tracks the remaining children. ADR-0015's status
+    records the gap.
+  - So TRANSFORM-AST checks its node with WALK-AST's CHECK-TYPE. Before, a
+    non-node failed inside a struct accessor. That was still a TYPE-ERROR,
+    but it named STRUCTURE on CCL and STRUCTURE-REF on ECL, offered no
+    STORE-VALUE restart, and was a check `(safety 0)` could compile out.
+  - One test, `every-walk-checks-its-node-with-check-type`, replaces
+    WALK-AST's two type tests. It covers WALK-AST, FOLD-AST, MAP-AST and
+    TRANSFORM-AST, each with 42, NIL and a string. For each, it requires:
+    - a TYPE-ERROR whose datum is the value and whose expected type is
+      NODE;
+    - a STORE-VALUE restart;
+    - the function never called.
+- **Seen to fail:**
+  - **with WALK-AST's CHECK-TYPE removed:** only the old does-not-call test
+    failed, and the old type-error test passed. The new test fails for
+    WALK-AST, FOLD-AST and MAP-AST on all three Lisps;
+  - **before the change:** the new test failed for TRANSFORM-AST on all
+    three Lisps (no restart), and on CCL for the expected type too;
+  - **three mutations of the new TRANSFORM-AST** each failed existing
+    tests: always copying, no root check, and a reversed splice.
+- **Tests,** in the Guix container:
+  - the pure suite: 581 tests on each Lisp, two tests replaced by one, with
+    58 more assertions;
+  - the native suite: 197 tests on SBCL, 207 on CCL, 188 on ECL;
+  - the watchdog's 37 checks and the preflight's 53.
+
+  No CCL start needed a retry.
+- **`main`'s first run after the comment sweep** (37225810414, on
+  `db20638`) passed in 16 min 45 s. It included CCL's and ECL's native
+  suites and `make check-ecl-static`, with the counts in the sweep's
+  close-out.
 
 ### 2026-10-04 — M5 comment sweep (branch `m5-comment-sweep`)
 
