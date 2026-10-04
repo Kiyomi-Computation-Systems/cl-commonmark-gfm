@@ -91,7 +91,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b in PR #10 |
-| M5 release candidate | in progress: the comment sweep merged 2026-10-04 (PR #11, `db20638`), TRANSFORM-AST on WALK-AST merged 2026-10-04 (PR #12, `dc11436`); the override's name in reports on branch `m5-name-the-override` |
+| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`) and the override's name in reports (PR #13, `e933679`), all merged 2026-10-04; a plain UNWIND-PROTECT on CCL on branch `m5-ccl-plain-unwind-protect` |
 
 ### M0 checklist
 
@@ -271,6 +271,18 @@ sweep's "for later" item 4:
 - [x] The suites on all three Lisps; `main`'s CI steps in a local
   `debian:trixie` run; close-out
 
+**A plain UNWIND-PROTECT on CCL** (branch `m5-ccl-plain-unwind-protect`),
+the sweep's "for later" item 5:
+
+- [x] A test that an interrupt sent while UNWIND-PROTECT-DEFERRED's
+  cleanup runs waits for the cleanup to end: passing on each Lisp before
+  the change, and seen to fail on each with interrupts let into the
+  cleanup
+- [x] On CCL, UNWIND-PROTECT-DEFERRED is a plain UNWIND-PROTECT, without
+  the CCL:WITHOUT-INTERRUPTS that changed nothing; its docstring says why
+- [x] The suites on all three Lisps; `main`'s CI steps in a local
+  `debian:trixie` run; close-out
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -312,6 +324,49 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-04 — A plain UNWIND-PROTECT on CCL (branch `m5-ccl-plain-unwind-protect`)
+
+- **Done:** the comment sweep's "for later" item 5.
+  - On CCL, UNWIND-PROTECT-DEFERRED is a plain UNWIND-PROTECT. Its CCL
+    branch wrapped the cleanup forms in CCL:WITHOUT-INTERRUPTS, which
+    changed nothing: CCL runs every cleanup form with interrupts disabled,
+    its *INTERRUPT-LEVEL* at -1, however the protected form is left. The
+    docstring says so.
+  - A new native test, `an-interrupt-during-a-deferred-cleanup-runs-after-it`,
+    checks the macro's promise on every Lisp: an interrupt sent from
+    another thread while the cleanup runs waits for the cleanup to end.
+    The cleanup allocates nothing, since ECL runs an interrupt inside a
+    deferred region that allocates.
+- **A probe on CCL 1.13,** before the change:
+  - a plain UNWIND-PROTECT read *INTERRUPT-LEVEL* -1 in its cleanup after a
+    normal exit, a throw and an error, and 0 in the protected form and
+    after it;
+  - an interrupt from another thread ran after a plain cleanup, 3 runs of
+    3, and inside one wrapped in CCL:WITH-INTERRUPTS-ENABLED, 3 of 3.
+- **Seen to fail:** the new test passed on all three Lisps before the
+  change, and passes after it. Letting interrupts into the cleanup fails it
+  on each Lisp:
+  - SB-SYS:WITH-LOCAL-INTERRUPTS on SBCL and CCL:WITH-INTERRUPTS-ENABLED on
+    CCL. The interrupt race failed too: 2 holds and 7 parsers and roots
+    left on SBCL, 8 holds and 6 parsers and roots on CCL;
+  - MP:WITH-LOCAL-INTERRUPTS on ECL, which runs no race.
+- **Tests,** in the Guix container, after the change:
+  - the pure suite: 583 tests on each Lisp;
+  - the native suite: 199 tests on SBCL, 209 on CCL, 190 on ECL, one more
+    on each;
+  - the watchdog's 37 checks and the preflight's 53.
+
+  No CCL start needed a retry.
+- **`main`'s CI steps in `debian:trixie`,** against the working tree's
+  code: every step passed, with the container's counts, CCL's release
+  build included, and `make check-ecl-static`'s 65 checks. The test steps
+  took 671 s.
+- **`main`'s run after the override fix** (37231738989, on `e933679`)
+  passed in 13 min 11 s. It included CCL's and ECL's native suites, with
+  the counts in that fix's close-out, and `make check-ecl-static`'s 65
+  checks.
+- **For later:** items 3 and 6 of the sweep's list remain.
 
 ### 2026-10-04 — The override's name in reports (branch `m5-name-the-override`)
 

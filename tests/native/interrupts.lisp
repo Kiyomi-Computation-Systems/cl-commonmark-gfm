@@ -147,3 +147,54 @@ this suite, and return the child's RUN-CHILD plist."
       (is equal '() faults "what the worker signalled")
       (is eql 0 holds "holds left")
       (is equal '(:parsers 0 :roots 0 :buffers 0) open "the child's open counts"))))
+
+;;; A deferred cleanup: an interrupt sent while UNWIND-PROTECT-DEFERRED's
+;;; cleanup runs waits for the cleanup to end. On CCL the macro is a plain
+;;; UNWIND-PROTECT, so there this checks CCL's own rule: a cleanup form
+;;; runs with interrupts disabled.
+
+(defstruct (cleanup-race (:constructor make-cleanup-race ()))
+  "What CLEANUP-RACE's worker and its interrupt record. CLOCK counts their
+events, and CLEANUP-ENDED and INTERRUPTED each hold one event's tick of it.
+IN-CLEANUP says the worker's cleanup has begun, and RELEASED lets it end.
+Fixnums and booleans only, so the cleanup allocates nothing: ECL runs an
+interrupt inside a deferred region that allocates."
+  (clock 0)
+  (in-cleanup nil)
+  (released nil)
+  (cleanup-ended nil)
+  (interrupted nil))
+
+(defun cleanup-race ()
+  "Start a worker whose UNWIND-PROTECT-DEFERRED cleanup waits to be
+released, interrupt the worker from this thread while it waits, wait 0.2
+seconds, and release it. Return a plist: :JOINED, whether the worker ended
+within 10 seconds; :CLEANUP-ENDED and :INTERRUPTED, each event's tick, or
+NIL for one that never came."
+  (let* ((race (make-cleanup-race))
+         (worker (make-test-thread
+                  (lambda ()
+                    (native::unwind-protect-deferred nil
+                      (setf (cleanup-race-in-cleanup race) t)
+                      (loop until (cleanup-race-released race)
+                            do (bt2:thread-yield))
+                      (setf (cleanup-race-cleanup-ended race) (incf (cleanup-race-clock race))))
+                    (wait-until (lambda () (cleanup-race-interrupted race)) 10))
+                  :name "cleanup worker")))
+    (wait-until (lambda () (cleanup-race-in-cleanup race)) 10)
+    (bt2:interrupt-thread worker (lambda ()
+                                   (setf (cleanup-race-interrupted race)
+                                         (incf (cleanup-race-clock race)))))
+    (sleep 0.2)
+    (setf (cleanup-race-released race) t)
+    (list :joined (not (eql :timed-out (join-within worker 10)))
+          :cleanup-ended (cleanup-race-cleanup-ended race)
+          :interrupted (cleanup-race-interrupted race))))
+
+(define-test an-interrupt-during-a-deferred-cleanup-runs-after-it
+  ;; With interrupts let into the cleanup, the interrupt comes first: 1,
+  ;; and the cleanup's end 2.
+  (destructuring-bind (&key joined cleanup-ended interrupted) (cleanup-race)
+    (true joined "the worker ended")
+    (is eql 1 cleanup-ended "the cleanup ended first")
+    (is eql 2 interrupted "then the interrupt ran")))
