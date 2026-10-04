@@ -179,8 +179,11 @@ documents cite them as "M4 finding N".
     `markdown->html-tree` 0.49 s and 2.24 s.
 11. **`workflow_dispatch`** "will only trigger a workflow run if the
     workflow file exists on the default branch" (GitHub's documentation).
-    Whether a branch can add the trigger before it reaches `main` isn't
-    confirmed.
+    Whether a branch can add the trigger before it reaches `main` wasn't
+    confirmed. It can: on 2026-10-04, `gh workflow run ci.yml --ref
+    m4a-ccl-ecl-dynamic-ffi` started a run of the branch's workflow, the
+    trigger and `main`'s steps included, while `main`'s `ci.yml` had no
+    such trigger.
 
 Found during M4a, by Task 1:
 

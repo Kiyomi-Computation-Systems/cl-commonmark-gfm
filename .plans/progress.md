@@ -199,7 +199,7 @@ Plan: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md)
 - [x] Documents, part 1: the plan's M4, this file (Task 7)
 - [x] Documents, part 2: ADRs 0008, 0009, 0013, 0017 and 0020 amended, the
   plan, decision 27 and the global constraints (Task 7)
-- [ ] Review, fixes and a second review; the local `debian:trixie` CI run
+- [x] Review, fixes and a second review; the local `debian:trixie` CI run
   of `main`'s steps, green and seen to fail; close-out; a green GitHub run
   on the PR, and CCL's and ECL's native suites green on GitHub, on the
   branch or in `main`'s first run (Task 8)
@@ -331,9 +331,7 @@ _None yet._
   - **20:** on SBCL and ECL, a reset unloads cmark-gfm from under other
     code that loaded the same files, since M2b; unsupported;
   - **21:** each Lisp needs its own way to end a child at once.
-- **For M4b:** static deployment, as the spec's §6 designs it; and
-  recording `main`'s first GitHub run with CCL and ECL, if it comes after
-  this merge.
+- **For M4b:** static deployment, as the spec's §6 designs it.
 - **For M5's documentation:**
   - on ECL, interrupting or timing out a thread during a call isn't safe
     (finding 13);
@@ -354,6 +352,20 @@ _None yet._
     and the native suite on all three.
   - **The CCL watchdog** restarted one hung start in each pass of the
     first run, both in the pure suite. The second run needed none.
+- **CI evidence (GitHub),** on PR #9's commit `7a90ad7`:
+  - **The PR's run** (37164973677) passed in 4 min 26 s. `make -k test`
+    took 218 s; the CCL and ECL step was skipped, as on every pull request.
+  - **A dispatched run of `main`'s steps** (37164985716,
+    `workflow_dispatch` on the branch) passed in 11 min 37 s: `make -k
+    test` in 174 s, then CCL's native suite in 112 s and ECL's in 363 s,
+    compiling included. That answers finding 11: a branch can add the
+    trigger and be dispatched before it reaches `main`.
+  - **Both matched the local runs:** `make info`'s versions, the pure
+    suite's 581 tests on each Lisp, and the native suite's 197, 207 and
+    188. The CCL watchdog restarted nothing.
+  - `main`'s full run takes under 12 minutes, not the 16 finding 5
+    estimated: ECL's suite took 363 s, not about 9 minutes, partly from
+    Task 5's speedup.
 
 ### 2026-10-02 — M3 unknown extensions, version probes and property testing (branch `m3-extensions-versions-properties`)
 
