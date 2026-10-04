@@ -87,7 +87,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
-| M4 CCL and ECL | in progress: M4b; M4a merged 2026-10-03 (PR #9, `163077a`) |
+| M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b in PR #10 |
 | M5 release candidate | not started |
 
 ### M0 checklist
@@ -228,7 +228,7 @@ Plans: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md
 - [x] Documents, part 1: the plan's M4, this file (Task 5)
 - [x] Documents, part 2: ADR-0021, the amended ADRs 0004, 0009, 0013 and
   0017, the plan, decision 28 and the global constraints (Task 5)
-- [ ] Review, fixes and a second review; the local `debian:trixie` CI run
+- [x] Review, fixes and a second review; the local `debian:trixie` CI run
   of `main`'s steps, green and seen to fail; close-out, with the second
   container's result; a green GitHub run on the PR, and a green dispatched
   run of `main`'s steps, the static steps included (Task 6)
@@ -400,6 +400,22 @@ _None yet._
 - **`main`'s first run after M4a** (37166381582, on `163077a`) passed in
   15 min 33 s, CCL's and ECL's native suites included, with the counts
   above.
+- **CI evidence (GitHub),** on PR #10's commit `d2b1243`:
+  - **The PR's run** (37216097662) passed in 4 min 23 s. `make -k test`
+    took 223 s; CCL's and ECL's suites and the static steps were skipped,
+    as on every pull request.
+  - **A dispatched run of `main`'s steps** (37216096957,
+    `workflow_dispatch` on the branch) passed in 17 min 6 s: `make -k
+    test` in 221 s, CCL's and ECL's native suites in 643 s, the `-dev`
+    packages in 2 s, and `make check-ecl-static` in 109 s. The static
+    check took the prologue path, with Debian's ASDF 3.1.8.8.
+  - **Both matched the local runs:** `make info`'s versions; the
+    launcher's 54 checks, the watchdog's 37 and the preflight's 53; the
+    pure suite's 582 tests on each Lisp; the native suite's 197, 207 and
+    188; and the static check's 65 checks, 0 failed. The CCL watchdog
+    restarted nothing.
+  - `main`'s full run now takes about 17 minutes: the static steps add
+    about 2 to M4a's.
 
 ### 2026-10-03 — M4a CCL and ECL with dynamic FFI (branch `m4a-ccl-ecl-dynamic-ffi`)
 
