@@ -21,11 +21,11 @@ over the CL_COMMONMARK_GFM_LIBS environment variable, which names the same
 two paths as \"core:extensions\". Either override is used as given, with
 no fallback to the other or to the search: one that isn't two absolute
 paths, or names something that isn't a regular file, signals
-NATIVE-LIBRARY-NOT-FOUND. On CCL, which can't unload a library, the first
-pair a process loads stays its pair, even if starting cmark-gfm then fails:
-naming another pair after that signals NATIVE-INITIALIZATION-ERROR, and
-only a new process can load it. An ECL program with cmark-gfm linked in
-loads nothing, and ignores both.")
+NATIVE-LIBRARY-NOT-FOUND, whose report names that override. On CCL, which
+can't unload a library, the first pair a process loads stays its pair,
+even if starting cmark-gfm then fails: naming another pair after that
+signals NATIVE-INITIALIZATION-ERROR, and only a new process can load it.
+An ECL program with cmark-gfm linked in loads nothing, and ignores both.")
 
 ;;; Signalling
 
@@ -51,31 +51,36 @@ POSIX path, the only kind an override or the directory search ever names."
 prints a pathname's own slots."
   (if (pathnamep value) (namestring value) value))
 
-(defun check-regular-files (core extensions override regular-file-p)
+(defun check-regular-files (core extensions override variable-name regular-file-p)
   "Verify CORE then EXTENSIONS with REGULAR-FILE-P, signalling
 NATIVE-LIBRARY-NOT-FOUND naming OVERRIDE and the first of the two that
-fails. No fallback to the directory search: an override is used verbatim.
-Returns (CORE EXTENSIONS) once both pass."
+fails. Its reason names VARIABLE-NAME, the override variable that holds
+OVERRIDE. No fallback to the directory search: an override is used
+verbatim. Returns (CORE EXTENSIONS) once both pass."
   (unless (funcall regular-file-p core)
-    (signal-library-not-found :override override :datum core
-                               :reason "the core library is not a regular file"
-                               :paths (list core)))
+    (signal-library-not-found
+     :override override :datum core
+     :reason (format nil "~A names a core library that is not a regular file" variable-name)
+     :paths (list core)))
   (unless (funcall regular-file-p extensions)
-    (signal-library-not-found :override override :datum extensions
-                               :reason "the extensions library is not a regular file"
-                               :paths (list extensions)))
+    (signal-library-not-found
+     :override override :datum extensions
+     :reason (format nil "~A names an extensions library that is not a regular file"
+                     variable-name)
+     :paths (list extensions)))
   (list core extensions))
 
 (defun resolve-override-pair (core extensions override variable-name regular-file-p)
   "The common end of both override paths: CORE and EXTENSIONS must both be
-absolute path strings, naming VARIABLE-NAME (the override variable at
-fault) and OVERRIDE (its raw value) in any NATIVE-LIBRARY-NOT-FOUND; then
-both must pass REGULAR-FILE-P. Returns (CORE EXTENSIONS)."
+absolute path strings, then both must pass REGULAR-FILE-P. Any
+NATIVE-LIBRARY-NOT-FOUND carries OVERRIDE, the override's raw value, and
+its reason names VARIABLE-NAME, the override variable at fault. Returns
+\(CORE EXTENSIONS)."
   (unless (and (absolute-path-string-p core) (absolute-path-string-p extensions))
     (signal-library-not-found :override override :datum override
                                :reason (format nil "~A must name two absolute paths"
                                                variable-name)))
-  (check-regular-files core extensions override regular-file-p))
+  (check-regular-files core extensions override variable-name regular-file-p))
 
 ;;; 1. Override
 
@@ -174,7 +179,10 @@ both override variables, so the report is useful with neither set."
 
 (defun resolve-cmark-libraries (&key libraries environment os multiarch regular-file-p)
   "Resolve the pinned libcmark-gfm and libcmark-gfm-extensions, by absolute
-path only. Returns (CORE EXTENSIONS), two namestrings.
+path only. Returns (CORE EXTENSIONS), two namestrings, and as a second
+value the name of the override that gave them, \"*CMARK-GFM-LIBRARIES*\"
+or \"CL_COMMONMARK_GFM_LIBS\", or NIL when the directory search found
+them.
 
 LIBRARIES is the current value of *CMARK-GFM-LIBRARIES*. ENVIRONMENT is the
 current value of CL_COMMONMARK_GFM_LIBS, or NIL when it is unset -- an
@@ -199,11 +207,13 @@ Every failure signals NATIVE-LIBRARY-NOT-FOUND, with :OPERATION
 RESOLVE-CMARK-LIBRARIES, :OVERRIDE the override's value in effect (or NIL
 for the directory search), :PATHS the path that failed or every directory
 searched (NIL for a malformed override), :DATUM the offending value, and a
-:REASON saying what is wrong: for a malformed override, naming the variable
-at fault. This function touches no file itself; REGULAR-FILE-P is the only
-filesystem access, so every branch is tested against a synthetic listing
-with nothing on disk."
+:REASON saying what is wrong, which names the override variable at fault
+when an override is in effect. This function touches no file itself;
+REGULAR-FILE-P is the only filesystem access, so every branch is tested
+against a synthetic listing with nothing on disk."
   (cond
-    (libraries (resolve-libraries-override libraries regular-file-p))
-    (environment (resolve-environment-override environment regular-file-p))
-    (t (resolve-by-search os multiarch regular-file-p))))
+    (libraries
+     (values (resolve-libraries-override libraries regular-file-p) "*CMARK-GFM-LIBRARIES*"))
+    (environment
+     (values (resolve-environment-override environment regular-file-p) "CL_COMMONMARK_GFM_LIBS"))
+    (t (values (resolve-by-search os multiarch regular-file-p) nil))))

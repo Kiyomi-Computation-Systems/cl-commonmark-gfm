@@ -91,7 +91,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b in PR #10 |
-| M5 release candidate | in progress: the comment sweep (branch `m5-comment-sweep`) |
+| M5 release candidate | in progress: the comment sweep merged 2026-10-04 (PR #11, `db20638`), TRANSFORM-AST on WALK-AST merged 2026-10-04 (PR #12, `dc11436`); the override's name in reports on branch `m5-name-the-override` |
 
 ### M0 checklist
 
@@ -259,6 +259,18 @@ sweep's "for later" items 1 and 2:
 - [x] TRANSFORM-AST acts on WALK-AST's events, as ADR-0015 decided
 - [x] The suites on all three Lisps; close-out
 
+**The override's name in reports** (branch `m5-name-the-override`), the
+sweep's "for later" item 4:
+
+- [x] Tests, seen to fail: a missing file's report names the override that
+  named it, and a library that fails to load is reported with where it
+  came from, an override by name or the directory search
+- [x] RESOLVE-CMARK-LIBRARIES names the override in a missing file's
+  report, and returns the override's name; startup puts it in a load
+  failure's report
+- [x] The suites on all three Lisps; `main`'s CI steps in a local
+  `debian:trixie` run; close-out
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -300,6 +312,57 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-04 — The override's name in reports (branch `m5-name-the-override`)
+
+- **Done:** the comment sweep's "for later" item 4.
+  - A missing file's report names the override that named it:
+    "*CMARK-GFM-LIBRARIES* names a core library that is not a regular
+    file", or the same with CL_COMMONMARK_GFM_LIBS. Both overrides can
+    name the same paths, and the special variable wins when both are set,
+    so the report couldn't say which one to fix; only the type of the
+    condition's OVERRIDE slot could.
+  - A library that fails to load is reported with where it came from:
+    "*CMARK-GFM-LIBRARIES* names a library the loader could not load", the
+    same with CL_COMMONMARK_GFM_LIBS, or "the directory search found a
+    library the loader could not load". It read "the loader could not load
+    it".
+  - RESOLVE-CMARK-LIBRARIES returns the override's name as a second value,
+    NIL for the directory search, and startup passes it to LOAD-LIBRARY.
+    The conditions' slots are unchanged.
+- **Seen to fail:**
+  - **before the change:** 9 of the two new pure tests' 16 assertions on
+    each Lisp, and on SBCL the native suite's 4 new assertions. The 7 that
+    passed, that a report doesn't name the other override and that the
+    directory search gives no name, each fail under a mutation below;
+  - **six mutations,** each failing what it should and nothing else:
+    - a fixed CL_COMMONMARK_GFM_LIBS in the missing-file reasons: the 8
+      assertions for the special variable, alone and with the environment
+      variable set too, its "should not name" checks included;
+    - a fixed *CMARK-GFM-LIBRARIES*: the 4 for CL_COMMONMARK_GFM_LIBS,
+      likewise;
+    - a name returned for the directory search: the assertion that it
+      gives none;
+    - the two names swapped: the 3 name assertions;
+    - LOAD-LIBRARY ignoring the name: the startup assertion and the
+      direct test's two override cases;
+    - startup passing NIL for the name: the startup assertion alone, since
+      the direct test calls LOAD-LIBRARY itself.
+- **Tests,** in the Guix container, after the last edit:
+  - the pure suite: 583 tests on each Lisp, two more;
+  - the native suite: 198 tests on SBCL, 208 on CCL, 189 on ECL, one more
+    on each;
+  - the watchdog's 37 checks and the preflight's 53.
+
+  No CCL start needed a retry.
+- **`main`'s CI steps in `debian:trixie`,** against the working tree's
+  code, where CI finds Debian's libraries by the directory search: every
+  step passed, with the container's counts, and `make check-ecl-static`'s
+  65 checks. The test steps took 693 s. M4b's flipped-byte and
+  prologue-removed passes were left out.
+- **`main`'s run after TRANSFORM-AST** (37228042053, on `dc11436`) passed
+  in 13 min 36 s.
+- **For later:** items 3, 5 and 6 of the sweep's list remain.
 
 ### 2026-10-04 — TRANSFORM-AST on WALK-AST (branch `m5-transform-on-walk-ast`)
 

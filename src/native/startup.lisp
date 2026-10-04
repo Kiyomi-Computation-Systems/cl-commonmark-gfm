@@ -179,11 +179,13 @@ CCL's OPEN-SHARED-LIBRARY opens the string itself."
   #+sbcl (uiop:parse-native-namestring path)
   #-sbcl path)
 
-(defun load-library (path override)
+(defun load-library (path override override-name)
   "Load the shared library at PATH, an absolute native namestring, and
 return CFFI's object for it. Any load error signals
 NATIVE-LIBRARY-NOT-FOUND, naming PATH and carrying the loader's message,
-with OVERRIDE, the override in effect, kept."
+with OVERRIDE, the override in effect, kept. Its reason says where PATH
+came from: OVERRIDE-NAME, the name of the override that gave it, or the
+directory search when OVERRIDE-NAME is NIL."
   (handler-case (cffi:load-foreign-library (library-designator path))
     (error (condition)
       (error 'native-library-not-found
@@ -191,7 +193,11 @@ with OVERRIDE, the override in effect, kept."
              :override override
              :datum path
              :paths (list path)
-             :reason (format nil "the loader could not load it: ~A" condition)))))
+             :reason (format nil "~A a library the loader could not load: ~A"
+                             (if override-name
+                                 (format nil "~A names" override-name)
+                                 "the directory search found")
+                             condition)))))
 
 ;;; Step 3, on CCL: one pair per process. CCL never unloads a library it
 ;;; has called into: closing it leaves it mapped. And CFFI's CCL backend
@@ -570,26 +576,27 @@ says."
   (check-dynamic-ffi)
   (let* ((libraries (native-override *cmark-gfm-libraries*))
          (environment (uiop:getenv "CL_COMMONMARK_GFM_LIBS"))
-         (paths (resolve-cmark-libraries :libraries libraries
-                                         :environment environment
-                                         :os (current-os)
-                                         :multiarch (current-multiarch)
-                                         :regular-file-p #'regular-file-p))
          (override (or libraries environment))
          (core nil)
          (extensions nil)
          (started-state nil))
-    (unwind-protect
-         (progn
-           (setf core (load-library (first paths) override))
-           (setf extensions (load-library (second paths) override))
-           #+ccl
-           (startup-step (native-initialization-error "recording the loaded pair")
-             (keep-one-pair paths (list core extensions)))
-           (setf started-state
-                 (prepare-native-state (make-native-state core extensions paths))))
-      (unless started-state
-        (close-libraries core extensions)))
+    (multiple-value-bind (paths override-name)
+        (resolve-cmark-libraries :libraries libraries
+                                 :environment environment
+                                 :os (current-os)
+                                 :multiarch (current-multiarch)
+                                 :regular-file-p #'regular-file-p)
+      (unwind-protect
+           (progn
+             (setf core (load-library (first paths) override override-name))
+             (setf extensions (load-library (second paths) override override-name))
+             #+ccl
+             (startup-step (native-initialization-error "recording the loaded pair")
+               (keep-one-pair paths (list core extensions)))
+             (setf started-state
+                   (prepare-native-state (make-native-state core extensions paths))))
+        (unless started-state
+          (close-libraries core extensions))))
     started-state))
 
 (defun start-linked-native-layer ()
