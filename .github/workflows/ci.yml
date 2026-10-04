@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ jobs:
     name: linux
     runs-on: ubuntu-latest
     container: debian:trixie
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       # actions/checkout needs git and HTTPS certs already in the container:
       # without git, a checkout with submodules: true FAILS outright (it
@@ -75,6 +76,14 @@ jobs:
       - name: make test
         if: ${{ !cancelled() }}
         run: make -k test
+
+      # CCL's and ECL's native suites are slow, so they run only on a push
+      # to main or a dispatch (M4 design D3; ADR-0013): NATIVE_LISPS keeps
+      # its sbcl default, so make test above already covers what a pull
+      # request runs.
+      - name: make check-native (CCL and ECL)
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: make check-native NATIVE_LISPS="ccl ecl"
 
       # No dependency cache yet: ./ocicl/ could be cached, keyed on a hash
       # of ocicl.csv, alongside the checkout step above (left for later).

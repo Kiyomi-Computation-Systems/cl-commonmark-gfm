@@ -22,6 +22,12 @@
 ;;;; handler, or the debugger, would run holding the lock with interrupts
 ;;;; deferred: no timeout could land in it, and every other thread's call
 ;;;; would wait for it.
+;;;;
+;;;; A CCL process keeps the first pair it loads (M4 design §5.3). CCL never
+;;;; unloads a library it has called into, so a later pair could run an
+;;;; earlier pair's code (M4 findings 2 and 3). Startup on CCL records the
+;;;; first pair's truenames, and refuses any other pair before calling into
+;;;; it. SBCL and ECL unload both libraries on close, and keep no record.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -89,7 +95,7 @@ belief). The call runs with interrupts deferred."
 (defun check-dynamic-ffi ()
   "Signal DYNAMIC-FFI-UNAVAILABLE on an ECL built without :DFFI, which can't
 call a library loaded at run time (M2 design §5.2 step 1). Exercised in
-M4."
+M4b, on an ECL without dynamic FFI."
   #+(and ecl (not dffi))
   (error 'dynamic-ffi-unavailable
          :operation 'start-native-layer
@@ -157,15 +163,216 @@ with OVERRIDE, the override in effect, kept (M2 design §5.2 step 3)."
              :paths (list path)
              :reason (format nil "the loader could not load it: ~A" condition)))))
 
+;;; Step 3, on CCL: one pair per process (M4 design §5.3). CCL never unloads
+;;; a library it has called into: closing it leaves it mapped (M4 finding
+;;; 2). And CFFI's CCL backend calls a foreign function by its name alone,
+;;; ignoring the library (src/cffi-openmcl.lisp), so a later pair could run
+;;; an earlier pair's code (M4 finding 3). So the first pair a CCL process
+;;; loads is its pair for good, and another is refused before any call
+;;; into it. Closed with nothing called, a refused pair leaves nothing
+;;; mapped.
+
+(defvar *loaded-pair* nil
+  "On CCL, this process's pair, or NIL before any (M4 design §5.3): a plist
+of :TRUENAMES, the two libraries' truenames as native namestrings, core
+then extensions, and :SONAMES, the sonames CCL recorded them under, which
+the save hook's forgetting matches (FORGET-RECORDED-PAIR). Recorded once
+both libraries of the first pair had loaded, before any call into them,
+and kept however that startup ended, since a call may already have pinned
+the pair (M4 finding 2). As a saved image starts, forgotten, or replaced
+by the pair CCL reopened then (CLEAR-NATIVE-STATE-ON-RESTART; M4 finding
+22). Always NIL on SBCL and ECL. Read and written only under
+*STARTUP-LOCK*.")
+
+(defun loaded-pair ()
+  "The truenames, as native namestrings, core then extensions, of this CCL
+process's pair: the first it loaded, or the one CCL reopened as its saved
+image started. A fresh list, or NIL before any. Always NIL on SBCL and
+ECL, which keep no record (M4 design §5.3)."
+  (with-startup-lock
+    (copy-list (getf *loaded-pair* :truenames))))
+
+#+ccl
+(declaim (notinline library-truename))
+
+#+ccl
+(defun library-truename (path)
+  "The truename of the file at PATH, an absolute native namestring, as a
+native namestring: its real path, symbolic links resolved, as Linux's
+/proc/self/maps names it. PATH is parsed as a native namestring, and the
+truename written back as one, so a * in PATH stays a plain character:
+neither a wildcard nor escaped, as NAMESTRING would write it (\\*). The
+star-path test checks it on CCL. A missing file signals FILE-ERROR.
+NOTINLINE: a test redefines it."
+  (uiop:native-namestring (truename (uiop:parse-native-namestring path))))
+
+#+ccl
+(defun keep-one-pair (paths libraries)
+  "Record the pair at PATHS, whose LIBRARIES, CFFI's objects for them, core
+then extensions, have just loaded, as this process's pair when none is
+recorded: their truenames, and the sonames CCL recorded them under, read
+from the CCL:SHLIB objects CFFI keeps as their handles
+(SHARED-LIBRARY-RECORDS). When one is, and these truenames differ, signal
+NATIVE-INITIALIZATION-ERROR: its datum the refused pair's truenames, its
+reason naming the recorded pair (M4 design §5.3). An error reading a
+truename or a soname leaves the record as it was. Called by
+START-NATIVE-LAYER on CCL alone, under *STARTUP-LOCK*, before any call into
+the pair, so a refused pair closes with nothing called."
+  (let ((truenames (mapcar #'library-truename paths))
+        (recorded (getf *loaded-pair* :truenames)))
+    (cond ((null recorded)
+           (setf *loaded-pair*
+                 (list :truenames truenames
+                       :sonames (mapcar (lambda (record) (ccl::shlib.soname record))
+                                        (shared-library-records libraries)))))
+          ((not (equal truenames recorded))
+           (error 'native-initialization-error
+                  :operation 'start-native-layer
+                  :datum truenames
+                  :reason (format nil "CCL can't unload the cmark-gfm pair this process loaded ~
+                                       first, ~A and ~A, so another pair needs a new process"
+                                  (first recorded) (second recorded)))))))
+
+;;; As a saved image starts, CCL reopens by soname every record it still
+;;; lists, before the restore hook runs (REFRESH-EXTERNAL-ENTRYPOINTS, CCL
+;;; 1.13's level-0/l0-cfm-support.lisp): a record other code held open
+;;; across the save, or any record when the save hook was skipped. Such an
+;;; image maps the pair from its start, and CFFI's lookups by name land in
+;;; it, so it keeps that pair as its own (M4 design §5.3; M4 finding 22).
+
+#+ccl
+(defun reopened-path (record)
+  "The path of the file CCL maps for RECORD, a CCL:SHLIB, or NIL when it
+maps none. On Linux, a record CCL reopened as the image started, or found
+mapped already, has a link map again, and the path the loader opened
+(REVIVE-SHARED-LIBRARIES, %REOPEN-USER-LIBRARIES); one it couldn't reopen,
+or that a close emptied, has neither. On macOS, CCL opens a library by the
+path it is given and keeps that path as the record's soname, and a record
+it reopened has a handle again (REOPEN-USER-LIBRARIES)."
+  #+darwin (and (ccl::shlib.handle record) (ccl::shlib.soname record))
+  #-darwin (and (ccl::shlib.map record) (ccl::shlib.pathname record)))
+
+#+ccl
+(defun reopened-pair-record (record)
+  "The pair record a saved image starts with, given RECORD, the one it was
+saved with (M4 design §5.3): when CCL lists both of RECORD's sonames again
+and maps both, having reopened them as the image started, a record of the
+files it reopened, their truenames with the same sonames, so the image
+refuses another pair (M4 finding 22); otherwise NIL, as when the save hook
+made CCL forget both records. A truename that can't be read gives NIL too:
+the restore hook, which calls this as the image starts, mustn't signal."
+  (let* ((sonames (getf record :sonames))
+         (paths (loop for soname in sonames
+                      for listed = (find soname ccl::*shared-libraries*
+                                         :key (lambda (shlib) (ccl::shlib.soname shlib))
+                                         :test #'equal)
+                      collect (and listed (reopened-path listed)))))
+    (when (and sonames (notany #'null paths))
+      (let ((truenames (ignore-errors (mapcar #'library-truename paths))))
+        (when truenames
+          (list :truenames truenames :sonames sonames))))))
+
+;;; Closing, and on CCL forgetting (M4 design §5.4; M4 finding 15). CCL
+;;; keeps a record of each shared library it has opened, on
+;;; CCL::*SHARED-LIBRARIES*: one record a soname, however many times the
+;;; library is opened, with a count of the opens not yet closed
+;;; (OPEN-SHARED-LIBRARY-INTERNAL, CCL 1.13's level-0/l0-cfm-support.lisp).
+;;; CCL:CLOSE-SHARED-LIBRARY, which CFFI's close calls, leaves a closed
+;;; library there. A saved image reopens every library on that list by its
+;;; soname as it starts (REFRESH-EXTERNAL-ENTRYPOINTS): by bare name, from
+;;; wherever the loader finds it, where ADR-0009 loads only by absolute
+;;; path: an image saved after a startup started with both libraries mapped
+;;; (M4 finding 15). So on CCL every close also makes CCL forget the
+;;; libraries it closed: a reset, and so the save hook, and every failed
+;;; startup, the refusal of another pair included (M4 design §5.4).
+;;;
+;;; Only a record that nothing holds open is forgotten, its open count 0.
+;;; Other code in the process, such as a user's own CFFI load of the same
+;;; files, shares the record, and its open is still counted once startup's
+;;; is closed: CCL keeps that record, and a saved image reopens it, as the
+;;; other code expects.
+;;;
+;;; The forgetting lasts until CCL next opens a library, any library: it
+;;; then records again every library it maps but doesn't list
+;;; (OPEN-SHARED-LIBRARY-INTERNAL), and it still maps one it has called into
+;;; (M4 findings 2 and 15). So the save hook, after its reset, also makes
+;;; CCL forget whatever it lists again of the recorded pair's libraries
+;;; (FORGET-RECORDED-PAIR). It finds those records by the sonames recorded
+;;; with the pair (KEEP-ONE-PAIR): CCL keeps one record a soname, and a
+;;; record CCL emptied on close still has its soname, though it names no
+;;; file.
+
+#+ccl
+(defun shared-library-records (libraries)
+  "CCL's records of LIBRARIES, CFFI library objects or NIL: the CCL:SHLIB
+objects CCL:OPEN-SHARED-LIBRARY returned, which CFFI keeps as their handles
+(CFFI's src/cffi-openmcl.lisp). Read them before the libraries close:
+closing clears CFFI's handles. CFFI exports no reader of a handle."
+  (loop for library in libraries
+        for record = (and library (cffi::foreign-library-handle library))
+        when record
+          collect record))
+
+#+ccl
+(defun forget-shared-libraries (records)
+  "Make CCL forget each of RECORDS, CCL:SHLIB objects, that nothing holds
+open, its open count 0, so a saved image neither reopens it as it starts
+nor looks for a function in it. RECORDS are libraries just closed, or
+records CCL listed again when it last opened a library
+(FORGET-RECORDED-PAIR). One that other code still holds open stays (M4
+design §5.4). Takes each forgotten record off CCL's list of the shared
+libraries it has opened, and detaches every entry point CCL resolved in it:
+an entry point keeps the library it was found in, and calling it once that
+record has no handle signals \"Shared library not open\" (RESOLVE-EEP).
+Detached, it is looked up again by name when next called. CCL exports no
+function for either, so this edits CCL 1.13's own records
+(level-0/l0-cfm-support.lisp). CCL guards its list with no lock: a CFFI
+load in another thread at the same moment can race with this edit, as two
+of CCL's own opens can race with each other. Called only under
+*STARTUP-LOCK*."
+  (let ((unheld (remove-if-not (lambda (record) (zerop (ccl::shlib.opencount record))) records)))
+    (setf ccl::*shared-libraries*
+          (remove-if (lambda (record) (member record unheld)) ccl::*shared-libraries*))
+    (maphash (lambda (name entry-point)
+               (declare (ignore name))
+               (when (member (ccl::eep.container entry-point) unheld)
+                 (setf (ccl::eep.container entry-point) nil
+                       (ccl::eep.address entry-point) nil)))
+             (ccl::eeps))))
+
+#+ccl
+(defun forget-recorded-pair ()
+  "Make CCL forget every record it lists of the recorded pair's libraries
+that nothing holds open (FORGET-SHARED-LIBRARIES): the records under the
+sonames recorded with the pair (KEEP-ONE-PAIR). The save hook calls it
+after its reset, which closed and forgot the published pair, if any: CCL
+may have listed the pair's libraries again since, when it last opened a
+library. With no pair recorded, it forgets nothing. Reads the pair record
+and edits CCL's records in one hold of *STARTUP-LOCK*."
+  (with-startup-lock
+    (let ((sonames (getf *loaded-pair* :sonames)))
+      (forget-shared-libraries
+       (remove-if-not (lambda (record)
+                        (member (ccl::shlib.soname record) sonames :test #'equal))
+                      ccl::*shared-libraries*)))))
+
 (defun close-libraries (core extensions)
   "Close EXTENSIONS, then CORE, CFFI library objects or NIL: the extensions
 library first, since it depends on the core. A failure closing one still
-closes the other."
-  (unwind-protect
-       (when extensions
-         (cffi:close-foreign-library extensions))
-    (when core
-      (cffi:close-foreign-library core))))
+closes the other. On CCL, then make CCL forget each of the two that nothing
+holds open any more (FORGET-SHARED-LIBRARIES), so no saved image reopens
+it: their records are read before the closes clear CFFI's handles, and
+forgotten in the outermost cleanup, so a close that signals still forgets.
+Called only under *STARTUP-LOCK*."
+  (let (#+ccl (records (shared-library-records (list extensions core))))
+    (unwind-protect
+         (unwind-protect
+              (when extensions
+                (cffi:close-foreign-library extensions))
+           (when core
+             (cffi:close-foreign-library core)))
+      #+ccl
+      (forget-shared-libraries records))))
 
 ;;; Steps 4 to 7: what every parse needs
 
@@ -300,8 +507,11 @@ unless the smoke parse under STATE finds each of *SMOKE-KINDS* (M2 design
 (defun start-native-layer ()
   "Run M2 design §5.2's steps 1 to 8, and return the new state, not yet
 published. A failure in steps 3 to 8 closes whatever this attempt loaded,
-the extensions library first. From step 4 on, any error that isn't the
-step's own condition becomes it: NATIVE-ABI-MISMATCH in step 4,
+the extensions library first. On CCL, once step 3 has loaded both
+libraries, and before step 4's first call into them, KEEP-ONE-PAIR records
+the pair, or refuses one other than this process's (M4 design §5.3). From
+then on, any error that isn't the step's own condition becomes it:
+NATIVE-INITIALIZATION-ERROR in that record, NATIVE-ABI-MISMATCH in step 4,
 NATIVE-INITIALIZATION-ERROR in steps 5 to 8, every failure of the smoke
 parse included. Called only under *STARTUP-LOCK*:
 cmark_gfm_core_extensions_ensure_registered keeps an unlocked static flag
@@ -322,6 +532,9 @@ cmark_gfm_core_extensions_ensure_registered keeps an unlocked static flag
          (progn
            (setf core (load-library (first paths) override))
            (setf extensions (load-library (second paths) override))
+           #+ccl
+           (startup-step (native-initialization-error "recording the loaded pair")
+             (keep-one-pair paths (list core extensions)))
            (let ((state (make-native-state core extensions paths)))
              (startup-step (native-abi-mismatch "reading cmark's version"
                                                 :expected-version *cmark-gfm-version*
@@ -392,7 +605,15 @@ lock is released, with interrupts as the caller had them (M2 design §11):
   error comes from reading it (step 4);
 - NATIVE-INITIALIZATION-ERROR, for any failure in steps 5 to 8: an
   extension or the allocator's free missing, an error from the loaded
-  libraries, or a smoke parse that fails or finds too little."
+  libraries, or a smoke parse that fails or finds too little; and on CCL,
+  for an error while recording the pair, or for a pair other than the one
+  this process loaded first, which CCL can't unload (M4 design §5.3).
+On CCL, once the first pair whose libraries both load has been recorded,
+before any call into it, it is this process's pair from then on, whether
+or not that startup succeeds (KEEP-ONE-PAIR). An error while recording
+leaves the record as it was, so the pair is not recorded. A saved image
+starts with no record, unless CCL reopened the pair as it started
+(CLEAR-NATIVE-STATE-ON-RESTART; M4 design §5.3)."
   (call-with-published-state #'identity))
 
 (defun native-state-published-p ()
@@ -470,7 +691,9 @@ call can start holding a state this is closing.
 A restart in the same process relies on the loader unloading both: cmark
 keeps its registry of syntax extensions in the core library
 (src/registry.c), and a core left loaded would still list the extensions
-of the library unloaded under it."
+of the library unloaded under it. CCL unloads neither once a startup has
+called into them (M4 finding 2), so there only the same pair starts again
+(KEEP-ONE-PAIR), its extensions still mapped beside its core."
   (let ((holds (with-startup-lock
                  (cond
                    (*holds* (length *holds*))

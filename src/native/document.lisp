@@ -348,10 +348,14 @@ none; :OTHER when it carries some other one (M2 design §6.2)."
             :other))))
 
 (define-node-accessor native-kind (document node)
-  "NODE's AST vocabulary kind, by CLASSIFY-NODE (M2 design §6.2; ADR-0008)."
-  (classify-node (native-type document node)
-                 (native-extension document node)
-                 (native-type-string document node)))
+  "NODE's AST vocabulary kind, by CLASSIFY-NODE (M2 design §6.2; ADR-0008).
+CLASSIFY-NODE decides a node with no extension by its type code alone, so
+the type string, three foreign calls and a string, is read only for a node
+with an extension: under ECL's dynamic FFI, every foreign call looks its
+function up first (M4 design §5.7)."
+  (let ((type (native-type document node))
+        (extension (native-extension document node)))
+    (classify-node type extension (and extension (native-type-string document node)))))
 
 (define-node-accessor native-literal (document node)
   "NODE's literal: the text of a :TEXT, :CODE, :CODE-BLOCK, :HTML-BLOCK or

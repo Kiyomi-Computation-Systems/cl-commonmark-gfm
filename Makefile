@@ -200,8 +200,9 @@ check-notice: ## Diff NOTICE's COPYING section against vendor/cmark-gfm/COPYING
 	  && echo "check-notice: NOTICE reproduces vendor/cmark-gfm/COPYING"
 
 # The Lisps each test suite runs on. check-purity runs the pure suite on
-# all three; check-native runs the native suite on SBCL alone until M4 adds
-# CCL and ECL (M2 design §8.5).
+# all three; check-native runs the native suite on NATIVE_LISPS, sbcl by
+# default, so `make test` is what a pull request runs. main's CI adds `make
+# check-native NATIVE_LISPS="ccl ecl"` (M4 design §5.6; ADR-0013).
 LISPS ?= sbcl ccl ecl
 NATIVE_LISPS ?= sbcl
 
@@ -304,7 +305,7 @@ PROPERTY_ENV := $(strip $(if $(PROPERTY_SEED),CL_COMMONMARK_GFM_SEED=$(PROPERTY_
 check-purity: ## Run the pure suite on $(LISPS); replay with PROPERTY_SEED/PROPERTY_CASES
 	@$(call run-suite,check-purity,$(LISPS),tests/run.lisp,$(PROPERTY_ENV))
 
-check-native: ## Run the native suite on $(NATIVE_LISPS); replay with PROPERTY_SEED/PROPERTY_CASES
+check-native: ## Run the native suite on $(NATIVE_LISPS) (default sbcl; main's CI adds ccl and ecl); replay with PROPERTY_SEED/PROPERTY_CASES
 	@$(call run-suite,check-native,$(NATIVE_LISPS),tests/run-native.lisp,$(PROPERTY_ENV))
 
 check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
@@ -313,7 +314,7 @@ check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
 check-preflight: ## Test that make fails fast, with a hint, when its tools are missing
 	@sh tests/make-preflight.sh
 
-test: check-watchdog check-preflight check-purity check-fixtures check-native ## Run the full test suite
+test: check-watchdog check-preflight check-purity check-fixtures check-native ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
 
 # The property tests' own CI case counts (ADR-0020) give `make test` about
 # 30 s in the container. `make fuzz` replaces every property's own count

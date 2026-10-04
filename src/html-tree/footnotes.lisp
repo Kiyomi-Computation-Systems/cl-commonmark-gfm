@@ -127,30 +127,60 @@ among that footnote's references."
 PLAN, or NIL when that reference is dangling."
   (values (gethash key (footnote-plan-citations plan))))
 
+;;; The label table (M4 design §5.7)
+;;;
+;;; Labels match with STRING=, so an EQUAL hash table would do, but CCL
+;;; hashes short strings into few, clustered values. An EQUAL table of
+;;; 71,705 labels of one to four characters took 3.6 s on CCL, and 0.02 s
+;;; on SBCL. So a label table hashes each label itself, with LABEL-HASH,
+;;; into an EQL hash table, whose values are buckets: alists from label to
+;;; value, searched with STRING=, for the labels that share a hash.
+
+(defun label-hash (label)
+  "The 32-bit FNV-1a hash of LABEL's character codes, a fixnum. It spreads
+short labels that differ in one character, where SXHASH can cluster."
+  (let ((hash 2166136261))
+    (loop for char across label
+          do (setf hash (logand (* (logxor hash (char-code char)) 16777619) #xFFFFFFFF)))
+    hash))
+
+(defun make-label-table ()
+  "An empty label table."
+  (make-hash-table :test 'eql))
+
+(defun label-value (table label)
+  "The value TABLE holds for LABEL, and true when it holds one; or NIL and
+NIL. Labels compare with STRING=, so labels differing only in case are
+different labels."
+  (let ((entry (assoc label (gethash (label-hash label) table) :test #'string=)))
+    (values (cdr entry) (and entry t))))
+
+(defun add-label-value (table label value)
+  "Make TABLE hold VALUE for LABEL, which it holds nothing for yet."
+  (push (cons label value) (gethash (label-hash label) table)))
+
 ;;; The pre-pass (M1 design §5.4 steps 1 to 4)
 
 (defun first-definitions (definitions)
-  "Step 1: an EQUAL hash table from each label to the first place in
-DEFINITIONS that has it; later places with the same label are dropped.
-DEFINITIONS lists places in the order the walk leaves them, the order
-cmark's parser registers definitions in, so the first is the one it keeps.
-EQUAL compares strings as STRING= does, so labels differing only in case
-are different labels."
-  (let ((table (make-hash-table :test 'equal)))
+  "Step 1: a label table from each label to the first place in DEFINITIONS
+that has it; later places with the same label are dropped. DEFINITIONS
+lists places in the order the walk leaves them, the order cmark's parser
+registers definitions in, so the first is the one it keeps."
+  (let ((table (make-label-table)))
     (dolist (place definitions table)
       (let ((label (footnote-label (car place))))
-        (unless (nth-value 1 (gethash label table))
-          (setf (gethash label table) place))))))
+        (unless (nth-value 1 (label-value table label))
+          (add-label-value table label place))))))
 
 (defun resolve-references (references kept)
   "Step 2: resolve each place in REFERENCES, a list of reference places in
-tree order, through KEPT, from FIRST-DEFINITIONS. Returns two values: the
-resolving references in order, each as (KEY DEFINITION K), where DEFINITION
-is the kept definition's place and K counts its references so far; and an
-EQL hash table from each such place to its reference count."
+tree order, through KEPT, the label table from FIRST-DEFINITIONS. Returns
+two values: the resolving references in order, each as (KEY DEFINITION K),
+where DEFINITION is the kept definition's place and K counts its references
+so far; and an EQL hash table from each such place to its reference count."
   (let ((counts (make-hash-table :test 'eql)))
     (values (loop for (reference . key) in references
-                  for definition = (gethash (footnote-label reference) kept)
+                  for definition = (label-value kept (footnote-label reference))
                   when definition
                     collect (list key definition (incf (gethash definition counts 0))))
             counts)))

@@ -204,14 +204,19 @@ loaded libraries, such as a missing function (M2 design §5.2 step 4)."))
 (define-condition dynamic-ffi-unavailable (native-error) ()
   (:documentation
    "Signalled on ECL without dynamic FFI (:DFFI) support (M2 design §5.2 step
-1). Exercised in M4."))
+1). Exercised in M4b, on an ECL built without it (M4 design §6.4)."))
 
 (define-condition native-initialization-error (native-error) ()
   (:documentation
    "Signalled when starting the native layer fails after its libraries load:
 a missing GFM extension, a null allocator free pointer, a failed smoke parse
 (a null root included), or any other error from the loaded libraries during
-those steps (M2 design §5.2 steps 5 to 8)."))
+those steps (M2 design §5.2 steps 5 to 8). On CCL, also signalled in two
+cases once both libraries load (M4 design §5.3): for any error while
+recording the pair, such as a truename that can't be read, DATUM then the
+original error; and when a startup loads a pair other than the one the
+process loaded first, which CCL can't unload, DATUM then the refused pair's
+truenames, and REASON naming the process's pair."))
 
 (define-condition native-parse-error (native-error) ()
   (:documentation

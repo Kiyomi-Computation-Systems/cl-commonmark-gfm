@@ -12,7 +12,9 @@
   and M3 finding 3: no parse produces an `:extension` node, so M3 tests
   unknown nodes on real ones, built through cmark's public API; and by its
   §5: the version probe also calls `cmark_version()`, for the number check
-  (ADR-0009)
+  (ADR-0009); amended 2026-10-03 by the
+  [M4 spec](../2026-10-03-m4-ccl-ecl-design.md) §5.7 and M4 finding 17:
+  the shell reads a node's type string only when the node has an extension
 - **Date:** 2026-09-27
 - **Scope:** native boundary, node classification, native lifetimes
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.1, §3.3,
@@ -90,13 +92,17 @@ root, together.
 
 ### Node classification
 
-The shell reads three facts per node and passes them to a pure function:
+The shell reads up to three facts per node and passes them to a pure
+function:
 
 1. `cmark_node_get_type(node)`, an integer;
 2. which cached extension pointer (`table`, `strikethrough`, `autolink`,
    `tagfilter`, `tasklist`) equals `cmark_node_get_syntax_extension(node)`,
    or `nil`;
-3. `cmark_node_get_type_string(node)`.
+3. `cmark_node_get_type_string(node)`, only for a node with an extension.
+   A node with none is decided by its type code alone, so it gets `nil`.
+   Reading the string costs three foreign calls, and under ECL's dynamic
+   FFI each call looks its function up first (M4 finding 17).
 
 `(classify-node type-code extension type-string)` returns a kind:
 

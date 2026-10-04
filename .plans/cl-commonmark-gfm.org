@@ -277,7 +277,9 @@ Use exact ABI types:
 - UTF-8 source is an octet vector plus its byte length, never a Lisp character
   count.
 - The portable sources do not use =sb-alien=, CCL-specific foreign APIs, or
-  ECL's =ffi:= package.
+  ECL's =ffi:= package.  One exception, from M4a: to keep a saved image from
+  reopening cmark-gfm, =/native= edits CCL's own records of the libraries
+  it loaded.  No foreign call goes around CFFI (ADR-0017).
 
 ** Direct binding
 
@@ -303,13 +305,14 @@ filter, and task lists, plus the =CMARK_OPT_FOOTNOTES= option (ADR-0006).  Tag
 filter changes HTML rendering only; the AST still holds the filtered raw HTML
 (ADR-0005).
 
-*Classification.*  The shell reads three facts per node and hands them to the
-pure =classify-node (type-code extension type-string)=:
+*Classification.*  The shell reads up to three facts per node and hands them
+to the pure =classify-node (type-code extension type-string)=:
 
 1. =cmark_node_get_type=, an integer;
 2. which cached core-extension pointer (=table=, =strikethrough=, =autolink=,
    =tagfilter=, =tasklist=) equals =cmark_node_get_syntax_extension=, or =nil=;
-3. =cmark_node_get_type_string=.
+3. =cmark_node_get_type_string=, only for a node with an extension; a node
+   with none gets =nil= (ADR-0008; M4 finding 17).
 
 No extension: the core type code decides (the constants are transcribed from
 =cmark-gfm.h= and checked against the pinned header in =vendor/cmark-gfm=,
@@ -396,7 +399,10 @@ Ownership rules:
 - A finalizer may be an emergency leak backstop, never normal cleanup.
 - Every cmark call runs with interrupts deferred, so an interrupt, such as
   a timeout, lands when the call returns, never inside cmark's allocator.
-  Timeouts are coarse as a result (ADR-0017).
+  Timeouts are coarse as a result (ADR-0017).  Not on ECL: ECL 24.5.10
+  lets an interrupt into a deferred region that allocates, so on ECL,
+  interrupting or timing out a thread during a call isn't safe (M4
+  finding 13).
 
 ** Library discovery and initialization
 
@@ -460,7 +466,9 @@ ABI drift.  A Groveler-based developer check may be added later.
 
 No reader conditionals belong in AST or HTML-tree code.  In the library they
 appear only in =/native=: the save and restore hooks, deferring interrupts,
-and ECL's =:dffi= check (ADR-0017).
+ECL's =:dffi= check, SBCL's library designator, and from M4a CCL's pair
+record and its forgetting of the libraries it closes (ADR-0009,
+ADR-0017).
 If a loader workaround is needed, confine it there and cover it with an
 integration test.
 
@@ -492,11 +500,31 @@ configuration on macOS.
 - Do not retain implementation-owned string storage across a foreign call.
 - Keep all loader branches inside the native shell; AST/HTML-tree code stays
   completely shared.
+- *One pair per process* (ADR-0009).  CCL never unloads a library it has
+  called into, and CFFI's CCL backend calls a function by its name alone,
+  so a later pair could run an earlier pair's code (M4 findings 2 and 3).
+  So the first time both libraries of a pair have loaded, before any call
+  into them, startup records the pair's truenames.  A later pair with other
+  truenames is closed and refused with =native-initialization-error=; the
+  same pair starts again.  A pair that loads and then fails startup stays
+  the process's pair.  Another pair needs a new process.
 - A function on =ccl:*save-exit-functions*= closes both libraries before an
   image is saved, and one on =ccl:*restore-lisp-functions*= clears any
-  published state when an image starts (ADR-0017).  Both are first
-  exercised in M4.
-- Each cmark call runs inside =ccl:without-interrupts= (ADR-0017).
+  published state when an image starts.  It clears the pair record too,
+  unless CCL has already reopened the pair: then it records the files CCL
+  reopened (ADR-0017; M4 finding 22).  Both hooks are exercised from M4a,
+  in children.
+- *A save with a busy thread* (ADR-0017; M4 finding 14).  CCL never
+  refuses a save because other threads run: it unwinds them first, then
+  runs its save hooks.  A thread that stays inside a cmark call keeps its
+  hold, so the save hook refuses, and the save fails.  Without that
+  refusal, CCL saves past the thread and crashes.
+- *Forgetting* (ADR-0017; M4 finding 15).  So that a saved image doesn't
+  reopen cmark-gfm by soname, =/native= makes CCL forget the pair's
+  libraries, by editing CCL 1.13's internal records: the one exception to
+  "CFFI only" (M4 design §4).  ADR-0017 gives the rules.
+- Each cmark call runs inside =ccl:without-interrupts= (ADR-0017).  The
+  interrupt race runs on CCL.
 
 ** ECL
 
@@ -508,8 +536,23 @@ without it, CFFI's normal =load-foreign-library= route cannot load a library.
   unresolved-library failure.
 - Document a deployment path that links cmark-gfm into the ECL application,
   then uses ECL's supported static foreign-library mechanism.
-- Maintain the dynamic-FFI ECL step in CI's one job (ADR-0013) and, after it
-  stabilizes, a compiled static-link smoke test.
+- *Dynamic FFI, exercised in M4a.*  The native suite runs on ECL.  ECL
+  unloads both libraries on close, so another pair loads cleanly, and it
+  keeps no pair record (M4 finding 4).  It saves no images.
+- An override path holding a =*= is reported as not found: ECL parses it
+  as a wildcard pathname, and finds no file there (ADR-0009; M4 finding
+  12).  A test checks it.
+- *Interrupts* (ADR-0017; M4 finding 13).  ECL doesn't defer interrupts in
+  a region that allocates, and every deferred region in =/native=
+  allocates.  So on ECL, interrupting or timing out a thread during a call
+  isn't safe, and the interrupt race doesn't run there.  M5's
+  documentation warns ECL users.
+- CI's one job runs ECL's native suite on =main= and on =workflow_dispatch=
+  (ADR-0013).
+- *Static deployment comes in M4b*
+  ([[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]] §6): a recipe
+  builds an ECL program with cmark-gfm linked in, and
+  =make check-ecl-static= exercises it.
 - The pure core continues to load and test with no ECL FFI configuration.
 
 ** Initial support matrix
@@ -844,7 +887,12 @@ Pure tests:
   each even if an earlier one failed, and fails if a =CFFI= package exists
   after the run.
 
-Native tests, on SBCL (CCL and ECL join in M4):
+Native tests, on SBCL, CCL and ECL (from M4a;
+[[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]] §5).  A test that can't
+run on a Lisp is skipped there, with its reason recorded: on ECL, the
+saved-image tests (ECL saves no images), the interrupt race (M4 finding
+13) and the star-path override's load, where an ECL test checks instead
+that the override is reported as not found (M4 finding 12).
 
 - *The corpus:* a pure reader of =vendor/cmark-gfm/test/*.txt= mirrors
   =spec_tests.py=.  It gives 747 enabled examples in six files, each with its
@@ -883,18 +931,45 @@ Native tests, on SBCL (CCL and ECL join in M4):
   collections; render stress; the two ABI-belief tests.
 - *Every native condition but =dynamic-ffi-unavailable=* is signalled at
   least once, through a bad override or an internal wrapper redefined for
-  the test.  That one needs an ECL without =:dffi=, in M4.
+  the test.  That one needs an ECL without =:dffi=, in M4b.
 - *Threads* (ADR-0017): concurrent calls give what sequential ones give, on
   the inputs that race without the finish lock; many first calls at once
-  start cmark once.
-- *A saved image:* a child SBCL saves one, and a second child starts from it
-  with nothing published, then parses.  A save while a worker holds the
-  state is refused, and the worker is unharmed; an image saved with the
-  save hook skipped still starts with nothing published.
-- *Interrupts* (ADR-0017): a worker rendering in a loop, interrupted many
-  times with a =throw=, keeps making progress, and ends with no hold and
-  the counters at zero.  It runs in a child process with a time limit, so
-  a deadlock fails the test instead of hanging the suite.
+  start cmark once.  Every test thread starts through one helper, which
+  hands back what its function returned or the condition it signalled, so
+  no condition escapes it: on CCL, one that escapes ends the whole run
+  (M4 finding 1).  Lock waits and joins with a time limit poll until a
+  deadline, on every Lisp.
+- *Children* (M4 design §5.2): the saved-image tests, the interrupt race
+  and CCL's fresh-process tests each run a child of the same Lisp, with a
+  time limit, so a deadlock fails the test instead of hanging the suite.
+  A child CCL that never prints its start line is killed and started
+  again, up to three tries in all (M2 finding 20); one that has started is
+  never retried.  Fake children test the runner on each Lisp.
+- *CCL's one pair* (ADR-0009): a copy of the pair at another path is
+  refused, leaves nothing loaded, and the suite's pair still starts; the
+  core named twice and the star-path override run in a fresh child CCL,
+  since the suite's own pair is recorded; the restore hook clears the
+  record, unless CCL reopened the pair, and then a copy is refused in the
+  image too.  On Linux, after a reset or a failed startup, the mapping checks
+  expect exactly the recorded pair mapped on CCL, and nothing on SBCL and
+  ECL.
+- *A saved image,* in children of SBCL and CCL: a child saves one, and a
+  second child starts from it with nothing published, no pair recorded
+  and, on Linux, nothing mapped, then parses.  An image saved with the
+  save hook skipped still starts with nothing published.  Images saved
+  after a failed startup, and after the core is loaded again outside a
+  startup, start with nothing mapped: on CCL, because CCL was made to
+  forget the pair (M4 finding 15).  On CCL, an image saved while other code
+  holds the pair open reopens it, and still starts up.  A save while a
+  worker holds the state:
+  SBCL refuses it, and the worker is unharmed; CCL unwinds a worker
+  outside a cmark call, and the image starts clean, but one that stays
+  inside a cmark call keeps its hold, and the save fails (M4 finding 14).
+- *Interrupts* (ADR-0017), on SBCL and CCL: a worker rendering in a loop,
+  interrupted 2,000 times with a =throw=, keeps making progress, and ends
+  with no hold and the counters at zero.  It runs in a child process.
+  Without the deferral it fails on both.  Not on ECL, which doesn't defer
+  interrupts in a region that allocates (M4 finding 13).
 - UTF-8 and source positions, including a label cmark cuts inside a
   character, which becomes U+FFFD; every option through each entry point;
   and discovery both ways: the override in the container, the directory
@@ -902,12 +977,15 @@ Native tests, on SBCL (CCL and ECL join in M4):
 
 =make check-native= runs the native suite on each Lisp in =NATIVE_LISPS=
 (=sbcl= by default).  It fails when no tests ran, or when the open counters
-aren't zero at the end.  CCL's release binary sometimes hangs before any
+aren't zero at the end.  The default stays =sbcl= in M4a, so =make test= is
+what a pull request runs; =main='s CI runs the native suite on CCL and ECL
+as well (M4 design D3).  CCL's release binary sometimes hangs before any
 Lisp code runs, so the Makefile starts CCL, for both suites and for
 =make info=, through a watchdog that kills and restarts a run that hasn't
 started; =make check-watchdog= tests it against a fake CCL (ADR-0013).
-=make test= is =check-watchdog=, =check-purity=, =check-fixtures= and
-=check-native=.  Every check is seen to fail under a targeted change.
+=make test= is =check-watchdog=, =check-preflight=, =check-purity=,
+=check-fixtures= and =check-native=.  Every check is seen to fail under a
+targeted change.
 The rules: [[file:2026-09-30-m2-native-layer-design.md][M2 design]] §8.
 
 The five properties draw their cases from a seeded generator of our own,
@@ -923,7 +1001,8 @@ bugs M2b met were found by reading cmark's C and by review:
 [[file:2026-09-30-m2-native-layer-design.md][M2 design]] findings 16 and 19.
 
 CI is one amd64 job on =ubuntu-latest= in a =debian:trixie= container
-(=.github/workflows/ci.yml=, ADR-0013), on pull requests and pushes to =main=.
+(=.github/workflows/ci.yml=, ADR-0013), on pull requests, pushes to =main=
+and, from M4a, =workflow_dispatch=, which runs =main='s steps on any branch.
 It installs SBCL 2.5.2, ECL 24.5.10 and cmark-gfm 0.29.0.gfm.13 from Debian
 (runtime packages only, so discovery sees what a user sees), and CCL 1.13 and
 ocicl 2.9.0 from checksummed release downloads.  The three Lisps run in
@@ -932,9 +1011,12 @@ milestone: =make info= (Lisp versions, architecture, cmark-gfm version),
 =check-help=, the launcher dry run, =check-vocabulary=, =check-pins= and
 =check-notice= now; =make deps= and =make -k test= from M1, run even after
 an earlier step fails.  From M2, =make -k test= also runs the native suite
-and its oracles, with no override set, so discovery searches
-=/usr/lib/x86_64-linux-gnu=: on SBCL in M2, and on CCL and ECL from M4.  The
-manual macOS run records the same facts.
+and its oracles on SBCL, with no override set, so discovery searches
+=/usr/lib/x86_64-linux-gnu=.  From M4a, a step after it runs the native
+suite on CCL and ECL, also with no override, on a push to =main= or a
+dispatch only.  They would add about 2.3 and 9 minutes to every run (M4
+finding 5), so pull requests keep SBCL's alone.  The job's time limit
+goes from 20 to 30 minutes.  The manual macOS run records the same facts.
 
 ** Milestones
 
@@ -1023,10 +1105,29 @@ property-based testing has been evaluated.
 *** M4 — CCL and ECL
 
 Run the same test suite on CCL and ECL; add only loader/deployment branches
-justified by observed differences.
+justified by observed differences.  One design, two slices, each with its
+own plan, branch and PR
+([[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]]):
+
+1. *M4a, CCL and ECL with dynamic FFI.*  The native suite runs on all three
+   Lisps, CI runs it on CCL and ECL on =main=, and the hand-offs from M2a,
+   M2b and M3 are settled.
+2. *M4b, ECL static deployment.*  A recipe builds an ECL program with
+   cmark-gfm linked in, which starts up without loading anything, and
+   =make check-ecl-static= exercises it.  =dynamic-ffi-unavailable= is
+   tested on a real ECL without dynamic FFI.
 
 Exit: the dynamic-FFI steps pass, in CI's one job (ADR-0013), and the ECL
-static-link recipe is exercised.
+static-link recipe is exercised.  For each slice:
+- *M4a:* =make test= and the native suite on CCL and ECL pass in the Guix
+  container and in a local =debian:trixie= run of =main='s CI steps.
+- *M4b:* =make check-ecl-static= passes in the same two places, and
+  =make check-ecl-nodffi= in a second container, whose ECL has no dynamic
+  FFI.
+
+In each slice, every new check has been seen to fail.  On GitHub, the PR's
+run passes, and so do =main='s steps: on the branch by =workflow_dispatch=,
+or else in =main='s first run after the merge.
 
 *** M5 — release candidate
 
@@ -1055,7 +1156,9 @@ never an invalid-free crash or unexplained unresolved symbol.
 | Trees deeper than the Lisp stack | no depth limit: every walk over an AST or an HTML tree loops over an explicit stack; deep tests at 100,000 levels on each Lisp (ADR-0015) |
 | A small input makes cmark abort or run out of memory (padded tables, footnote references, plaintext prefixes) | three limits, each checked before cmark does the work it guards, with hard caps; rejection and soundness tests; memory pressure stays a documented risk (ADR-0016) |
 | Concurrent parses race in cmark's global tables | one finish lock around =cmark_parser_finish=; thread tests on the inputs that race; another cmark-gfm user in the same process can still race (ADR-0017) |
-| An interrupt, such as a timeout, unwinds out of a cmark call and leaves a malloc lock held, so the thread deadlocks | interrupts are deferred during each cmark call, so timeouts are coarse; an interrupt test in a child process with a time limit (ADR-0017) |
+| An interrupt, such as a timeout, unwinds out of a cmark call and leaves a malloc lock held, so the thread deadlocks | interrupts are deferred during each cmark call, so timeouts are coarse; an interrupt test in a child process with a time limit, on SBCL and CCL (ADR-0017). On ECL the deferral doesn't hold where a region allocates: recorded in ADR-0017; users are told in M5 (M4 finding 13) |
+| On CCL, a later pair runs an earlier pair's code: CCL never unloads a library it has called into, and CFFI's CCL backend calls a function by its name alone (M4 findings 2 and 3) | one pair per process: a CCL process keeps the first pair it loads, and refuses another before any call into it (ADR-0009) |
+| CCL's forgetting depends on CCL 1.13's internals and on CFFI's unexported handle reader | the CCL image tests, which break if an upgrade changes either (ADR-0017) |
 | cmark's footnote-entity bug: with footnotes on, a =[= followed by an entity that decodes to =^= makes cmark read past a 1-byte buffer, then use it after freeing it | an input guard rejects the pattern before any native call, with =unsupported-input=; rejection and near-miss tests; other parser bugs stay a documented risk (ADR-0019) |
 
 * Decision log
@@ -1119,6 +1222,16 @@ never an invalid-free crash or unexplained unresolved symbol.
     of our own, not check-it.  Five properties join the suites; CI runs
     them from a fixed seed with fixed case counts, and =make fuzz= from a
     random seed.  Amends 13 (ADR-0020).
+27. A CCL process keeps the first pair it loads, and refuses another, since
+    CCL can't unload a library it has called into.  Every close on CCL also
+    makes CCL forget the libraries it closes that nothing else holds open,
+    so that a saved image doesn't reopen them: the one exception to "CFFI
+    only".  On ECL, interrupting or timing out a thread during a call isn't
+    safe.  Classification reads a node's type string only when the node
+    has an extension.  CI runs CCL's and ECL's native suites on =main= and
+    on =workflow_dispatch=; pull requests keep SBCL's.  Amends 1, 14, 15,
+    19, 23 and 26 (ADR-0008, ADR-0009, ADR-0013, ADR-0017 and ADR-0020,
+    amended).
 
 Full records live in =.plans/decisions/=.
 

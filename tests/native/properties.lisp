@@ -1,8 +1,9 @@
 ;;;; The native properties, 3 and 4 (ADR-0020; M3 design §6.3): the bounds,
 ;;;; and clean outcomes. Registered for the :SYNTAX-SOUP and :CORPUS-SPLICES
 ;;;; generators, on the HTML oracle's 33 option sets
-;;;; (tests/property-harness.lisp's ORACLE-OPTION-SETS). Run on SBCL, as the
-;;;; rest of the native suite is, until M4 (spec §9).
+;;;; (tests/property-harness.lisp's ORACLE-OPTION-SETS). Run on SBCL, CCL and
+;;;; ECL from M4a, as the rest of the native suite is; in CI, CCL's and ECL's
+;;;; run on main (M4 design §5.5, §5.6).
 ;;;;
 ;;;; Property 3 reaches past the entry points, straight to
 ;;;; CALL-WITH-NATIVE-DOCUMENT, RENDER-HTML, RENDER-PLAINTEXT and the two
