@@ -67,6 +67,7 @@
                (:file "version")
                (:file "classify")
                (:file "discovery")
+               (:file "linking")
                (:file "options")
                (:file "limits")
                (:file "guard")

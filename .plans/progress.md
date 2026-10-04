@@ -45,7 +45,9 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   footnotes on, the guard rejects what triggers cmark's footnote-entity bug,
   before parsing (ADR-0019).
 - Tests use Parachute, run with the quiet reporter and exit non-zero on
-  failure (ADR-0007).
+  failure (ADR-0007). The checks in `tests/static/` are the exception:
+  plain programs without Parachute, since they load the library alone.
+  `make` judges them by exit status and summary line (ADR-0021).
 - CI runs the property tests from a fixed seed with fixed case counts:
   seed 1 and ADR-0020's counts, so every run tests the same cases.
   `make fuzz` explores with random seeds (ADR-0020).
@@ -57,16 +59,25 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 - No test thread lets a condition escape: every thread a test starts goes
   through `make-test-thread`. On CCL, an escaped condition ends the whole
   run (M4 finding 1).
-- CI is one amd64 job in a `debian:trixie` container (ADR-0013). It runs
-  CCL's and ECL's native suites on `main` and on dispatch; pull requests
-  run SBCL's.
+- CI is one amd64 job in a `debian:trixie` container (ADR-0013). Pull
+  requests run the native suite on SBCL. On `main` and on dispatch, the
+  native suite also runs on CCL and ECL, and then `make check-ecl-static`
+  runs (ADR-0021).
 - TDD. A test is done when it has been seen to fail.
 - Mutation runs delete the project's fasls before every run, the restoring
-  run included: its `src` and `tests` trees under the fasl cache, which in
-  the Guix container is `.guix-env/cache/common-lisp/`. ASDF compares file
-  dates to the second, so a source mutated and restored within one second
-  keeps its mutated fasl. Deleting those trees is enough, since mutations
-  never touch the dependencies.
+  run included: its `src` and `tests` trees under the fasl caches, which in
+  the Guix containers are `.guix-env/cache*/common-lisp/`. ASDF compares
+  file dates to the second, so a source mutated and restored within one
+  second keeps its mutated fasl. Deleting those trees is enough, since
+  mutations never touch the dependencies.
+- No fasls are shared between ECLs built differently, or with a linked
+  build (M4 finding 9). The container whose ECL has no dynamic FFI has its
+  own fasl cache, and a linked build compiles into `build/ecl-static/`,
+  emptied first.
+- A check that runs an ECL program, or a test without Parachute in an ECL
+  process, requires exit status 0 and its summary line with 0 failed.
+  ECL's debugger quits with status 0 at the end of stdin, so a condition
+  that reaches it can look like a pass (M4 finding 26).
 
 ## Milestones
 
@@ -76,7 +87,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
-| M4 CCL and ECL | in progress: M4a |
+| M4 CCL and ECL | in progress: M4b; M4a merged 2026-10-03 (PR #9, `163077a`) |
 | M5 release candidate | not started |
 
 ### M0 checklist
@@ -180,7 +191,8 @@ Plan: [implementation](2026-10-02-m3-extensions-versions-properties-implementati
 ### M4 checklist
 
 Spec: [M4 design](2026-10-03-m4-ccl-ecl-design.md) ·
-Plan: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md)
+Plans: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md),
+[M4b implementation](2026-10-03-m4b-ecl-static-deployment-implementation.md)
 
 **M4a, CCL and ECL with dynamic FFI** (branch `m4a-ccl-ecl-dynamic-ffi`):
 
@@ -204,7 +216,22 @@ Plan: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md)
   on the PR, and CCL's and ECL's native suites green on GitHub, on the
   branch or in `main`'s first run (Task 8)
 
-**M4b, ECL static deployment** gets its own plan once M4a has merged.
+**M4b, ECL static deployment** (branch `m4b-ecl-static-deployment`):
+
+- [x] The second container, whose ECL has no dynamic FFI:
+  `GUIX_ENV_MANIFEST`, its own fasl cache and `make check-ecl-nodffi`
+  (Task 1)
+- [x] The recipe, the smoke program and `make check-ecl-static` (Task 2)
+- [x] Linked mode in the native layer, and `dynamic-ffi-unavailable`'s datum
+  and reason (Task 3)
+- [x] CI: `make check-ecl-static` on `main` and on dispatch (Task 4)
+- [x] Documents, part 1: the plan's M4, this file (Task 5)
+- [x] Documents, part 2: ADR-0021, the amended ADRs 0004, 0009, 0013 and
+  0017, the plan, decision 28 and the global constraints (Task 5)
+- [ ] Review, fixes and a second review; the local `debian:trixie` CI run
+  of `main`'s steps, green and seen to fail; close-out, with the second
+  container's result; a green GitHub run on the PR, and a green dispatched
+  run of `main`'s steps, the static steps included (Task 6)
 
 ### October: CI follow-up
 
@@ -247,6 +274,132 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-04 — M4b ECL static deployment (branch `m4b-ecl-static-deployment`)
+
+- **Built** (M4 spec §6; ADR-0021; ADRs 0004, 0009, 0013 and 0017
+  amended):
+  - **linked ECL programs:** when ECL compiled cmark's calls with CFFI's
+    `:c/c++` method, startup skips the dynamic-FFI check, discovery and
+    loading, and its state's paths are `:linked`. `src/ffi.lisp` records
+    the method as its calls compile (findings 25 and 31);
+  - **`dynamic-ffi-unavailable`** only on an ECL without `:dffi` whose
+    native layer isn't linked. Its datum is `:dffi`, and its reason says
+    how to link cmark-gfm in instead;
+  - **the recipe and the smoke program,** with `make check-ecl-static`:
+    - the recipe (`tests/static/build.lisp`) uses ECL's own ASDF. It links
+      ASDF into the program where ECL ships `libasdf.a`, and otherwise,
+      as on Debian, has the program load it as it starts (finding 23);
+    - the smoke program runs 65 checks: the method, the linked state, the
+      28 oracle fixtures through both entry points, a restart, the open
+      counters, and nothing loaded, after the first startup and at the
+      end;
+    - the archives come from `CMARK_GFM_ARCHIVE_DIR`, or from beside the
+      pair discovery finds on Linux;
+  - **a second Guix container,** whose ECL has no dynamic FFI
+    (`GUIX_ENV_MANIFEST=manifest-ecl-nodffi.scm`, with its own fasl
+    cache), and `make check-ecl-nodffi`: a guard, the condition test (5
+    checks, among them the order of step 1 and discovery), then the smoke
+    program on that ECL;
+  - **CI:** on `main` and on dispatch, after CCL's and ECL's native
+    suites, the `-dev` packages install and `make check-ecl-static` runs
+    (ADR-0013).
+
+  Six tasks, run by subagents one at a time, with the documents
+  alongside. Sonnet took the second container and CI; Opus the recipe,
+  linked mode, the documents and the reviews.
+- **Tests,** in the Guix container, from fresh fasls:
+
+  | Suite | SBCL | CCL | ECL |
+  |---|---|---|---|
+  | Pure | 582 tests, 1,703 assertions | 582, 1,702 | 582, 1,703 |
+  | Native | 197 tests, 1,521 assertions | 207, 1,658 | 188, 1,449 |
+
+  - The native counts are M4a's; the pure suite gains `linked-method-p`'s
+    test.
+  - The smoke program passes its 65 checks on the container's ECL, on
+    its ECL without dynamic FFI, and on Debian trixie's ECL. The
+    condition test passes its 5.
+  - The launcher's tests pass 54 checks (M4a: 32), the preflight's 53
+    (M4a: 26), and the watchdog's 37.
+  - `make check-ecl-static` takes about 85 s, nearly all of it compiling;
+    the program itself runs in under a second. `make check-ecl-nodffi`
+    takes about 100 s.
+
+  Every new check was seen to fail, under its task's mutations and each
+  fix round's.
+- **Decisions the user made during M4b:**
+  - ASDF is linked into a program where ECL ships it, and loaded as the
+    program starts otherwise;
+  - the tasks ran by subagents, as in M4a;
+  - after the first review: the method is recorded where the calls
+    compile, `src/ffi.lisp`; the condition test's checks that couldn't
+    fail gave way to an order check.
+- **Reviews:**
+  - **Round 1,** two Opus reviewers, split by area:
+    - the library, the recipe and the check programs: no must-fix; three
+      should-fixes, two of them the user's decisions above, and nine
+      nits;
+    - the containers, CI, the shell tests and the documents: no
+      must-fix; six should-fixes, mostly untested shell branches, and
+      twelve nits.
+  - **Fix round F1:** four code follow-ups, one at a time, each to the
+    agent that wrote the code, then the documents.
+  - **Round 2:** no must-fix. Two should-fixes: a launcher test that broke
+    when the repository's path holds a space, and a preflight helper that
+    matched only newer GNU make's error line, not macOS's make 3.81. Eight
+    nits, one a small regression from round 1's archive-path fix. All
+    fixed.
+  - **Round 3,** on round 2's fixes alone: clean in both areas. Two
+    optional nits, a citation and the spec's status line, were fixed.
+- **Found** (M4 findings 23 to 31):
+  - **23:** Debian's ECL has ASDF 3.1.8.8, and no ASDF archive to link.
+    CFFI's compiled code refers to ASDF's packages, which is finding 7's
+    start failure;
+  - **24:** replacing ECL's own FFI functions catches nothing: ECL calls
+    them directly;
+  - **25:** in a linked program, CFFI's method variable is ECL's default
+    again at run time;
+  - **26:** an ECL program or process that fails as it starts can exit 0,
+    from its debugger at the end of stdin. So every new ECL check also
+    requires its summary line;
+  - **27:** `ext:quit` doesn't end a program from its prologue;
+  - **28:** ECL links every compiled file with `c::*ld-libs*`, so the
+    archives go in before anything compiles;
+  - **29:** without step 1, an ECL without dynamic FFI fails only at
+    loading, with advice that leads nowhere;
+  - **30:** ECL reads a `?` or a `\` in a path as a wildcard, as it does a
+    `*`;
+  - **31:** a program behaves by the method of the file that compiled its
+    calls.
+- **For M5's documentation:**
+  - the recipe for a linked ECL program; on Debian, such a program loads
+    ECL's own ASDF as it starts;
+  - on macOS, `CMARK_GFM_ARCHIVE_DIR` must name the archives'
+    directory, and the static check hasn't run there;
+  - M4a's items still stand.
+- **CI evidence (local, before the commit):** `main`'s steps, the new
+  static ones included, ran in `debian:trixie` under Docker against the
+  working tree, three times: before the fix rounds, after the first, and
+  on the final tree.
+  - **`make info`** reported x86_64, SBCL 2.5.2.debian, ECL 24.5.10,
+    CCL 1.13, cmark-gfm 0.29.0.gfm.13 and ocicl 2.9.0.
+  - **Every step passed** each time. `make -k test`, CCL's and ECL's
+    native suites and the static check took 674 s, 700 s and 658 s.
+  - **Debian's ECL took the prologue path:** the program loaded ECL's
+    ASDF 3.1.8.8 as it started, and passed its checks.
+  - **With one fixture byte flipped,** every suite failed each time: the
+    pure suite on all three Lisps, `check-fixtures`, the native suite on
+    all three, and `check-ecl-static`, naming `paragraphs` in both entry
+    points and in the restart's render.
+  - **With the prologue removed,** the program stopped at start with
+    finding 7's message, and `make check-ecl-static` failed on the missing
+    summary line.
+  - **The CCL watchdog** restarted one hung start, in the second run's
+    flipped native pass. The first and third runs needed none.
+- **`main`'s first run after M4a** (37166381582, on `163077a`) passed in
+  15 min 33 s, CCL's and ECL's native suites included, with the counts
+  above.
 
 ### 2026-10-03 — M4a CCL and ECL with dynamic FFI (branch `m4a-ccl-ecl-dynamic-ffi`)
 

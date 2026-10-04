@@ -13,11 +13,29 @@
 ;;;;
 ;;;; No library is named here. The native layer loads the pinned pair by
 ;;;; absolute path at startup (ADR-0009); until then, calling any of these
-;;;; signals the Lisp's undefined-foreign-function error.
+;;;; signals an error, each Lisp its own: SBCL's
+;;;; UNDEFINED-ALIEN-FUNCTION-ERROR and ECL's TYPE-ERROR from
+;;;; FOREIGN-DATA-POINTER (M4 finding 20), and CCL's "Can't resolve foreign
+;;;; symbol". In an ECL program with cmark-gfm linked in, each is a direct C
+;;;; call, bound when the program was linked, and nothing is loaded (M4
+;;;; design §6.1).
+;;;;
+;;;; Every cmark call compiles here, so this file records the method CFFI
+;;;; compiled them with (FFI-METHOD; M4 design §6.1, ADR-0021). On ECL,
+;;;; CFFI compiles each call by CFFI-SYS:*CFFI-ECL-METHOD* as the call
+;;;; compiles (src/cffi-ecl.lisp): :DFFI and :DLOPEN look the function up in
+;;;; a library loaded at run time, and :C/C++ writes a direct C call, which
+;;;; the linker binds (M4 finding 6). At run time the variable holds ECL's
+;;;; default again, whatever the build set (M4 finding 25), so the record is
+;;;; read as this file compiles, with the calls themselves. Startup reads it,
+;;;; so a program whose files were compiled under different methods behaves
+;;;; by what its calls do.
 
 (defpackage #:cl-commonmark-gfm.ffi
   (:use #:cl)
-  (:export ;; Parser
+  (:export ;; The method these calls were compiled with (M4 design §6.1)
+           #:ffi-method
+           ;; Parser
            #:cmark-parser-new
            #:cmark-parser-attach-syntax-extension
            #:cmark-parser-feed
@@ -63,6 +81,28 @@
            #:cmark-get-default-mem-allocator))
 
 (in-package #:cl-commonmark-gfm.ffi)
+
+;;; The method these calls were compiled with (M4 design §6.1; ADR-0021)
+
+(defmacro compiled-ffi-method ()
+  "CFFI-SYS:*CFFI-ECL-METHOD*'s value as this macro expands, quoted: on ECL,
+the method CFFI compiles foreign calls with then; NIL where CFFI has no
+such variable, as on SBCL and CCL. Found by name, so this file needs no
+reader conditional. FFI-METHOD's call to it expands as this file compiles,
+so its compiled code holds the value as a literal."
+  `',(let ((variable (find-symbol "*CFFI-ECL-METHOD*" "CFFI-SYS")))
+       (and variable (boundp variable) (symbol-value variable))))
+
+(defun ffi-method ()
+  "The method CFFI compiled the cmark calls below with: on ECL, :DFFI,
+:DLOPEN or :C/C++, the value CFFI-SYS:*CFFI-ECL-METHOD* had as this file
+compiled, kept by COMPILED-FFI-METHOD; NIL on SBCL and CCL. Not the
+variable's value now: CFFI sets it again from ECL's features as it loads,
+so a linked program would find ECL's default there, :DFFI or :DLOPEN,
+whatever its build set (M4 finding 25). LINKED-METHOD-P tells from it
+whether the program is linked, and so whether startup loads anything (M4
+design §6.1)."
+  (compiled-ffi-method))
 
 ;;; Parser (src/cmark-gfm.h; src/cmark-gfm-extension_api.h)
 

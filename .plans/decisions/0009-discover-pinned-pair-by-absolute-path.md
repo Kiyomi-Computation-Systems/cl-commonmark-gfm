@@ -9,13 +9,19 @@
   whose startup then fails, and refuses any other; on ECL, an override
   path holding a `*` is reported as not found; a saved CCL image reopens
   by soname any record of the pair that the save hook didn't forget
-  (ADR-0017), and then records the pair it reopened
+  (ADR-0017), and then records the pair it reopened; amended 2026-10-04,
+  in M4b, by ADR-0021, the same spec's §6.1 and §6.2, and M4 findings 8
+  and 29: a linked ECL program skips the `:dffi` check, the override, the
+  search and loading, and its state's paths are `:linked`;
+  `dynamic-ffi-unavailable` is signalled only on an ECL without `:dffi`
+  whose native layer isn't linked, with datum `:dffi` and a reason saying
+  how to link cmark-gfm in instead
 - **Date:** 2026-09-27
 - **Scope:** native library discovery, loading, initialization
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.2
 - **Related:** ADR-0002 (the pin), ADR-0004 (the Guix container sets the
   override), ADR-0008 (direct binding), ADR-0017 (the restore hook and
-  CCL's pair record; CCL's forgetting)
+  CCL's pair record; CCL's forgetting), ADR-0021 (linked ECL programs)
 - **Prior art:** chez-cmark-gfm ADR-0016
 
 ## Context
@@ -133,10 +139,31 @@ So a CCL process keeps the first pair it loads (M4 spec §5.3):
 SBCL and ECL keep no record. They unload both libraries on close (M4
 finding 4), so another pair loads cleanly.
 
+### Linked ECL programs
+
+An ECL program whose native layer ECL compiled with CFFI's `:c/c++`
+method has cmark-gfm linked in (ADR-0021). Its startup skips the `:dffi`
+check below, the override, the directory search and loading (M4 spec
+§6.1). It reads neither `*cmark-gfm-libraries*` nor
+`CL_COMMONMARK_GFM_LIBS`. The rest of "Load and verify" runs as above:
+both version checks, registering the core extensions and the smoke
+parse. Its state names no files: its paths are `:linked`. A reset closes
+nothing.
+
 ### ECL without `:dffi`
 
-Signal `dynamic-ffi-unavailable` before discovery. Static deployment links
-cmark-gfm into the application; no shim is involved.
+On an ECL without `:dffi` whose native layer isn't linked, startup
+signals `dynamic-ffi-unavailable` first, before discovery and before
+anything loads (M4 spec §6.2). Such an ECL can't load a library at run
+time: CFFI refuses every load there (M4 finding 29).
+- **Its datum** is the missing feature, `:dffi` (M4 finding 8).
+- **Its reason** says how to link cmark-gfm into a program instead:
+  compile with `cffi-sys:*cffi-ecl-method*` set to `:c/c++`, and link
+  `libcmark-gfm-extensions.a` and `libcmark-gfm.a`.
+- **The check comes first** so that the failure says what to do. Without
+  it, discovery finds the pair, and loading fails as
+  `native-library-not-found`, with CFFI's message pointing at ECL's
+  `ffi:load-foreign-library`, not at a linked program (M4 finding 29).
 
 ## Consequences
 
@@ -146,7 +173,10 @@ cmark-gfm into the application; no shim is involved.
   skipped, any record of it (ADR-0017). The plan's library-resolution
   order, including its CFFI conventional-name step, is replaced by this
   one.
-- Users need only the runtime packages, never `-dev`.
+- Users need only the runtime packages, never `-dev`. Building a linked
+  ECL program is the exception: it needs cmark-gfm's archives, which
+  Debian ships in the `-dev` packages, and the program then needs no
+  cmark-gfm library (ADR-0021).
 - Only one filename per library matches, so there is no version choice to
   make within a directory.
 - A library outside the listed directories (a Guix or Nix store, a custom

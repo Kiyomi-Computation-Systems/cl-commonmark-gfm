@@ -14,14 +14,19 @@
   finding 5: CCL's and ECL's native suites run on a push to `main` and on
   `workflow_dispatch` only, while pull requests keep SBCL's; the job's
   timeout goes from 20 to 30 minutes; and a pending run on `main` that a
-  newer one cancels is accepted
+  newer one cancels is accepted; amended 2026-10-04, in M4b, by ADR-0021
+  and the same spec's §6.5: on a push to `main` and on dispatch, after
+  CCL's and ECL's native suites, a step installs `libcmark-gfm-dev` and
+  `libcmark-gfm-extensions-dev`, and the next runs `make
+  check-ecl-static`; the packages come after the native suites, so
+  discovery only ever sees the runtime packages
 - **Date:** 2026-09-27
 - **Scope:** CI workflow, CI toolchain, native memory checks, the CCL
   start watchdog
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §5
 - **Related:** ADR-0001 (Linux-only CI), ADR-0002 (the pin), ADR-0004
   (the Guix container stays local), ADR-0009 (discovery), ADR-0011
-  (the oracle and `check-pins`)
+  (the oracle and `check-pins`), ADR-0021 (linked ECL programs)
 
 ## Context
 
@@ -67,6 +72,12 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
   `if: ${{ !cancelled() && github.event_name != 'pull_request' }}`. Pull
   requests keep SBCL's native suite: `NATIVE_LISPS` keeps its `sbcl`
   default, so `make test` stays what a pull request runs.
+- **The static check runs on `main` and on dispatch only** (M4 spec
+  §6.5; ADR-0021). After the CCL and ECL step, one step installs
+  `libcmark-gfm-dev` and `libcmark-gfm-extensions-dev`, for cmark-gfm's
+  archives, and the next runs `make check-ecl-static`. The packages come
+  after the native suites, so discovery only ever sees the runtime
+  packages, as a user's install would be (ADR-0009).
 - **Container gotchas.** Install `git` and `ca-certificates` before
   `actions/checkout`: without `git`, a checkout with `submodules: true`
   fails, because it cannot fall back to the REST API for submodules. Add
@@ -80,7 +91,7 @@ CI must run SBCL, CCL and ECL against the pinned cmark-gfm, on Linux only
 | Tool | Source | Pin |
 |------|--------|-----|
 | SBCL 2.5.2, ECL 24.5.10 | Debian apt | the trixie release |
-| cmark-gfm | apt: `libcmark-gfm0.29.0.gfm.13`, `libcmark-gfm-extensions0.29.0.gfm.13`, `cmark-gfm` (CLI) | exact version; **no `-dev` packages**, so discovery sees what a user sees |
+| cmark-gfm | apt: `libcmark-gfm0.29.0.gfm.13`, `libcmark-gfm-extensions0.29.0.gfm.13`, `cmark-gfm` (CLI) | exact version; **no `-dev` packages while the native suites run**, so discovery sees what a user sees. `main`'s and dispatched runs install them afterwards, for the static check (M4b) |
 | CCL 1.13 | `ccl-1.13-linuxx86.tar.gz` from the GitHub release | SHA-256 recorded in the repo |
 | ocicl 2.9.0 | `ocicl_2.9.0-1_amd64.deb` from the GitHub release | SHA-256 recorded in the repo |
 | Lisp dependencies | `ocicl install` from `ocicl.csv` | lockfile; `./ocicl/` not cached yet; `ci.yml` says so |
@@ -99,6 +110,7 @@ Each step comes into use as its milestone arrives.
 | `make deps`, then `make -k test`, both `if: ${{ !cancelled() }}`: `check-purity` (the pure suite on each Lisp; fails if a `CFFI` package is loaded) and `check-fixtures` | M1 |
 | `make -k test` adds `check-native`, the native suite on SBCL, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
 | `make check-native NATIVE_LISPS="ccl ecl"`, the native suite on CCL and ECL, with no override set, on a push to `main` or a dispatch only | M4a |
+| After the CCL and ECL step, on a push to `main` or a dispatch only: install `libcmark-gfm-dev` and `libcmark-gfm-extensions-dev`, then `make check-ecl-static`, which builds a linked ECL program with Debian's ECL and runs it (ADR-0021) | M4b |
 | The corpus oracles, over the whole corpus (ADR-0011, ADR-0018), in the native suite | M2 |
 
 ### CCL start watchdog
@@ -142,6 +154,8 @@ M2b's second review added four rules (M2 design §8.5):
 - **macOS, arm64 and Windows runners** (ADR-0001). The free arm64 runners
   are not available to a private repository anyway.
 - **`make check-guix`**, which stays local (ADR-0004).
+- **An ECL without dynamic FFI** (M4 spec D5). Its checks, `make
+  check-ecl-nodffi`, run locally, in a second Guix container (ADR-0004).
 - **Valgrind and sanitizer gates.** We compile no C (ADR-0008). None of
   the three Lisp runtimes suits Valgrind: their collectors use signals and
   memory protection. Native memory safety is checked instead by:
@@ -164,6 +178,10 @@ M2b's second review added four rules (M2 design §8.5):
   queues, even with `cancel-in-progress` false. `main`'s run takes near 15
   minutes, by the same estimate, so a quick third merge can cancel the
   second merge's run, and its CCL and ECL suites with it. Accepted.
+- **Only `main`'s and dispatched runs build a linked ECL program** (M4
+  spec §6.5). They build it with Debian's ECL, which ships no
+  `libasdf.a`, so the program's prologue loads ECL's own ASDF: a path the
+  Guix containers never take (ADR-0021; M4 finding 23).
 - CI's cmark-gfm is a distribution package, loaded the way a user's would
   be. That makes CI a real test of discovery (ADR-0009).
 - CCL is covered on Linux amd64 only.

@@ -11,8 +11,9 @@
 to search the fixed system directories, or a list of two absolute paths,
 strings or pathnames, (CORE EXTENSIONS), naming the pinned libcmark-gfm and
 libcmark-gfm-extensions directly. Takes priority over the
-CL_COMMONMARK_GFM_LIBS environment variable. Re-exported by
-CL-COMMONMARK-GFM.")
+CL_COMMONMARK_GFM_LIBS environment variable. An ECL program with
+cmark-gfm linked in loads nothing, and ignores both (M4 design §6.1).
+Re-exported by CL-COMMONMARK-GFM.")
 
 ;;; Signalling
 

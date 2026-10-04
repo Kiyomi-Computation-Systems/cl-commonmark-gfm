@@ -4,6 +4,17 @@
 ;;;; under the startup lock (D11). A failed attempt closes what it loaded
 ;;;; and publishes nothing, so the next call starts again.
 ;;;;
+;;;; A linked ECL program has cmark-gfm linked in (M4 design §6.1;
+;;;; ADR-0021): ECL compiled cmark's calls, all in src/ffi.lisp, with
+;;;; CFFI's :C/C++ method, so each is a direct C call, bound when the
+;;;; program was linked. Its startup has nothing to find or load: it skips
+;;;; steps 1 to 3, reading neither override, and runs the rest on a state
+;;;; that names no files, its paths :LINKED. Which method compiled the calls
+;;;; is recorded where they compile, as they compile (FFI-METHOD, from
+;;;; src/ffi.lisp): at run time, CFFI's variable holds ECL's default again
+;;;; (M4 finding 25). So even a program whose files were compiled under
+;;;; different methods starts by what its calls do.
+;;;;
 ;;;; A call that parses holds the published state, from the moment it is
 ;;;; handed over until the call's document is released (M2 design §5.3;
 ;;;; finding 18). While any call holds it, closing cmark signals and closes
@@ -93,13 +104,21 @@ belief). The call runs with interrupts deferred."
 ;;; Step 1: ECL without dynamic FFI
 
 (defun check-dynamic-ffi ()
-  "Signal DYNAMIC-FFI-UNAVAILABLE on an ECL built without :DFFI, which can't
-call a library loaded at run time (M2 design §5.2 step 1). Exercised in
-M4b, on an ECL without dynamic FFI."
+  "Signal DYNAMIC-FFI-UNAVAILABLE on an ECL built without :DFFI, where CFFI
+refuses to load a library at run time, so startup can't load the pair
+(M2 design §5.2 step 1; M4 design §6.2; M4 finding 29): its datum the
+missing feature, :DFFI, and its reason saying how to link cmark-gfm into
+a program instead, whose startup skips this step. On SBCL, CCL and an ECL
+with :DFFI, it does nothing."
   #+(and ecl (not dffi))
   (error 'dynamic-ffi-unavailable
          :operation 'start-native-layer
-         :reason "this ECL was built without dynamic FFI (:dffi)")
+         :datum :dffi
+         :reason (format nil "this ECL was built without dynamic FFI, so it can't load ~
+                              cmark-gfm at run time; to link cmark-gfm into a program ~
+                              instead, compile with cffi-sys:*cffi-ecl-method* set to ~
+                              :c/c++, and link libcmark-gfm-extensions.a and ~
+                              libcmark-gfm.a"))
   nil)
 
 ;;; Step 2: where the pinned pair is (ADR-0009)
@@ -385,7 +404,7 @@ otherwise record the string in STATE."
       (error 'native-abi-mismatch
              :operation 'start-native-layer
              :datum found
-             :reason "the loaded cmark-gfm isn't the pinned version"
+             :reason "the cmark-gfm in use isn't the pinned version"
              :expected-version *cmark-gfm-version*
              :found-version found
              :paths (state-paths state)))
@@ -502,20 +521,44 @@ unless the smoke parse under STATE finds each of *SMOKE-KINDS* (M2 design
              :datum missing
              :reason "the smoke parse didn't find every kind it needs"))))
 
+;;; Steps 4 to 8, the same for a linked program as for one that loads the
+;;; pair
+
+(defun prepare-native-state (state)
+  "Run M2 design §5.2's steps 4 to 8 on STATE, not yet published, and
+return it: check cmark's version, register the core extensions, find the
+five extensions and the allocator's free, which STATE then holds, and run
+the smoke parse. Any error that isn't the step's own condition becomes it:
+NATIVE-ABI-MISMATCH in step 4, naming STATE's paths, and
+NATIVE-INITIALIZATION-ERROR in steps 5 to 8, every failure of the smoke
+parse included. STATE names the two libraries startup loaded, or, in a
+linked program, none (M4 design §6.1)."
+  (startup-step (native-abi-mismatch "reading cmark's version"
+                                     :expected-version *cmark-gfm-version*
+                                     :paths (state-paths state))
+    (check-version state))
+  (startup-step (native-initialization-error "registering the extensions")
+    (with-interrupts-deferred
+      (cmark-gfm-core-extensions-ensure-registered)))
+  (startup-step (native-initialization-error "finding the extensions")
+    (setf (state-extensions state) (find-extensions)))
+  (startup-step (native-initialization-error "reading the allocator")
+    (setf (state-free state) (find-allocator-free)))
+  (startup-step (native-initialization-error "the smoke parse")
+    (smoke-test state))
+  state)
+
 ;;; Steps 1 to 8
 
-(defun start-native-layer ()
-  "Run M2 design §5.2's steps 1 to 8, and return the new state, not yet
-published. A failure in steps 3 to 8 closes whatever this attempt loaded,
-the extensions library first. On CCL, once step 3 has loaded both
-libraries, and before step 4's first call into them, KEEP-ONE-PAIR records
-the pair, or refuses one other than this process's (M4 design §5.3). From
-then on, any error that isn't the step's own condition becomes it:
-NATIVE-INITIALIZATION-ERROR in that record, NATIVE-ABI-MISMATCH in step 4,
-NATIVE-INITIALIZATION-ERROR in steps 5 to 8, every failure of the smoke
-parse included. Called only under *STARTUP-LOCK*:
-cmark_gfm_core_extensions_ensure_registered keeps an unlocked static flag
-(extensions/core-extensions.c)."
+(defun start-loaded-native-layer ()
+  "Run M2 design §5.2's steps 1 to 8, loading the pinned pair, and return
+the new state, not yet published. A failure in steps 3 to 8 closes
+whatever this attempt loaded, the extensions library first. On CCL, once
+step 3 has loaded both libraries, and before step 4's first call into
+them, KEEP-ONE-PAIR records the pair, or refuses one other than this
+process's (M4 design §5.3). From then on, any error that isn't the step's
+own condition becomes it: NATIVE-INITIALIZATION-ERROR in that record, then
+as PREPARE-NATIVE-STATE says."
   (check-dynamic-ffi)
   (let* ((libraries (native-override *cmark-gfm-libraries*))
          (environment (uiop:getenv "CL_COMMONMARK_GFM_LIBS"))
@@ -535,24 +578,35 @@ cmark_gfm_core_extensions_ensure_registered keeps an unlocked static flag
            #+ccl
            (startup-step (native-initialization-error "recording the loaded pair")
              (keep-one-pair paths (list core extensions)))
-           (let ((state (make-native-state core extensions paths)))
-             (startup-step (native-abi-mismatch "reading cmark's version"
-                                                :expected-version *cmark-gfm-version*
-                                                :paths paths)
-               (check-version state))
-             (startup-step (native-initialization-error "registering the extensions")
-               (with-interrupts-deferred
-                 (cmark-gfm-core-extensions-ensure-registered)))
-             (startup-step (native-initialization-error "finding the extensions")
-               (setf (state-extensions state) (find-extensions)))
-             (startup-step (native-initialization-error "reading the allocator")
-               (setf (state-free state) (find-allocator-free)))
-             (startup-step (native-initialization-error "the smoke parse")
-               (smoke-test state))
-             (setf started-state state)))
+           (setf started-state
+                 (prepare-native-state (make-native-state core extensions paths))))
       (unless started-state
         (close-libraries core extensions)))
     started-state))
+
+(defun start-linked-native-layer ()
+  "Run M2 design §5.2's steps 4 to 8 alone, in a linked program, and return
+the new state, not yet published (M4 design §6.1). cmark-gfm is linked in,
+so there is no dynamic FFI to check for, no pair to find and nothing to
+load: neither *CMARK-GFM-LIBRARIES* nor CL_COMMONMARK_GFM_LIBS is read.
+The state's two libraries are NIL, and its paths :LINKED. A failure closes
+nothing, since nothing was loaded."
+  (prepare-native-state (make-native-state nil nil :linked)))
+
+(defun start-native-layer ()
+  "Start cmark-gfm, by M2 design §5.2's steps, and return the new state,
+not yet published. In a linked program, steps 4 to 8 alone
+(START-LINKED-NATIVE-LAYER; M4 design §6.1): its state names no libraries,
+its paths :LINKED. Otherwise steps 1 to 8, loading the pinned pair
+(START-LOADED-NATIVE-LAYER). LINKED-METHOD-P tells which from FFI-METHOD,
+the method cmark's calls compiled with, recorded in src/ffi.lisp where
+they compile: so a program whose files were compiled under different
+methods starts by what its calls do. Called only under *STARTUP-LOCK*:
+cmark_gfm_core_extensions_ensure_registered keeps an unlocked static flag
+(extensions/core-extensions.c)."
+  (if (linked-method-p (ffi-method))
+      (start-linked-native-layer)
+      (start-loaded-native-layer)))
 
 ;;; Step 9: the published state
 
@@ -595,12 +649,20 @@ such as heap exhaustion, isn't caught."
 *STARTUP-LOCK*; the state is then used after the lock is released. Takes
 no hold: a call that parses uses WITH-NATIVE-STATE.
 
+A linked ECL program, one whose cmark calls (src/ffi.lisp) ECL compiled
+with CFFI's :C/C++ method, has cmark-gfm linked in (M4 design §6.1). Its
+startup finds and loads nothing, and reads neither *CMARK-GFM-LIBRARIES*
+nor CL_COMMONMARK_GFM_LIBS: it runs steps 4 to 9 alone, and its state's
+paths are :LINKED.
+
 A failed startup publishes nothing and signals a NATIVE-ERROR, after the
 lock is released, with interrupts as the caller had them (M2 design §11):
-- DYNAMIC-FFI-UNAVAILABLE, on an ECL built without :DFFI (step 1);
+- DYNAMIC-FFI-UNAVAILABLE, on an ECL built without :DFFI whose native
+  layer isn't linked (step 1): its datum :DFFI, and its reason saying how
+  to build a linked program instead (M4 design §6.2);
 - NATIVE-LIBRARY-NOT-FOUND, when no pair is found, an override is
   malformed or names a missing file, or the loader can't load a file
-  (steps 2 and 3);
+  (steps 2 and 3), never in a linked program;
 - NATIVE-ABI-MISMATCH, when cmark reports another version, or any other
   error comes from reading it (step 4);
 - NATIVE-INITIALIZATION-ERROR, for any failure in steps 5 to 8: an
@@ -693,7 +755,14 @@ keeps its registry of syntax extensions in the core library
 (src/registry.c), and a core left loaded would still list the extensions
 of the library unloaded under it. CCL unloads neither once a startup has
 called into them (M4 finding 2), so there only the same pair starts again
-(KEEP-ONE-PAIR), its extensions still mapped beside its core."
+(KEEP-ONE-PAIR), its extensions still mapped beside its core.
+
+A linked program's state names no libraries, so its reset closes nothing:
+cmark-gfm stays linked in, and the next call starts again, running steps
+4 to 9 on the same code (M4 design §6.1). Its registry still lists the
+extensions, and registering them again does nothing:
+cmark_gfm_core_extensions_ensure_registered keeps a static flag
+(extensions/core-extensions.c)."
   (let ((holds (with-startup-lock
                  (cond
                    (*holds* (length *holds*))

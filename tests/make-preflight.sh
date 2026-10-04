@@ -1,10 +1,16 @@
 #!/bin/sh
 # Tests the Makefile's fail-fast tool checks (scripts/require-tools, wired
-# into deps, check-vocabulary, check-fixtures, fixtures-html and run-suite)
-# and the native runners' own library check (tests/run-native.lisp,
+# into deps, check-vocabulary, check-fixtures, fixtures-html, run-suite and
+# check-ecl-static), check-ecl-static's search for cmark-gfm's static
+# archives, check-ecl-nodffi-inside's hint on a Guix host, and the native
+# runners' own library check (tests/run-native.lisp,
 # tests/run-native-fuzz.lisp). `make check-preflight` runs this; it is
-# mostly shell and fast, but case (h) below runs one real Lisp. Checks
-# name themselves, and the exit status is non-zero if any failed.
+# mostly shell and fast, but case (h) below runs one real Lisp. Checks name
+# themselves, and the exit status is non-zero if any failed.
+#
+# make exits 2 whenever a recipe fails, whatever the recipe's own status.
+# So a case that pins a recipe's exit status checks make's report of it,
+# "[TARGET] Error 2" (RECIPE_FAILED_WITH), not make's own exit status.
 #
 # Isolation: every case but (h) runs make, by its absolute path, from the
 # repository root, with PATH set to a fresh directory of stub executables
@@ -75,7 +81,43 @@ STUB
   done
 }
 
+stub_printing() {  # NAME OUTPUT: a fake that records its name and prints OUTPUT
+  cat >"$bindir/$1" <<STUB
+#!/bin/sh
+echo "$1" >>"$marker"
+echo "$2"
+exit 0
+STUB
+  chmod +x "$bindir/$1"
+}
+
 nothing_started() { [ ! -s "$marker" ]; }
+only_started() { [ "$(cat "$marker")" = "$1" ]; }  # NAME: that stub alone, once
+
+# recipe_failed_with TARGET STATUS: make reported TARGET's recipe failing
+# with exit status STATUS. GNU make 4.4.1, the container's and Debian's,
+# names the recipe's place, "*** [Makefile:N: TARGET] Error N" (its
+# src/job.c, child_error); 3.81, macOS's /usr/bin/make, names the target
+# alone, "*** [TARGET] Error N" (its job.c).
+recipe_failed_with() { grep -Eq "\\[(Makefile:[0-9]+: )?$1\\] Error $2\$" "$out"; }
+
+# The pinned cmark-gfm release, as the Makefile names it.
+version=$(sed -n 's/^CMARK_GFM_VERSION := //p' "$root/Makefile")
+[ -n "$version" ] || { echo "make-preflight: no CMARK_GFM_VERSION in the Makefile" >&2; exit 2; }
+
+# first_holding_pair DIRECTORY...: prints the first of DIRECTORY... that
+# holds both pinned shared libraries, as check-ecl-static's search looks
+# for them, and fails when none does.
+first_holding_pair() {
+  for directory in "$@"; do
+    if [ -f "$directory/libcmark-gfm.so.$version" ] \
+       && [ -f "$directory/libcmark-gfm-extensions.so.$version" ]; then
+      echo "$directory"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # run_make MAKE-ARG...: runs make, by absolute path, from the repository
 # root, with the stub-only PATH and (when guix_environment is non-empty)
@@ -172,6 +214,120 @@ run_make -o check-watchdog -o check-preflight test
 check "g test: exit non-zero" [ "$status" -ne 0 ]
 check "g test: hints make test, not check-purity" has "scripts/guix-env make test"
 check "g test: nothing started" nothing_started
+
+# (j) make check-ecl-static, no ecl on PATH: fails, naming ecl, before the
+# recipe goes on. "ecl not found", since the goal's own name holds "ecl".
+# uname is stubbed: with neither CMARK_GFM_ARCHIVE_DIR nor
+# CL_COMMONMARK_GFM_LIBS set, it is the first command the recipe would run
+# past the check, looking for the archives.
+fresh_case
+stub uname
+guix_environment=
+run_make check-ecl-static
+check "j check-ecl-static, no ecl: its recipe exits 2" recipe_failed_with check-ecl-static 2
+check "j check-ecl-static: names ecl" has "ecl not found"
+check "j check-ecl-static: nothing started" nothing_started
+
+# (k) make check-ecl-static, a stub ecl, CMARK_GFM_ARCHIVE_DIR an empty
+# directory: fails, naming each missing archive and the Debian packages
+# that ship them, before the build starts. rm and mkdir are stubbed: the
+# recipe would run them next, emptying the build directory.
+fresh_case
+stub ecl rm mkdir
+mkdir -p "$tmp/no-archives"
+guix_environment=
+run_make check-ecl-static CMARK_GFM_ARCHIVE_DIR="$tmp/no-archives"
+check "k check-ecl-static, no archives: its recipe exits 2" recipe_failed_with check-ecl-static 2
+check "k check-ecl-static: names libcmark-gfm-extensions.a" \
+  has "$tmp/no-archives/libcmark-gfm-extensions.a not found"
+check "k check-ecl-static: names libcmark-gfm.a" has "$tmp/no-archives/libcmark-gfm.a not found"
+check "k check-ecl-static: names libcmark-gfm-dev" has "libcmark-gfm-dev"
+check "k check-ecl-static: names libcmark-gfm-extensions-dev" has "libcmark-gfm-extensions-dev"
+check "k check-ecl-static: nothing started" nothing_started
+
+# (l) make check-ecl-static, a stub ecl, no CMARK_GFM_ARCHIVE_DIR, and
+# CL_COMMONMARK_GFM_LIBS naming two files, in two directories: the archives
+# are looked for beside the first, the core, as in the containers. make
+# passes a command-line variable to the recipe's environment. uname is
+# stubbed too: the search of the system's directories would run it.
+fresh_case
+stub ecl rm mkdir uname
+guix_environment=
+run_make check-ecl-static \
+  CL_COMMONMARK_GFM_LIBS="$tmp/core/libcmark-gfm.so.X:$tmp/extensions/libcmark-gfm-extensions.so.X"
+check "l check-ecl-static, CL_COMMONMARK_GFM_LIBS: its recipe exits 2" \
+  recipe_failed_with check-ecl-static 2
+check "l check-ecl-static: looks beside the core" \
+  has "$tmp/core/libcmark-gfm-extensions.a not found"
+check "l check-ecl-static: nowhere else" lacks "$tmp/extensions/"
+check "l check-ecl-static: nothing started" nothing_started
+
+# (m) make check-ecl-static, a stub ecl, neither variable set, on a machine
+# ADR-0009 names no multiarch directory for (uname -m says riscv64): the
+# search covers discovery's other Linux directories, finds no pair, and
+# says so, saying the search is Linux's. Only uname starts. Skipped where
+# one of those directories really holds the pair.
+if found=$(first_holding_pair /usr/lib64 /usr/lib /usr/local/lib); then
+  skip "m check-ecl-static, no multiarch directory: $found holds the pinned pair here"
+else
+  fresh_case
+  stub ecl rm mkdir
+  stub_printing uname riscv64
+  guix_environment=
+  run_make check-ecl-static
+  check "m check-ecl-static, no multiarch directory: its recipe exits 2" \
+    recipe_failed_with check-ecl-static 2
+  check "m check-ecl-static: no directory holds both" \
+    has "make check-ecl-static: no directory holds both pinned cmark-gfm libraries."
+  check "m check-ecl-static: names the directories searched" \
+    has "Searched discovery's Linux directories: /usr/lib64 /usr/lib /usr/local/lib."
+  check "m check-ecl-static: CMARK_GFM_ARCHIVE_DIR elsewhere" \
+    has "Elsewhere than Linux, such as on macOS, it must be set."
+  check "m check-ecl-static: looks for no archive" lacks "not found"
+  check "m check-ecl-static: only uname started" only_started uname
+fi
+
+# (n) the same, on a machine whose multiarch directory ADR-0009 names
+# (uname -m says aarch64): searched first, and named first. Skipped where
+# one of the directories really holds the pair.
+if found=$(first_holding_pair /usr/lib/aarch64-linux-gnu /usr/lib64 /usr/lib /usr/local/lib); then
+  skip "n check-ecl-static, aarch64: $found holds the pinned pair here"
+else
+  fresh_case
+  stub ecl rm mkdir
+  stub_printing uname aarch64
+  guix_environment=
+  run_make check-ecl-static
+  check "n check-ecl-static, aarch64: its recipe exits 2" recipe_failed_with check-ecl-static 2
+  searched="/usr/lib/aarch64-linux-gnu /usr/lib64 /usr/lib /usr/local/lib"
+  check "n check-ecl-static: the multiarch directory first" \
+    has "Searched discovery's Linux directories: $searched."
+  check "n check-ecl-static: only uname started" only_started uname
+fi
+
+# (o) make check-ecl-nodffi-inside on a Guix host, outside any Guix
+# environment (a stub guix, GUIX_ENVIRONMENT unset): it points at make
+# check-ecl-nodffi, which starts the container it runs in, before anything
+# starts. ecl is stubbed, so a recipe going on would leave its mark.
+fresh_case
+stub guix ecl
+guix_environment=
+run_make check-ecl-nodffi-inside
+check "o check-ecl-nodffi-inside, Guix host: its recipe exits 2" \
+  recipe_failed_with check-ecl-nodffi-inside 2
+check "o check-ecl-nodffi-inside: points at make check-ecl-nodffi" \
+  has "run 'make check-ecl-nodffi', which starts it"
+check "o check-ecl-nodffi-inside: nothing started" nothing_started
+
+# (p) the same inside a Guix environment (GUIX_ENVIRONMENT set), as in the
+# container: no hint, and the guard runs ecl.
+fresh_case
+stub guix ecl
+guix_environment=/somewhere
+run_make check-ecl-nodffi-inside
+check "p check-ecl-nodffi-inside, nested: no hint" lacks "run 'make check-ecl-nodffi'"
+check "p check-ecl-nodffi-inside: the guard ran ecl" only_started ecl
+guix_environment=
 
 # (h) the native library check: only with a real sbcl and ocicl/'s
 # dependencies in place, since it runs make for real, on the real PATH,

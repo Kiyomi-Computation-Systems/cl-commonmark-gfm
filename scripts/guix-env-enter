@@ -6,7 +6,12 @@
 #   .guix-env/bin     the ocicl binary `make ocicl` builds
 #   .guix-env/share   ocicl's runtime (XDG_DATA_HOME)
 #   .guix-env/config  XDG_CONFIG_HOME
-#   .guix-env/cache   ASDF's compiled fasls (XDG_CACHE_HOME)
+#   .guix-env/cache   ASDF's compiled fasls (XDG_CACHE_HOME), under
+#                     manifest.scm (GUIX_ENV_MANIFEST unset, or naming it)
+#
+# Under another manifest, XDG_CACHE_HOME is instead
+# .guix-env/cache-<that manifest's file name without .scm>, so two ECLs
+# built differently never share fasls (M4 design §6.4; finding 9).
 #
 # It also sets CL_COMMONMARK_GFM_LIBS to the profile's exact pinned pair
 # (ADR-0009: the library loads cmark-gfm from exactly these two absolute
@@ -22,11 +27,20 @@ if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
 fi
 
 state=$PWD/.guix-env
-mkdir -p "$state/bin" "$state/share" "$state/config" "$state/cache"
+
+# scripts/guix-env already refused any value holding a /, so $manifest
+# here is always a plain file name, with no directory component to strip.
+manifest=${GUIX_ENV_MANIFEST:-manifest.scm}
+case $manifest in
+  manifest.scm) cache=$state/cache ;;
+  *) cache=$state/cache-${manifest%.scm} ;;
+esac
+
+mkdir -p "$state/bin" "$state/share" "$state/config" "$cache"
 
 export XDG_DATA_HOME="$state/share"
 export XDG_CONFIG_HOME="$state/config"
-export XDG_CACHE_HOME="$state/cache"
+export XDG_CACHE_HOME="$cache"
 export OCICL_PREFIX="$state/"
 export PATH="$state/bin:$PATH"
 export LD_LIBRARY_PATH="$GUIX_ENVIRONMENT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

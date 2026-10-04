@@ -85,5 +85,27 @@ jobs:
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: make check-native NATIVE_LISPS="ccl ecl"
 
+      # This step comes after the native suites above, so that discovery
+      # only ever sees the runtime packages, as a user's install would
+      # (ADR-0009; ADR-0013). The -dev packages ship the static archives
+      # make check-ecl-static links (M4 design §6.5).
+      # No apt-get update: the job's first step already ran it in this
+      # same container, and these packages are in the apt index it
+      # already fetched.
+      - name: Install cmark-gfm's archives
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get install -y --no-install-recommends \
+            libcmark-gfm-dev libcmark-gfm-extensions-dev
+
+      # Builds an ECL program with cmark-gfm linked in and runs the smoke
+      # program (M4 design §6.3); on main and on dispatch only, like the
+      # step above.
+      - name: make check-ecl-static
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: make check-ecl-static
+
       # No dependency cache yet: ./ocicl/ could be cached, keyed on a hash
       # of ocicl.csv, alongside the checkout step above (left for later).
