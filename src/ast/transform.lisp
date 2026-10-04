@@ -1,8 +1,10 @@
-;;;; AST traversal and transformation: WALK-AST, the one AST traversal (M2
-;;;; design §4.1, D8), and FOLD-AST, MAP-AST and TRANSFORM-AST, built on it
-;;;; (M1 design §4.5; M2 design §4.2). Every walk here loops over an
-;;;; explicit stack instead of recursing, so depth is bounded by memory
-;;;; rather than by the Lisp call stack (M2 design D2).
+;;;; AST traversal and transformation: WALK-AST; FOLD-AST and MAP-AST, built
+;;;; on it; and TRANSFORM-AST, which keeps its own stack of frames. Every
+;;;; walk here loops over an explicit stack instead of recursing, so depth
+;;;; is bounded by memory rather than by the Lisp call stack. cmark-gfm
+;;;; parses trees deeper than the Lisps' stacks allow a recursive walk: its
+;;;; own stress tests nest 130,000 levels
+;;;; (vendor/cmark-gfm/test/pathological_tests.py).
 
 (in-package #:cl-commonmark-gfm.ast)
 
@@ -10,22 +12,21 @@
 
 (defun walk-ast (function node)
   "Visit NODE and its descendants depth-first, children in order, calling
-FUNCTION with :ENTER before a node's children and with :EXIT after them (M2
-design §4.1); a leaf gets both calls. When an :ENTER call returns :SKIP,
-that node's children and its :EXIT call are skipped; every other returned
-value is ignored. Returns NIL.
+(FUNCALL FUNCTION :ENTER N) before each node N's children and
+(FUNCALL FUNCTION :EXIT N) after them; a leaf gets both calls. When an
+:ENTER call returns :SKIP, that node's children and its :EXIT call are
+skipped; every other returned value is ignored. Returns NIL.
 
-Loops over an explicit stack of frames -- each holding a node and the
-children it has not yet visited -- instead of recursing, so depth is
-bounded by memory rather than by the Lisp call stack, and reads children
-through the internal %NODE-CHILDREN, which (unlike NODE-CHILDREN) does not
-copy. Signals a TYPE-ERROR, via CHECK-TYPE, when NODE is not a NODE, before
-FUNCTION is ever called. Whatever FUNCTION signals propagates out of
-WALK-AST, abandoning the walk.
-
-This is the one AST traversal (M2 design D8): FOLD-AST, MAP-AST,
-TRANSFORM-AST and every HTML-tree walk are built on it."
+Loops over an explicit stack instead of recursing, so depth is bounded by
+memory rather than by the Lisp call stack, and, unlike NODE-CHILDREN,
+reads each node's children without copying them. Signals a TYPE-ERROR,
+via CHECK-TYPE, when NODE is not a NODE, before FUNCTION is ever called.
+Whatever FUNCTION signals propagates out of WALK-AST, abandoning the walk."
   (check-type node node)
+  ;; FOLD-AST, MAP-AST and AST->HTML-TREE's walks are all built on WALK-AST.
+  ;; Each frame is (NODE . CHILDREN), CHILDREN the tail of NODE's own child
+  ;; list still to visit. Popping it moves only the frame's CDR, so the
+  ;; list, from %NODE-CHILDREN, is never copied or changed.
   (let ((stack '()))
     (flet ((enter (n)
              (unless (eql (funcall function :enter n) :skip)
@@ -42,11 +43,12 @@ TRANSFORM-AST and every HTML-tree walk are built on it."
 
 (defun fold-ast (function initial-value node)
   "Fold FUNCTION over NODE and its descendants, depth-first and parent
-before children: ACCUMULATOR starts at INITIAL-VALUE, and each call is
-(FUNCALL FUNCTION NODE ACCUMULATOR). Returns the final accumulator.
+before children: ACCUMULATOR starts at INITIAL-VALUE, and each call,
+(FUNCALL FUNCTION N ACCUMULATOR) for a node N, returns the next
+ACCUMULATOR. Returns the final accumulator.
 
-Acts on WALK-AST's :ENTER events, so it keeps M1's call order and results
-(M1 design §4.5) without recursing over NODE's depth (M2 design §4.2)."
+Acts on WALK-AST's :ENTER events, so it doesn't recurse over NODE's depth,
+and signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE."
   (let ((accumulator initial-value))
     (walk-ast (lambda (event n)
                 (when (eql event :enter)
@@ -58,11 +60,9 @@ Acts on WALK-AST's :ENTER events, so it keeps M1's call order and results
   "Return the list of (FUNCALL FUNCTION N) for NODE and each descendant,
 visited depth-first, parent before children, in that order.
 
-Acts on WALK-AST's :ENTER events, so it keeps M1's call order and results
-(M1 design §4.5) without recursing over NODE's depth (M2 design §4.2).
-Results are pushed in preorder and reversed once at the end, so each
-descendant's cons is made exactly once: linear in the number of nodes
-rather than nodes times depth."
+Acts on WALK-AST's :ENTER events, so it doesn't recurse over NODE's depth,
+and signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE.
+Linear in the number of nodes."
   (let ((results '()))
     (walk-ast (lambda (event n)
                 (when (eql event :enter)
@@ -86,12 +86,11 @@ order as each one finishes, and reversed once when NODE itself finishes."
 
 (defun finish-transform-frame (function frame)
   "Rebuild FRAME's node with COPY-NODE, only when its transformed children
-differ from its old ones -- M1's comparison: EQUAL on the two lists, so the
-same length and EQ elements -- call FUNCTION on it, and return the list of
-zero or more nodes FUNCTION's result represents, per TRANSFORM-AST's
-contract (M1 design §4.5). Signals INVALID-AST-NODE, with M1's reason and
-datum, when FUNCTION's result is neither a node nor a proper list of
-nodes."
+differ from its old ones -- EQUAL on the two lists, so the same length and
+EQ elements -- call FUNCTION on it, and return the list of zero or more
+nodes FUNCTION's result represents, per TRANSFORM-AST's contract. Signals
+INVALID-AST-NODE, with that result as its datum, when FUNCTION's result is
+neither a node nor a proper list of nodes."
   (let* ((node (%frame-node frame))
          (old-children (%node-children node))
          (new-children (nreverse (%frame-collected frame)))
@@ -113,14 +112,14 @@ nodes."
   "Transform NODE bottom-up: FUNCTION is called on each node after its
 children have already been transformed, and returns a node, a list of
 nodes to splice into the parent, or NIL to delete the node. Returns the
-single resulting root node; signals INVALID-AST-NODE, with M1's reason and
-datum, when the root does not come back as exactly one node. When no child
-of a node changed, FUNCTION is called on that same node object, not a copy
-(M1 design §4.5).
+single resulting root node. Signals INVALID-AST-NODE when FUNCTION returns
+anything else, or when the root doesn't come back as exactly one node, bare
+or alone in a list; its datum is then what FUNCTION returned. When no child
+of a node changed, FUNCTION is called on that same node object, not a copy.
 
 Loops over an explicit stack of frames, each collecting its node's
 transformed children in order, instead of recursing, so depth is bounded by
-memory rather than by the Lisp call stack (M2 design §4.2)."
+memory rather than by the Lisp call stack."
   (let ((stack (list (make-transform-frame node (%node-children node)))))
     (loop
       (let ((frame (first stack)))

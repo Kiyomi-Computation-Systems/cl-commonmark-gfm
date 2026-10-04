@@ -1,7 +1,7 @@
-;;;; The cl-commonmark-gfm.util package: small helpers shared by the pure
-;;;; systems: a stack-safe PROPER-LIST-P (M2 design §3, §4.6), a UTF-8
-;;;; encoder for the URL helpers and the native layer, and a UTF-8 decoder
-;;;; for the strings cmark-gfm returns (M2 design §6.5).
+;;;; The cl-commonmark-gfm.util package: small helpers that depend on
+;;;; nothing, shared by the pure and the native systems: a stack-safe
+;;;; PROPER-LIST-P, a UTF-8 encoder for the URL helpers and the native
+;;;; layer, and a UTF-8 decoder for the strings cmark-gfm returns.
 
 (defpackage #:cl-commonmark-gfm.util
   (:use #:cl)
@@ -30,11 +30,11 @@ cycle detection, so a circular list is rejected rather than looping forever."
                       ((eql slow (cdr fast)) (return nil)))))))
 
 ;;; UTF-8 code-point arithmetic, shared by CHAR-UTF8-OCTETS, UTF8-LENGTH and
-;;; ENCODE-UTF8 (M2 design §6.5). All three treat a lone surrogate (U+D800 to
-;;; U+DFFF) as U+FFFD, the replacement character, so cmark never has to see
-;;; one (finding 11): on SBCL and ECL, CODE-CHAR returns a character for a
-;;; surrogate code point, so one can reach these functions; on CCL, CODE-CHAR
-;;; returns NIL instead, so one never does.
+;;; ENCODE-UTF8. All three treat a lone surrogate (U+D800 to U+DFFF) as
+;;; U+FFFD, the replacement character, so cmark never has to see one: on
+;;; SBCL and ECL, CODE-CHAR returns a character for a surrogate code point,
+;;; so one can reach these functions; on CCL, CODE-CHAR returns NIL instead,
+;;; so one never does.
 
 (defun effective-code-point (code)
   "CODE, or U+FFFD (the replacement character) when CODE is a lone surrogate
@@ -59,7 +59,7 @@ ENCODE-UTF8 so the four ranges are stated once."
   "Return CHAR's Unicode code point as a list of UTF-8 octets: one octet
 below #x80, two below #x800, three below #x10000, and four otherwise. A lone
 surrogate (U+D800 to U+DFFF) encodes as U+FFFD, EF BF BD, instead of its own
-code point (M2 design §6.5, finding 11)."
+code point."
   (let ((code (effective-code-point (char-code char))))
     (ecase (utf8-octet-count code)
       (1 (list code))
@@ -78,8 +78,7 @@ code point (M2 design §6.5, finding 11)."
 (defun utf8-length (string)
   "The number of UTF-8 octets STRING encodes to. Loops once over STRING
 without consing a list, so it is cheap to call before ENCODE-UTF8 even on a
-256 MiB input. A lone surrogate counts as U+FFFD, three octets (M2 design
-§6.5, finding 11)."
+256 MiB input. A lone surrogate counts as U+FFFD, three octets."
   (loop for char across string
         sum (utf8-octet-count (effective-code-point (char-code char)))))
 
@@ -91,7 +90,7 @@ least (UTF8-LENGTH STRING) long, starting at index 0. Return the number of
 octets written, (UTF8-LENGTH STRING). Loops once over STRING, writing
 directly into OCTETS: it builds no list, so a 256 MiB input is encoded
 without a per-character allocation. A lone surrogate is written as U+FFFD,
-EF BF BD (M2 design §6.5, finding 11)."
+EF BF BD."
   (let ((index 0))
     (loop for char across string
           for code = (effective-code-point (char-code char))
@@ -116,12 +115,16 @@ EF BF BD (M2 design §6.5, finding 11)."
                 (incf index 4))))
     index))
 
-;;; DECODE-UTF8 (M2 design §6.5, finding 19). cmark can write bytes that
-;;; aren't UTF-8: a dangling footnote label cut inside a character. The
-;;; decoder turns each ill-formed sequence into U+FFFD, one per maximal
-;;; subpart, as the Unicode Standard recommends (§3.9, "U+FFFD Substitution
-;;; of Maximal Subparts"). A maximal subpart is the longest start of a
-;;; well-formed sequence found at a position, or else the one octet there.
+;;; DECODE-UTF8. cmark can write bytes that aren't UTF-8, even for valid
+;;; input: handle_close_bracket (vendor/cmark-gfm/src/inlines.c) counts a
+;;; footnote label's length in source columns, which restart at a line
+;;; break, so a label that spans lines comes out short and can end inside
+;;; a character; the reference then matches no definition and becomes
+;;; text, cut label included. The decoder turns each ill-formed sequence
+;;; into U+FFFD, one per maximal subpart, as the Unicode Standard
+;;; recommends (§3.9, "U+FFFD Substitution of Maximal Subparts"). A maximal
+;;; subpart is the longest start of a well-formed sequence found at a
+;;; position, or else the one octet there.
 
 (defun utf8-lead-facts (lead)
   "What Table 3-7 of the Unicode Standard (well-formed UTF-8 byte
@@ -229,10 +232,10 @@ one for each maximal subpart, as the Unicode Standard recommends (§3.9,
 U+FFFD Substitution of Maximal Subparts; Table 3-7 lists the well-formed
 sequences): so no surrogate, overlong form or code point past U+10FFFF is
 ever decoded. A maximal subpart is 1 to 3 octets and U+FFFD encodes as 3,
-so the string is never shorter in UTF-8 than the octets it came from (M2
-design §6.5, finding 19). Two passes, one to count the characters and one
-to write them, so the string is allocated once, at its length. OCTETS
-that aren't a simple octet vector are copied into one first.
+so the string is never shorter in UTF-8 than the octets it came from. Two
+passes, one to count the characters and one to write them, so the string
+is allocated once, at its length. OCTETS that aren't a simple octet vector
+are copied into one first.
 
 Unless (<= 0 START END (LENGTH OCTETS)), signals a SIMPLE-TYPE-ERROR whose
 datum is the bad index, before reading any octet."

@@ -1,14 +1,13 @@
-;;;; The native counters (M2 design §5.4; ADR-0008): how many parsers, roots
-;;;; and render buffers are open now, how many parsers and buffers were ever
-;;;; created, and how many startups were published. Every native suite ends
-;;;; with the open counters at zero; that is its leak check. The monotonic
-;;;; counters show a test whether a failure came before cmark created
-;;;; anything.
+;;;; The native counters: how many parsers, roots and render buffers are
+;;;; open now, how many parsers and buffers were ever created, and how many
+;;;; startups were published. Every native suite ends with the open counters
+;;;; at zero; that is its leak check. The monotonic counters show a test
+;;;; whether a failure came before cmark created anything.
 ;;;;
 ;;;; Each count changes in the same function as the cmark call it counts, so
 ;;;; skipping a free skips its count too, and the open counters catch it.
-;;;; Every read and change runs with interrupts deferred (M2 design §5.4,
-;;;; finding 21), so an interrupt can't cut a change short.
+;;;; Every read and change runs with interrupts deferred, so an interrupt
+;;;; can't cut a change short.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -25,7 +24,7 @@ else: no other lock is ever taken while it is held.")
 
 (defmacro with-counters-lock (&body body)
   "Run BODY holding *COUNTERS-LOCK*, with interrupts deferred from the wait
-for the lock until its release (M2 design §5.4)."
+for the lock until its release."
   `(with-interrupts-deferred
      (bt2:with-lock-held (*counters-lock*)
        ,@body)))
@@ -69,11 +68,11 @@ for the lock until its release (M2 design §5.4)."
 
 (defun clear-open-counts ()
   "Set the open counters to zero, for an image that has just started: no
-parser, root or buffer survives a restart (M2 design §5.3). SBCL also runs
-the restore hook that calls this in the process that tried to save, when
-the save fails after the save hooks ran (REINIT, src/code/save.lisp). The
-save hook has closed everything by then, so clearing again is harmless.
-The monotonic counters keep their counts."
+parser, root or buffer survives a restart. SBCL also runs the restore hook
+that calls this in the process that tried to save, when the save fails
+after the save hooks ran (REINIT, SBCL's src/code/save.lisp). The save
+hook has closed everything by then, so clearing again is harmless. The
+monotonic counters keep their counts."
   (with-counters-lock
     (setf *open-parsers* 0
           *open-roots* 0

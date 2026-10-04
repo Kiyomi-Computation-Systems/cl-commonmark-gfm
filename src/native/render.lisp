@@ -1,11 +1,10 @@
-;;;; Rendering a live document (M2 design §5.4; ADR-0008). cmark renders
-;;;; into a buffer it allocates; this file copies the buffer's octets out,
-;;;; frees it through the default allocator's free, the third slot of its
-;;;; cmark_mem, never with CFFI:FOREIGN-FREE, then decodes the octets into
-;;;; a Lisp string (M2 design §6.5). From the render to the free, interrupts
-;;;; are deferred (M2 design §5.4, finding 21): no interrupt runs inside the
-;;;; renderer, and none can lose the buffer before it is freed. The decoding
-;;;; runs after, interruptible.
+;;;; Rendering a live document. cmark renders into a buffer it allocates;
+;;;; this file copies the buffer's octets out, frees it through the default
+;;;; allocator's free, the third slot of its cmark_mem, never with
+;;;; CFFI:FOREIGN-FREE, then decodes the octets into a Lisp string. From the
+;;;; render to the free, interrupts are deferred: no interrupt runs inside
+;;;; the renderer, and none can lose the buffer before it is freed. The
+;;;; decoding runs after, interruptible.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -66,12 +65,12 @@ string, and as a second value how many there were."
 ;;; The three renderers
 
 (defun render-html (document checked-options)
-  "DOCUMENT rendered by cmark_render_html with CHECKED-OPTIONS' HTML bits
-(M2 design §7.3), as a string, and as a second value the octets cmark
-wrote: what HTML-OUTPUT-BOUND bounds. The string can be longer in UTF-8,
-where cmark wrote bytes that aren't UTF-8 (M2 design §6.5). The renderer
-gets the extension list of DOCUMENT's parser, which is why the parser
-lives until the document is released (chez-cmark-gfm ADR-0005)."
+  "DOCUMENT rendered by cmark_render_html with CHECKED-OPTIONS' HTML bits,
+as a string, and as a second value the octets cmark wrote: what
+HTML-OUTPUT-BOUND bounds. The string can be longer in UTF-8, where cmark
+wrote bytes that aren't UTF-8 (DECODE-UTF8). The renderer gets the
+extension list of DOCUMENT's parser, which the parser owns and frees with
+itself: that is why the parser lives until the document is released."
   (let ((root (native-root document))
         (parser (document-parser document))
         (options (html-option-bits checked-options)))
@@ -83,8 +82,8 @@ lives until the document is released (chez-cmark-gfm ADR-0005)."
 
 (defun render-plaintext (document checked-options)
   "DOCUMENT rendered by cmark_render_plaintext with CHECKED-OPTIONS'
-plaintext bits and :WIDTH (M2 design §7.3), as a string, and as a second
-value the octets cmark wrote: what PLAINTEXT-OUTPUT-BOUND bounds."
+plaintext bits and :WIDTH, as a string, and as a second value the octets
+cmark wrote: what PLAINTEXT-OUTPUT-BOUND bounds."
   (let ((root (native-root document))
         (options (plaintext-option-bits checked-options))
         (width (checked-width checked-options)))
@@ -96,8 +95,9 @@ value the octets cmark wrote: what PLAINTEXT-OUTPUT-BOUND bounds."
 (defun render-xml (document)
   "DOCUMENT rendered by cmark_render_xml with DOCUMENT's own parse bits, so
 it carries source positions exactly when the parse kept them, as a string,
-and as a second value the octets cmark wrote. The XML oracle's other side
-(M2 design §8.3)."
+and as a second value the octets cmark wrote. The library renders no XML:
+only the native suite calls this, against the pinned CLI's XML and as the
+other side of its XML oracle."
   (let ((root (native-root document))
         (options (document-parse-bits document)))
     (decoded-render

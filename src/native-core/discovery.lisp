@@ -1,19 +1,31 @@
 ;;;; RESOLVE-CMARK-LIBRARIES: finding the pinned cmark-gfm pair, by absolute
-;;;; path only (M2 design §5.2 step 2; ADR-0009). Pure: every filesystem
-;;;; fact -- the operating system, an environment variable's value, whether
-;;;; a path names a regular file -- arrives as an argument, so every branch
-;;;; is tested against synthetic listings with nothing on disk.
+;;;; path only. A bare name would leave the choice of file to the system
+;;;; loader. Pure: every filesystem fact -- the operating system, an
+;;;; environment variable's value, whether a path names a regular file --
+;;;; arrives as an argument, so every branch is tested against synthetic
+;;;; listings with nothing on disk.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
 (defvar *cmark-gfm-libraries* nil
-  "An override for RESOLVE-CMARK-LIBRARIES' directory search (ADR-0009): NIL
-to search the fixed system directories, or a list of two absolute paths,
-strings or pathnames, (CORE EXTENSIONS), naming the pinned libcmark-gfm and
-libcmark-gfm-extensions directly. Takes priority over the
-CL_COMMONMARK_GFM_LIBS environment variable. An ECL program with
-cmark-gfm linked in loads nothing, and ignores both (M4 design §6.1).
-Re-exported by CL-COMMONMARK-GFM.")
+  "Where to load cmark-gfm from: NIL, the default, to search a fixed list of
+directories, never the loader's own search path; or a list of two absolute
+paths, strings or pathnames, (CORE EXTENSIONS), naming the pinned
+libcmark-gfm and libcmark-gfm-extensions directly. The search tries, in
+order, /usr/lib/<multiarch> (x86_64-linux-gnu or aarch64-linux-gnu),
+/usr/lib64, /usr/lib and /usr/local/lib on Linux, or /opt/homebrew/lib and
+/usr/local/lib on macOS, and takes the first that holds both libraries
+under their versioned names, such as libcmark-gfm.so.0.29.0.gfm.13. Read
+when cmark-gfm starts, at the first call that needs it. Takes priority
+over the CL_COMMONMARK_GFM_LIBS environment variable, which names the same
+two paths as \"core:extensions\". Either override is used as given, with
+no fallback to the other or to the search: one that isn't two absolute
+paths, or names something that isn't a regular file, signals
+NATIVE-LIBRARY-NOT-FOUND. On CCL, which can't unload a library, the first
+pair a process loads stays its pair, even if starting cmark-gfm then fails:
+naming another pair after that signals NATIVE-INITIALIZATION-ERROR, and
+only a new process can load it. An ECL program with cmark-gfm linked in
+loads nothing, and ignores both.")
 
 ;;; Signalling
 
@@ -42,8 +54,8 @@ prints a pathname's own slots."
 (defun check-regular-files (core extensions override regular-file-p)
   "Verify CORE then EXTENSIONS with REGULAR-FILE-P, signalling
 NATIVE-LIBRARY-NOT-FOUND naming OVERRIDE and the first of the two that
-fails. No fallback to the directory search: an override is used verbatim
-(ADR-0009). Returns (CORE EXTENSIONS) once both pass."
+fails. No fallback to the directory search: an override is used verbatim.
+Returns (CORE EXTENSIONS) once both pass."
   (unless (funcall regular-file-p core)
     (signal-library-not-found :override override :datum core
                                :reason "the core library is not a regular file"
@@ -65,7 +77,7 @@ both must pass REGULAR-FILE-P. Returns (CORE EXTENSIONS)."
                                                variable-name)))
   (check-regular-files core extensions override regular-file-p))
 
-;;; 1. Override (ADR-0009 §1)
+;;; 1. Override
 
 (defun resolve-libraries-override (libraries regular-file-p)
   "Resolve *CMARK-GFM-LIBRARIES*' value LIBRARIES: a list of exactly two
@@ -74,7 +86,7 @@ else -- one path, three, a dotted pair, a circular list, a relative path, an
 empty string -- signals NATIVE-LIBRARY-NOT-FOUND, naming
 *CMARK-GFM-LIBRARIES*. PROPER-LIST-P, not LISTP, screens LIBRARIES first: a
 dotted LIBRARIES would make LENGTH signal a raw TYPE-ERROR instead, and a
-circular one would hang LENGTH outright, under the startup lock (ADR-0009)."
+circular one would hang LENGTH outright, under the startup lock."
   (unless (and (proper-list-p libraries) (= (length libraries) 2))
     (signal-library-not-found
      :override libraries :datum libraries
@@ -103,7 +115,7 @@ here too, and fails the same way: it has no colon."
                             "CL_COMMONMARK_GFM_LIBS"
                             regular-file-p)))
 
-;;; 2. Directory search (ADR-0009 §2)
+;;; 2. Directory search
 
 (defun search-directories (os multiarch)
   "The directories RESOLVE-CMARK-LIBRARIES searches, in order, for OS
@@ -116,7 +128,8 @@ MULTIARCH is NIL."
 
 (defun core-filename (os)
   "The pinned libcmark-gfm's filename on OS: only the versioned name
-matches (ADR-0009), never a bare or unversioned one."
+matches, never a bare or unversioned one. It names the pinned version, and
+on Debian the unversioned names come only with the -dev packages."
   (ecase os
     (:linux (format nil "libcmark-gfm.so.~A" *cmark-gfm-version*))
     (:macos (format nil "libcmark-gfm.~A.dylib" *cmark-gfm-version*))))
@@ -134,8 +147,9 @@ matches (ADR-0009), never a bare or unversioned one."
 (defun directory-has-pair-p (directory os regular-file-p)
   "True when DIRECTORY holds both the pinned core and extensions libraries
 for OS, by REGULAR-FILE-P. A directory holding only one is never paired
-with another (ADR-0009): that is the double-load hazard this search
-exists to close."
+with another: the extensions library depends on the core, so the loader
+could bring in a second core beside one taken from another directory. That
+double load is the hazard this search exists to close."
   (and (funcall regular-file-p (directory-path directory (core-filename os)))
        (funcall regular-file-p (directory-path directory (extensions-filename os)))))
 
@@ -160,8 +174,7 @@ both override variables, so the report is useful with neither set."
 
 (defun resolve-cmark-libraries (&key libraries environment os multiarch regular-file-p)
   "Resolve the pinned libcmark-gfm and libcmark-gfm-extensions, by absolute
-path only (M2 design §5.2 step 2; ADR-0009). Returns (CORE EXTENSIONS), two
-namestrings.
+path only. Returns (CORE EXTENSIONS), two namestrings.
 
 LIBRARIES is the current value of *CMARK-GFM-LIBRARIES*. ENVIRONMENT is the
 current value of CL_COMMONMARK_GFM_LIBS, or NIL when it is unset -- an
@@ -185,8 +198,9 @@ with UIOP:NATIVE-NAMESTRING, before LIBRARIES ever reaches here.
 Every failure signals NATIVE-LIBRARY-NOT-FOUND, with :OPERATION
 RESOLVE-CMARK-LIBRARIES, :OVERRIDE the override's value in effect (or NIL
 for the directory search), :PATHS the path that failed or every directory
-searched, :DATUM the offending value, and a :REASON naming the variable at
-fault. This function touches no file itself; REGULAR-FILE-P is the only
+searched (NIL for a malformed override), :DATUM the offending value, and a
+:REASON saying what is wrong: for a malformed override, naming the variable
+at fault. This function touches no file itself; REGULAR-FILE-P is the only
 filesystem access, so every branch is tested against a synthetic listing
 with nothing on disk."
   (cond

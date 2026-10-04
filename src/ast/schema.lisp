@@ -55,7 +55,7 @@ ATTRIBUTES, an ATTRIBUTE-SPEC list in canonical order."
 such attribute."
   (find key (kind-spec-attributes kind-spec) :key #'attribute-spec-key :test #'eql))
 
-;;; The schema table (M1 design §4.2)
+;;; The schema table
 
 (defparameter *schema*
   (let ((table (make-hash-table :test 'eql)))
@@ -106,7 +106,7 @@ such attribute."
             (make-attribute-spec :extension-name #'optional-string-p nil nil)
             (make-attribute-spec :type-name #'stringp nil t)))
     table)
-  "One row per vocabulary kind (M1 design §4.2), keyed by kind keyword.")
+  "One row per vocabulary kind, keyed by kind keyword.")
 
 (defun find-kind-spec (kind)
   "Return KIND's KIND-SPEC, or NIL when KIND is not in the schema."

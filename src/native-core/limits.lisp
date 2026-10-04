@@ -1,51 +1,65 @@
-;;;; Resource limits that keep cmark-gfm from aborting or exhausting memory
-;;;; (M2 design §5.5; ADR-0016).
+;;;; Resource limits that keep cmark-gfm from aborting or exhausting memory.
+;;;; cmark-gfm kills the process in two ways no Lisp handler can catch:
+;;;; cmark_strbuf_grow calls abort() when a buffer would pass 1,073,741,823
+;;;; bytes (vendor/cmark-gfm/src/buffer.c), and the default allocator calls
+;;;; abort() when calloc or realloc fails (vendor/cmark-gfm/src/cmark.c). So
+;;;; each limit is checked before cmark does the work it guards.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
 ;;; The three variables and their hard caps
 
 (defvar *max-input-octets* 1048576
-  "The most UTF-8 octets an entry point accepts as input, checked before
-encoding (M2 design §5.5): guards cmark's parse buffers, which can reach
-three times the input's octets (a NUL or a smart quote becomes three bytes).
-Default 1,048,576 (1 MiB). A binding above +MAX-INPUT-OCTETS-HARD-CAP+,
-268,435,456 (256 MiB), is held to that cap (EFFECTIVE-MAXIMUM); the hard cap
-applies whatever this variable is bound to.
+  "The most UTF-8 octets of Markdown that PARSE, MARKDOWN->HTML,
+MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE accept. Default 1,048,576
+(1 MiB). Larger input signals RESOURCE-LIMIT-EXCEEDED before cmark-gfm
+sees it. Bind it higher for larger documents, up to a hard cap of
+268,435,456 (256 MiB): a higher binding is held to the cap. The limit
+guards cmark-gfm's parse buffers, which can reach three times the input's
+octets (a NUL or a smart quote becomes three bytes). Bound to anything but
+a non-negative integer, it makes every entry point signal a TYPE-ERROR.
 
-The remaining risk: on a machine already short of memory, cmark's allocator
-can still abort (ADR-0016).")
+The remaining risk: on a machine already short of memory, cmark-gfm's
+allocator can still abort the process.")
 
 (defconstant +max-input-octets-hard-cap+ 268435456
-  "The hard cap on *MAX-INPUT-OCTETS*, 268,435,456 (256 MiB) (M2 design
-§5.5): no binding raises the effective maximum above this.")
+  "The hard cap on *MAX-INPUT-OCTETS*, 268,435,456 (256 MiB): no binding
+raises the effective maximum above this. At the cap, cmark's parse buffers
+hold at most three times that, 768 MiB, under cmark_strbuf_grow's abort
+threshold of 1,073,741,823 bytes.")
 
 (defvar *max-nodes* 1000000
-  "The most AST nodes, the document node included, a parse accepts: checked
-against the table-cell bound before parsing, and counted while copying the
-tree (M2 design §5.5). Guards cmark's own memory -- padded table cells can
-multiply nodes well past the input's size -- and the Lisp heap the copy
-builds. Default 1,000,000. No hard cap: raise it as far as the machine's
-memory allows.
+  "The most AST nodes, the document node included, a parse accepts. Default
+1,000,000. Every entry point checks it before parsing, against an upper
+bound on the table cells cmark-gfm would build; PARSE and
+MARKDOWN->HTML-TREE also count the nodes of the AST they build against it.
+A breach of either signals RESOURCE-LIMIT-EXCEEDED. The limit guards
+cmark-gfm's own memory -- padded table cells can multiply nodes well past
+the input's size -- and the Lisp heap that holds the AST. No hard cap:
+raise it as far as the machine's memory allows. Bound to anything but a
+non-negative integer, it makes every entry point signal a TYPE-ERROR.
 
-The remaining risk: on a machine already short of memory, cmark's allocator
-can still abort (ADR-0016).")
+The remaining risk: on a machine already short of memory, cmark-gfm's
+allocator can still abort the process.")
 
 (defvar *max-output-octets* 67108864
-  "The most UTF-8 octets MARKDOWN->HTML and MARKDOWN->PLAINTEXT accept
-producing, checked after parsing and before rendering (M2 design §5.5):
-guards cmark_strbuf_grow's abort(), which fires above 1,073,741,823 bytes
-(vendor/cmark-gfm/src/buffer.c). Default 67,108,864 (64 MiB). A binding
-above +MAX-OUTPUT-OCTETS-HARD-CAP+, 536,870,912 (512 MiB, half the abort
-threshold), is held to that cap (EFFECTIVE-MAXIMUM); the hard cap applies
-whatever this variable is bound to.
+  "The most UTF-8 octets MARKDOWN->HTML and MARKDOWN->PLAINTEXT may produce.
+Default 67,108,864 (64 MiB). After parsing and before rendering, each works
+out an upper bound on its output, and signals RESOURCE-LIMIT-EXCEEDED when
+that is above the limit. The bound takes the worst case, so a document can
+be rejected whose output would have fit. Bind it higher for larger
+documents, up to a hard cap of 536,870,912 (512 MiB), half the
+1,073,741,823 bytes past which a buffer aborts the process (cmark-gfm's
+cmark_strbuf_grow); a higher binding is held to the cap. Bound to anything
+but a non-negative integer, it makes every entry point signal a
+TYPE-ERROR, PARSE and MARKDOWN->HTML-TREE included.
 
-The remaining risk: on a machine already short of memory, cmark's allocator
-can still abort (ADR-0016).")
+The remaining risk: on a machine already short of memory, cmark-gfm's
+allocator can still abort the process.")
 
 (defconstant +max-output-octets-hard-cap+ 536870912
   "The hard cap on *MAX-OUTPUT-OCTETS*, 536,870,912 (512 MiB), half cmark's
-abort threshold of 1,073,741,823 bytes (M2 design §5.5).")
+abort threshold of 1,073,741,823 bytes.")
 
 ;;; EFFECTIVE-MAXIMUM
 
@@ -58,8 +72,8 @@ integer."
 (defun effective-maximum (symbol)
   "The effective maximum for SYMBOL, one of *MAX-INPUT-OCTETS*, *MAX-NODES*
 or *MAX-OUTPUT-OCTETS*: its current value, or its hard cap when that is
-lower (M2 design §5.5). Returns a second value, true exactly when the hard
-cap applied (i.e. when the variable's own value is above its hard cap).
+lower. Returns a second value, true exactly when the hard cap applied (i.e.
+when the variable's own value is above its hard cap).
 
 SYMBOL naming anything else is a programming error (ECASE). A value that
 isn't a non-negative integer signals a TYPE-ERROR whose datum is that
@@ -85,10 +99,9 @@ variable and its hard cap set the effective maximum."
 
 (defun check-limit (symbol value operation)
   "Signal RESOURCE-LIMIT-EXCEEDED for OPERATION when VALUE is above SYMBOL's
-effective maximum (M2 design §5.5); passes when VALUE is at the maximum
-exactly. :DATUM is VALUE, :LIMIT is SYMBOL, :MAXIMUM is the effective
-maximum, and :REASON says whether SYMBOL's variable or its hard cap set the
-maximum."
+effective maximum; passes when VALUE is at the maximum exactly. :DATUM is
+VALUE, :LIMIT is SYMBOL, :MAXIMUM is the effective maximum, and :REASON
+says whether SYMBOL's variable or its hard cap set the maximum."
   (multiple-value-bind (maximum cappedp) (effective-maximum symbol)
     (when (> value maximum)
       (error 'resource-limit-exceeded
@@ -98,17 +111,17 @@ maximum."
              :maximum maximum
              :reason (limit-reason symbol cappedp)))))
 
-;;; TABLE-CELL-BOUND (M2 design §5.5)
+;;; TABLE-CELL-BOUND
 
 (defun blank-line-char-p (char)
   "True when CHAR may appear in a blank line: space or tab, the only two
-characters IS-BLANK accepts (vendor/cmark-gfm/src/blocks.c)."
+characters is_blank accepts (vendor/cmark-gfm/src/blocks.c)."
   (or (char= char #\Space) (char= char #\Tab)))
 
 (defun candidate-line-char-p (char)
   "True when CHAR may appear in a delimiter-row candidate line: >, |, :, -,
 space, tab, VT (code 11) or FF (code 12) -- a block-quote or list-item
-prefix, then a delimiter row's own characters, TABLE_MARKER's SPACECHAR
+prefix, then a delimiter row's own characters, table_marker's spacechar
 included (vendor/cmark-gfm/extensions/ext_scanners.re)."
   (or (member char '(#\> #\| #\: #\-))
       (char= char #\Space)
@@ -118,16 +131,16 @@ included (vendor/cmark-gfm/extensions/ext_scanners.re)."
 
 (defun table-cell-bound (string)
   "An upper bound on the table cells cmark-gfm would build while parsing
-STRING (M2 design §5.5), in one pass over STRING that builds no list of
-lines.
+STRING, in one pass over STRING that builds no list of lines.
 
 Lines end at LF, CR or CRLF, a CRLF counting as one line end. A RUN is a
 maximal sequence of lines that aren't blank: a blank line holds only spaces
-and tabs (IS-BLANK), and an empty line is blank. For each run, the bound
-adds the most runs of - on any CANDIDATE line of the run -- a line holding
-only CANDIDATE-LINE-CHAR-P's characters, where each column of a delimiter
-row is one run of - (TABLE_MARKER) -- times the run's number of lines,
-candidate or not."
+and tabs (is_blank), and an empty line is blank. A table ends at a blank
+line, so every table lies within one run. For each run, the bound adds the
+most runs of - on any CANDIDATE line of the run -- a line holding only
+CANDIDATE-LINE-CHAR-P's characters, where each column of a delimiter row is
+one run of - (table_marker) -- times the run's number of lines, candidate
+or not."
   (let ((length (length string))
         (index 0)
         (line-length 0)

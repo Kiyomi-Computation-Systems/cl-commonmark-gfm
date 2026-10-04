@@ -1,6 +1,6 @@
-;;;; HTML-TREE->STRING: serializing an LHTML-shaped tree to a string (M1
-;;;; design §6), looping over an explicit stack of open elements instead of
-;;;; recursing (M2 design §4.5).
+;;;; HTML-TREE->STRING: serializing an LHTML-shaped tree to a string,
+;;;; looping over an explicit stack of open elements instead of recursing, so
+;;;; the Lisp call stack doesn't bound a tree's depth.
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
@@ -21,30 +21,30 @@ below) and to print it, so classification and printing can never disagree."
 
 (defparameter *void-element-names* '("br" "hr" "img" "input")
   "Lowercased element names that print with no children and no end tag, as
-\"<tag />\" (M1 design §6).")
+\"<tag />\": the void elements cmark-gfm writes.")
 
 (defparameter *bare-attribute-names* '("data-footnotes" "data-footnote-ref" "data-footnote-backref")
   "Lowercased attribute names that print with no value, as just \" name\",
-when their value is \"\" (M1 design §6). Every other attribute, including
-DISABLED and CHECKED, prints \" name=\\\"\\\"\" for an empty value.")
+when their value is \"\", as cmark-gfm writes them. Every other attribute,
+including DISABLED and CHECKED, prints \" name=\\\"\\\"\" for an empty value.")
 
 (defparameter *url-attribute-names* '("href" "src" "id")
-  "Lowercased attribute names whose values get the extra ' -> &#x27; escape
-(M1 design §6), mirroring cmark-gfm's houdini_escape_href. Every other
-attribute (TITLE, ALT, ...) leaves ' raw, as houdini_escape_html0 does.")
+  "Lowercased attribute names whose values get the extra ' -> &#x27; escape,
+mirroring cmark-gfm's houdini_escape_href. Every other attribute (TITLE,
+ALT, ...) leaves ' raw, as houdini_escape_html0 does.")
 
 ;;; VOID-ELEMENT-P
 
 (defun void-element-name-p (name-string)
   "True when NAME-STRING, an already-lowercased element name, is one of
-*VOID-ELEMENT-NAMES* (M1 design §6)."
+*VOID-ELEMENT-NAMES*."
   (and (member name-string *void-element-names* :test #'string=) t))
 
 (defun void-element-p (keyword)
   "True when KEYWORD is a void element tag: :BR, :HR, :IMG or :INPUT, in any
-keyword case or interning (M1 design §6), classified by its
-LOWERCASE-NAME-STRING rather than by keyword identity. A void element with
-children signals INVALID-HTML-TREE."
+keyword case or interning, classified by its LOWERCASE-NAME-STRING rather
+than by keyword identity. A void element with children signals
+INVALID-HTML-TREE."
   (and (keywordp keyword) (void-element-name-p (lowercase-name-string keyword))))
 
 ;;; VALID-HTML-NAME-P
@@ -69,13 +69,13 @@ already lowercased; this only checks the character set and shape."
 
 (defun valid-html-name-p (keyword)
   "True when KEYWORD is a keyword whose LOWERCASE-NAME-STRING matches
-[a-z][a-z0-9-]*, ASCII only (M1 design §6). False for :*COMMENT* (the one
-tag the serializer exempts from this rule) and for anything that isn't a
-keyword."
+[a-z][a-z0-9-]*, ASCII only, so no name can carry markup into the output.
+False for :*COMMENT* (the one tag the serializer exempts from this rule)
+and for anything that isn't a keyword."
   (and (keywordp keyword)
        (html-name-string-p (lowercase-name-string keyword))))
 
-;;; Escaping (M1 design §6, §2 finding 2)
+;;; Escaping
 
 (defun write-escaped-char (char out escape-apostrophe)
   "Write CHAR to OUT, entity-escaping &, <, > and \". Escapes ' as &#x27;
@@ -104,8 +104,7 @@ DATUM and a short REASON."
 
 (defun attrs-shape-p (attrs)
   "True when ATTRS is NIL or a proper list of two-element (NAME VALUE)
-lists (M1 design §6's attrs shape, before NAME and VALUE are validated
-individually)."
+lists: the shape alone, before each NAME and VALUE is validated."
   (or (null attrs)
       (and (proper-list-p attrs)
            (every (lambda (pair) (and (proper-list-p pair) (= (length pair) 2))) attrs))))
@@ -132,11 +131,10 @@ check."
 (defun check-no-repeated-attribute-names (attrs)
   "Signal INVALID-HTML-TREE when ATTRS (already ATTRS-SHAPE-P) repeats a
 name, once every keyword name is lowercased; names compare with
-ATTRIBUTE-NAME-KEY=. M1 compared them with EQUAL. The difference shows only
-for two distinct but EQUAL names that are neither strings nor keywords,
-such as conses, bit vectors or pathnames: they now report \"invalid
-attribute name\", from CHECK-ATTRIBUTE-NAME-AND-VALUE right after, rather
-than \"repeated attribute name\"."
+ATTRIBUTE-NAME-KEY=. So two distinct but EQUAL names that are neither
+strings nor keywords, such as conses, bit vectors or pathnames, aren't a
+repeat, and CHECK-ATTRIBUTE-NAME-AND-VALUE rejects them right after, as
+\"invalid attribute name\"."
   (let ((seen '()))
     (dolist (pair attrs)
       (let* ((name (first pair))
@@ -157,8 +155,7 @@ value isn't a string."
 
 (defun bare-attribute-p (name-string value)
   "True when NAME-STRING (already lowercased) is one of the footnote
-attributes that print bare, as just \" name\", and VALUE is \"\" (M1 design
-§6)."
+attributes that print bare, as just \" name\", and VALUE is \"\"."
   (and (string= value "") (member name-string *bare-attribute-names* :test #'string=) t))
 
 (defun write-attribute (pair out)
@@ -193,19 +190,19 @@ VALUE escaped (the extra ' escape applies to *URL-ATTRIBUTE-NAMES*)."
 
 (defun unsafe-comment-text-p (text)
   "True when TEXT could end the comment early: it contains --, starts with >
-or ->, or ends with - (M1 design §6)."
+or ->, or ends with -."
   (or (search "--" text)
       (string-starts-with-p ">" text)
       (string-starts-with-p "->" text)
       (and (plusp (length text)) (char= (char text (1- (length text))) #\-))))
 
 (defun write-comment (element out)
-  "Validate ELEMENT as an exact (:*COMMENT* NIL \"text\") comment (M1 design
-§6) and write it to OUT as <!--text-->, with TEXT escaped exactly as text
-content -- &, <, >, \" but not ' -- since browsers do not parse comments
-inside TEXTAREA, TITLE, SCRIPT or STYLE: raw comment text there could let
-markup escape the comment. Signals INVALID-HTML-TREE for any other
-shape, or for text that could end the comment early."
+  "Validate ELEMENT as an exact (:*COMMENT* NIL \"text\") comment and write
+it to OUT as <!--text-->, with TEXT escaped exactly as text content -- &,
+<, >, \" but not ' -- since browsers do not parse comments inside TEXTAREA,
+TITLE, SCRIPT or STYLE: raw comment text there could let markup escape the
+comment. Signals INVALID-HTML-TREE for any other shape, or for text that
+could end the comment early."
   (let ((text (check-comment-shape element)))
     (when (unsafe-comment-text-p text)
       (invalid-tree element "unsafe comment text"))
@@ -213,7 +210,7 @@ shape, or for text that could end the comment early."
     (write-escaped-string text out)
     (write-string "-->" out)))
 
-;;; The stack of open elements (M2 design §4.5)
+;;; The stack of open elements
 ;;;
 ;;; HTML-TREE->STRING loops over an explicit stack of WRITE-FRAMEs -- one
 ;;; per element currently open, holding the element and the children (or,
@@ -221,8 +218,9 @@ shape, or for text that could end the comment early."
 ;;; -- instead of recursing through WRITE-NODE, OPEN-ELEMENT and
 ;;; OPEN-REGULAR-ELEMENT, so depth is bounded by memory rather than by the
 ;;; Lisp call stack. OPEN-ELEMENTS, an EQ hash set threaded alongside OUT,
-;;; replaces M1's *ELEMENT-ANCESTORS* list: CHECK-NOT-SELF-REFERENTIAL
-;;; consults it in O(1) instead of scanning.
+;;; holds the open elements: CHECK-NOT-SELF-REFERENTIAL consults it in
+;;; O(1), where scanning a list of them at every element would be quadratic
+;;; in depth.
 
 (defun check-proper-element-list (element)
   "Signal INVALID-HTML-TREE unless ELEMENT is a proper list, guarding
@@ -234,12 +232,12 @@ against circular and dotted lists."
              (:constructor make-write-frame (element tag-string remaining))
              (:conc-name %frame-)
              (:copier nil))
-  "One HTML-TREE->STRING stack frame (M2 design §4.5): ELEMENT, the open
-regular element cons being written, or NIL for the one synthetic frame that
-holds the top-level nodes; TAG-STRING, ELEMENT's already-lowercased tag
-string, for writing its end tag later (unused when ELEMENT is NIL); and
-REMAINING, ELEMENT's children -- or, for the synthetic frame, the top-level
-nodes -- not yet written."
+  "One HTML-TREE->STRING stack frame: ELEMENT, the open regular element
+cons being written, or NIL for the one synthetic frame that holds the
+top-level nodes; TAG-STRING, ELEMENT's already-lowercased tag string, for
+writing its end tag later (unused when ELEMENT is NIL); and REMAINING,
+ELEMENT's children -- or, for the synthetic frame, the top-level nodes --
+not yet written."
   element
   tag-string
   remaining)
@@ -250,22 +248,23 @@ the EQ hash set of open elements -- ones whose start tag is written and
 whose end tag isn't: OPEN-REGULAR-ELEMENT adds ELEMENT to it when its start
 tag is written, and CLOSE-WRITE-FRAME removes it when its end tag is
 written, so it only ever holds elements on the path from the root down to
-whatever is being written right now (M1 design §6; M2 design §4.5). Being
-an EQ, object-identity check, only actually re-entering the same cons trips
-it: a tree that is a DAG rather than a tree -- the same element cons
-reachable more than once, but never through itself -- serializes normally,
-since each occurrence's own write finishes, and comes back off
-OPEN-ELEMENTS, before the next begins; a later, unrelated sibling or cousin
-reference to it does not look like an ancestor."
+whatever is being written right now. Being an EQ, object-identity check,
+only actually re-entering the same cons trips it: a tree that is a DAG
+rather than a tree -- the same element cons reachable more than once, but
+never through itself -- serializes normally, since each occurrence's own
+write finishes, and comes back off OPEN-ELEMENTS, before the next begins; a
+later, unrelated sibling or cousin reference to it does not look like an
+ancestor."
   (when (gethash element open-elements)
     (invalid-tree element "element contains itself")))
 
 (defun open-regular-element (element out open-elements)
   "Validate ELEMENT, a non-comment (TAG ATTRS . CHILDREN) list, and write
-its start tag to OUT, following M1's checks in M1's order (M1 design §6; M2
-design §4.5): self-containment, the tag is a keyword, the tag is a valid
-name, the attrs' shape, repeated attribute names, then each pair's name and
-value. Signals INVALID-HTML-TREE for a void element with children.
+its start tag to OUT. The checks run in this order, which decides what an
+element with several problems reports: self-containment, the tag is a
+keyword, the tag is a valid name, the attrs' shape, repeated attribute
+names, then each pair's name and value. Signals INVALID-HTML-TREE for a
+void element with children.
 
 A void element is written whole, start tag and all, here, and this returns
 NIL: it has no children to recurse into, so nothing is pushed onto the
@@ -301,11 +300,11 @@ it from OPEN-ELEMENTS once they are all written."
 
 (defun open-element (element out open-elements)
   "Validate ELEMENT -- (:*COMMENT* NIL \"text\") or a regular
-(TAG ATTRS . CHILDREN) list -- and write it, following M1's checks in M1's
-order (M1 design §6; M2 design §4.5): ELEMENT must be a proper list; then,
-for a comment, its shape and its text's safety; for a regular element,
-OPEN-REGULAR-ELEMENT's checks. A comment is always fully written here, and
-this returns NIL; see OPEN-REGULAR-ELEMENT for the regular-element case."
+(TAG ATTRS . CHILDREN) list -- and write it, checking in this order:
+ELEMENT must be a proper list; then, for a comment, its shape and its
+text's safety; for a regular element, OPEN-REGULAR-ELEMENT's checks. A
+comment is always fully written here, and this returns NIL; see
+OPEN-REGULAR-ELEMENT for the regular-element case."
   (check-proper-element-list element)
   (cond
     ((eql (first element) :*comment*) (write-comment element out) nil)
@@ -315,10 +314,9 @@ this returns NIL; see OPEN-REGULAR-ELEMENT for the regular-element case."
   "Write NODE -- a child or top-level string or element -- to OUT, and
 return a new WRITE-FRAME for WRITE-NODES to push when NODE opens a non-void
 regular element with children still to write, or NIL when NODE is already
-fully written (M1 design §6; M2 design §4.5). Signals INVALID-HTML-TREE,
-naming NODE, when NODE is neither a string nor a cons; a cons that isn't a
-well-formed element is rejected inside OPEN-ELEMENT instead, naming the
-particular problem."
+fully written. Signals INVALID-HTML-TREE, naming NODE, when NODE is neither
+a string nor a cons; a cons that isn't a well-formed element is rejected
+inside OPEN-ELEMENT instead, naming the particular problem."
   (cond
     ((stringp node) (write-escaped-string node out) nil)
     ((consp node) (open-element node out open-elements))
@@ -326,8 +324,8 @@ particular problem."
 
 (defun close-write-frame (frame out open-elements)
   "Finish FRAME once its REMAINING is empty: write its end tag and remove
-its ELEMENT from OPEN-ELEMENTS (M2 design §4.5). The one synthetic frame
-with a NIL ELEMENT -- the top-level nodes -- needs neither."
+its ELEMENT from OPEN-ELEMENTS. The one synthetic frame with a NIL ELEMENT
+-- the top-level nodes -- needs neither."
   (let ((element (%frame-element frame)))
     (when element
       (write-string "</" out)
@@ -337,21 +335,20 @@ with a NIL ELEMENT -- the top-level nodes -- needs neither."
 
 (defun write-nodes (nodes out open-elements)
   "Write NODES -- a proper list of top-level strings and elements -- to OUT,
-each fully written, descendants included, before the next (M1 design §6).
+each fully written, descendants included, before the next.
 
 Loops over an explicit stack of WRITE-FRAMEs, seeded with one synthetic
 frame holding NODES, instead of recursing through WRITE-NODE, OPEN-ELEMENT
 and OPEN-REGULAR-ELEMENT, so depth is bounded by memory rather than by the
-Lisp call stack (M2 design §4.5). At each step, the top frame's next
-not-yet-written child or top-level node is written; when that opens a
-non-void element, the new frame WRITE-NODE returns is pushed on top, so its
-own children are written, in full, before the frame beneath it is resumed.
-Once a frame's REMAINING is empty, CLOSE-WRITE-FRAME finishes it and it is
-popped, resuming its parent frame -- which is how a later sibling or
-cousin reference to an already-fully-written, merely shared element is
-never mistaken for a self-reference: by the time it is reached, the
-earlier occurrence's frame has already been popped, and its element
-removed from OPEN-ELEMENTS."
+Lisp call stack. At each step, the top frame's next not-yet-written child or
+top-level node is written; when that opens a non-void element, the new
+frame WRITE-NODE returns is pushed on top, so its own children are written,
+in full, before the frame beneath it is resumed. Once a frame's REMAINING
+is empty, CLOSE-WRITE-FRAME finishes it and it is popped, resuming its
+parent frame -- which is how a later sibling or cousin reference to an
+already-fully-written, merely shared element is never mistaken for a
+self-reference: by the time it is reached, the earlier occurrence's frame
+has already been popped, and its element removed from OPEN-ELEMENTS."
   (let ((stack (list (make-write-frame nil nil nodes))))
     (loop while stack
           do (let ((frame (first stack)))
@@ -366,18 +363,15 @@ removed from OPEN-ELEMENTS."
 ;;; HTML-TREE->STRING
 
 (defun html-tree->string (tree)
-  "Serialize TREE to an HTML string (M1 design §6). TREE is a string; an
-element, meaning a list whose first item is a keyword; or a list of strings
-and elements (NIL is the empty list, so it serializes as \"\"). Adds no
-newlines or indentation of its own: the output is TREE's plain
-concatenation. Signals INVALID-HTML-TREE for a malformed TREE, naming the
-offending node or value.
+  "Serialize TREE to an HTML string. TREE is a string; an element, meaning a
+list whose first item is a keyword; or a list of strings and elements (NIL
+is the empty list, so it serializes as \"\"). Adds no newlines or
+indentation of its own: the output is TREE's plain concatenation. Signals
+INVALID-HTML-TREE for a malformed TREE, naming the offending node or value.
 
-For the element and list-of-nodes cases, this loops over an explicit stack
-of open elements (WRITE-NODES) instead of recursing, so depth is bounded by
-memory rather than by the Lisp call stack (M2 design §4.5). OPEN-ELEMENTS, a
-fresh EQ hash set for this call, tracks which elements are currently open,
-for CHECK-NOT-SELF-REFERENTIAL."
+Text and attribute values are entity-escaped, but URLs aren't checked: the
+link policy applies only in AST->HTML-TREE. Memory, not the Lisp call
+stack, bounds TREE's depth."
   (let ((open-elements (make-hash-table :test 'eq)))
     (with-output-to-string (out)
       (cond

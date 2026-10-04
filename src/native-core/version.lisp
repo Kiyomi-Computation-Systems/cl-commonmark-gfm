@@ -1,15 +1,15 @@
-;;;; The version cross-check's pure half (M3 design §5; M3 plan Task 1):
-;;;; VERSION-NUMBER and NUMBER-VERSION turn a cmark-gfm version string into
-;;;; the packed integer cmark_version() reports, and back. Startup
-;;;; (src/native/startup.lisp) uses both to check what cmark_version()
-;;;; returns against *CMARK-GFM-VERSION*, on top of M2's
-;;;; cmark_version_string check.
+;;;; The version cross-check's pure half: VERSION-NUMBER and NUMBER-VERSION
+;;;; turn a cmark-gfm version string into the packed integer
+;;;; cmark_version() reports, and back. Startup (src/native/startup.lisp)
+;;;; uses both to check what cmark_version() returns against
+;;;; *CMARK-GFM-VERSION*, after its cmark_version_string check.
 ;;;;
 ;;;; cmark_version() packs the version as gfm does it, not as the comment
-;;;; above the function in cmark-gfm.h describes upstream cmark's layout
-;;;; (M3 design §3 finding 2): (major << 24) | (minor << 16) | (patch << 8)
-;;;; | gfm (vendor/cmark-gfm/src/cmark-gfm_version.h.in, src/cmark.c). For
-;;;; the pin, 0.29.0.gfm.13, that's #x001D000D.
+;;;; above the function in vendor/cmark-gfm/src/cmark-gfm.h describes
+;;;; upstream cmark's layout: (major << 24) | (minor << 16) | (patch << 8) |
+;;;; gfm (vendor/cmark-gfm/src/cmark-gfm_version.h.in and
+;;;; vendor/cmark-gfm/src/cmark.c). For the pin, 0.29.0.gfm.13, that's
+;;;; #x001D000D.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
@@ -56,9 +56,9 @@ otherwise."
 (defun version-number (string)
   "STRING, a cmark-gfm version string \"M.m.p.gfm.N\" with each of M, m, p
 and N from 0 to 255, as (M << 24) | (m << 16) | (p << 8) | N: the integer
-cmark_version() returns for it (M3 design §5). For the pin, \"0.29.0.gfm.13\",
-that's #x001D000D. An ERROR names STRING when it isn't exactly that shape, or
-when a component is out of range."
+cmark_version() returns for it. For the pin, \"0.29.0.gfm.13\", that's
+#x001D000D. An ERROR names STRING when it isn't exactly that shape, or when
+a component is out of range."
   (let ((components (version-string-components string)))
     (unless components
       (error "~S is not a cmark-gfm version string of the form \"M.m.p.gfm.N\", ~
@@ -69,8 +69,8 @@ when a component is out of range."
 
 (defun number-version (number)
   "The inverse of VERSION-NUMBER: NUMBER, (M << 24) | (m << 16) | (p << 8) |
-N, as the string \"M.m.p.gfm.N\" (M3 design §5). An ERROR names NUMBER when
-it isn't an integer from 0 to #xFFFFFFFF."
+N, as the string \"M.m.p.gfm.N\". An ERROR names NUMBER when it isn't an
+integer from 0 to #xFFFFFFFF."
   (unless (typep number '(integer 0 #xFFFFFFFF))
     (error "~S is not a version number from 0 to #xFFFFFFFF" number))
   (format nil "~D.~D.~D.gfm.~D"

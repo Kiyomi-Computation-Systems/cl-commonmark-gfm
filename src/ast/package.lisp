@@ -1,6 +1,5 @@
-;;;; The cl-commonmark-gfm.ast package: its public interface (M1 design §4;
-;;;; M2 design §4.1, §4.2 add WALK-AST, the one AST traversal that FOLD-AST,
-;;;; MAP-AST and TRANSFORM-AST are now built on).
+;;;; The cl-commonmark-gfm.ast package: its public interface. WALK-AST is
+;;;; the traversal that FOLD-AST and MAP-AST are built on.
 
 (defpackage #:cl-commonmark-gfm.ast
   (:use #:cl)

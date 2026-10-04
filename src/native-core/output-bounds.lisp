@@ -1,16 +1,18 @@
-;;;; The output bounds' per-node terms (M2 design §5.5; ADR-0016): upper
-;;;; bounds on the octets cmark_render_html and cmark_render_plaintext write
-;;;; for each node of a parsed tree, read off the pinned C source in
-;;;; vendor/cmark-gfm. The output-bound walks in /native read each node's
-;;;; facts -- the UTF-8 octets of the strings it writes, its flags -- and
-;;;; sum these terms (src/native/output-bounds.lisp).
+;;;; The output bounds' per-node terms: upper bounds on the octets
+;;;; cmark_render_html and cmark_render_plaintext write for each node of a
+;;;; parsed tree, read off the pinned C source in vendor/cmark-gfm. The
+;;;; output-bound walks in /native read each node's facts -- the UTF-8
+;;;; octets of the strings it writes, its flags -- and sum these terms
+;;;; (src/native/output-bounds.lisp), and the sum is checked against
+;;;; *MAX-OUTPUT-OCTETS* before rendering.
 ;;;;
 ;;;; Sound first, tight second. A term may count more than cmark writes,
 ;;;; never less: an undercount lets through a document that can still make
-;;;; cmark_strbuf_grow call abort() (src/buffer.c; M2 design finding 1),
-;;;; which no Lisp handler can catch. Each term names the C it reads, and
-;;;; writes the C's string literals out as Lisp strings: C's \" is Lisp's
-;;;; too, and C's \n is #\Newline here.
+;;;; cmark_strbuf_grow call abort() (vendor/cmark-gfm/src/buffer.c), which
+;;;; no Lisp handler can catch. tests/native/limits.lisp checks that neither
+;;;; bound falls below what cmark renders. Each term names the C it reads,
+;;;; and writes the C's string literals out as Lisp strings: C's \" is
+;;;; Lisp's too, and C's \n is #\Newline here.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
@@ -35,19 +37,21 @@ a minus sign when it is negative."
 ;;; The escapes and the newlines cmark's HTML renderer writes
 
 (defconstant +escape-factor+ 6
-  "The most octets escape_html (src/html.c) writes for one byte:
-houdini_escape_html0 (src/houdini_html_e.c), called with SECURE 0, turns \"
-into &quot;, 6. Its other escapes are &amp; in 5, and &lt; and &gt; in 4;
-' and / pass through.")
+  "The most octets escape_html (vendor/cmark-gfm/src/html.c) writes for one
+byte: houdini_escape_html0 (vendor/cmark-gfm/src/houdini_html_e.c), called
+with secure 0, turns \" into &quot;, 6. Its other escapes are &amp; in 5,
+and &lt; and &gt; in 4; ' and / pass through.")
 
 (defconstant +href-escape-factor+ 6
-  "The most octets houdini_escape_href (src/houdini_href_e.c) writes for one
-byte: ' becomes &#x27;, 6. & becomes &amp;, 5, and every other byte outside
-HREF_SAFE %XX, 3: a percent-escape is not its worst case.")
+  "The most octets houdini_escape_href
+(vendor/cmark-gfm/src/houdini_href_e.c) writes for one byte: ' becomes
+&#x27;, 6. & becomes &amp;, 5, and every other byte outside HREF_SAFE %XX,
+3: a percent-escape is not its worst case.")
 
 (defconstant +cr-octets+ 1
-  "What cmark_html_render_cr (src/html.h) writes: a newline, unless the
-buffer is empty or already ends in one. Counted as written every time.")
+  "What cmark_html_render_cr (vendor/cmark-gfm/src/html.h) writes: a
+newline, unless the buffer is empty or already ends in one. Counted as
+written every time.")
 
 (defun escaped-octets (octets)
   "The most escape_html writes for OCTETS bytes."
@@ -58,11 +62,11 @@ buffer is empty or already ends in one. Counted as written every time.")
   (* +href-escape-factor+ octets))
 
 (defun html-sourcepos-octets (start-line start-column end-line end-column)
-  "What cmark_html_render_sourcepos (src/html.h) writes under
-CMARK_OPT_SOURCEPOS: \" data-sourcepos=\\\"%d:%d-%d:%d\\\"\" of a node's four
-positions, as cmark_node_get_start_line and the others return them. Its
-snprintf buffer is 100 bytes, and the attribute with four ints takes at most
-65, so it never truncates.
+  "What cmark_html_render_sourcepos (vendor/cmark-gfm/src/html.h) writes
+under CMARK_OPT_SOURCEPOS: \" data-sourcepos=\\\"%d:%d-%d:%d\\\"\" of a
+node's four positions, as cmark_node_get_start_line and the others return
+them. Its snprintf buffer is 100 bytes, and the attribute with four ints
+takes at most 65, so it never truncates.
 
 Every HTML term below that takes SOURCEPOS takes this, for a node of its
 kind, under :SOURCEPOS T, and 0 without."
@@ -70,8 +74,8 @@ kind, under :SOURCEPOS T, and 0 without."
      (decimal-width start-line) (decimal-width start-column)
      (decimal-width end-line) (decimal-width end-column)))
 
-;;; HTML: the blocks (S_render_node, src/html.c). The node's own markup,
-;;; entering and leaving, its children aside.
+;;; HTML: the blocks (S_render_node, vendor/cmark-gfm/src/html.c). The
+;;; node's own markup, entering and leaving, its children aside.
 
 (defun html-block-quote-bound (sourcepos)
   "A block quote: entering, a cr, \"<blockquote\", data-sourcepos, \">\\n\";
@@ -105,9 +109,9 @@ leaving, \"</ul>\\n\" or \"</ol>\\n\". The snprintf buffer of BUFFER_SIZE,
      (literal-octets "</li>" #\Newline)))
 
 (defun html-task-item-bound (checked sourcepos)
-  "A task item (html_render, extensions/tasklist.c): entering, a cr, \"<li\",
-data-sourcepos, \">\", then its checkbox, CHECKED or not; leaving,
-\"</li>\\n\"."
+  "A task item (html_render, vendor/cmark-gfm/extensions/tasklist.c):
+entering, a cr, \"<li\", data-sourcepos, \">\", then its checkbox, CHECKED
+or not; leaving, \"</li>\\n\"."
   (+ +cr-octets+ (literal-octets "<li") sourcepos (literal-octets ">")
      (if checked
          (literal-octets "<input type=\"checkbox\" checked=\"\" disabled=\"\" /> ")
@@ -122,15 +126,15 @@ data-sourcepos, \">\"; leaving, \"</h0\", again with the digit, and
      (literal-octets "</h0") (literal-octets ">" #\Newline)))
 
 (defun cmark-space-p (char)
-  "True when CHAR is one cmark_isspace (src/cmark_ctype.c) counts as
-whitespace: tab, line feed, carriage return or space. Not a vertical tab or
-a form feed."
+  "True when CHAR is one cmark_isspace (vendor/cmark-gfm/src/cmark_ctype.c)
+counts as whitespace: tab, line feed, carriage return or space. Not a
+vertical tab or a form feed."
   (find char '(#\Tab #\Newline #\Return #\Space) :test #'char=))
 
 (defun code-block-language-octets (info)
   "The UTF-8 octets of the first word of INFO, a code block's info string:
-the language S_render_node (src/html.c) writes in its class, everything up
-to the first CMARK-SPACE-P character."
+the language S_render_node (vendor/cmark-gfm/src/html.c) writes in its
+class, everything up to the first CMARK-SPACE-P character."
   (utf8-length (subseq info 0 (or (position-if #'cmark-space-p info) (length info)))))
 
 (defun html-code-block-bound (info language literal sourcepos)
@@ -229,15 +233,16 @@ true when its parent is strong emphasis too."
       (+ (literal-octets "<strong>") (literal-octets "</strong>"))))
 
 (defun html-strikethrough-bound ()
-  "A strikethrough (html_render, extensions/strikethrough.c): \"<del>\" and
-\"</del>\"."
+  "A strikethrough (html_render, vendor/cmark-gfm/extensions/strikethrough.c):
+\"<del>\" and \"</del>\"."
   (+ (literal-octets "<del>") (literal-octets "</del>")))
 
 (defun html-link-bound (url title)
   "A link whose destination is URL octets and title TITLE octets: entering,
 \"<a href=\\\"\", the destination href-escaped, then for a title
 \"\\\" title=\\\"\" and the title escaped, then \"\\\">\"; leaving, \"</a>\".
-Without UNSAFE a dangerous destination is left out; it is counted anyway."
+Without CMARK_OPT_UNSAFE a dangerous destination is left out; it is
+counted anyway."
   (+ (literal-octets "<a href=\"") (href-octets url)
      (if (plusp title)
          (+ (literal-octets "\" title=\"") (escaped-octets title))
@@ -249,15 +254,15 @@ Without UNSAFE a dangerous destination is left out; it is counted anyway."
   "An image whose source is URL octets and title TITLE octets: entering,
 \"<img src=\\\"\", the source href-escaped, \"\\\" alt=\\\"\", then its
 children as alt text; leaving, for a title \"\\\" title=\\\"\" and the title
-escaped, then \"\\\" />\". Without UNSAFE a dangerous source is left out; it
-is counted anyway."
+escaped, then \"\\\" />\". Without CMARK_OPT_UNSAFE a dangerous source is left
+out; it is counted anyway."
   (+ (literal-octets "<img src=\"") (href-octets url) (literal-octets "\" alt=\"")
      (if (plusp title)
          (+ (literal-octets "\" title=\"") (escaped-octets title))
          0)
      (literal-octets "\" />")))
 
-;;; HTML: tables (html_render, extensions/table.c)
+;;; HTML: tables (html_render, vendor/cmark-gfm/extensions/table.c)
 
 (defun html-table-bound (sourcepos)
   "A table: entering, a cr, \"<table\", data-sourcepos, \">\"; leaving, a cr,
@@ -298,14 +303,15 @@ attribute instead."
      sourcepos (literal-octets ">") (literal-octets "</td>")))
 
 ;;; HTML: footnotes (S_render_node, S_put_footnote_backref and
-;;; cmark_render_html, src/html.c). A footnote's label appears once in its
-;;; definition, twice in each reference, and once in each backref; and its
-;;; definition writes a backref for each reference process_footnotes
-;;; (src/blocks.c) counted for it -- its def_count -- whether or not the
-;;; parsed tree still holds that reference. A reference in a definition
-;;; that nothing references, or in a duplicate definition, is counted,
-;;; then dropped with its definition. So the repeat backrefs are bounded
-;;; from the input (FOOTNOTE-REFERENCE-BOUND), not from the tree.
+;;; cmark_render_html, vendor/cmark-gfm/src/html.c). A footnote's label
+;;; appears once in its definition, twice in each reference, and once in
+;;; each backref; and its definition writes a backref for each reference
+;;; process_footnotes (vendor/cmark-gfm/src/blocks.c) counted for it -- its
+;;; def_count -- whether or not the parsed tree still holds that reference.
+;;; A reference in a definition that nothing references, or in a duplicate
+;;; definition, is counted, then dropped with its definition. So the repeat
+;;; backrefs are bounded from the input (FOOTNOTE-REFERENCE-BOUND), not
+;;; from the tree.
 
 (defun html-first-backref-bound (label number)
   "The first backref S_put_footnote_backref writes for a footnote
@@ -405,14 +411,14 @@ the largest index, and the last definition's number."
 (defun footnote-reference-bound (string)
   "An upper bound on the footnote references cmark creates while parsing
 STRING: the [ characters followed at once by ^, \\ or &.
-handle_close_bracket (src/inlines.c) makes a reference of a bracket whose
-next inline is text starting with ^. That text starts with the byte after
-the [, so the byte is ^ itself, a backslash escape of it, or an entity
-\(&#94;, &Hat;). Each reference takes its own [. cmark strips container
-prefixes only at line starts, and a table cell's unescaped \\| only turns a
-backslash after a [ into a pipe, so no [ meets a ^ in an inline that it
-didn't meet in STRING. [, ^, \\ and & are ASCII: a character of STRING is
-a byte of its UTF-8."
+handle_close_bracket (vendor/cmark-gfm/src/inlines.c) makes a reference of
+a bracket whose next inline is text starting with ^. That text starts with
+the byte after the [, so the byte is ^ itself, a backslash escape of it, or
+an entity \(&#94;, &Hat;). Each reference takes its own [. cmark strips
+container prefixes only at line starts, and a table cell's unescaped \\|
+only turns a backslash after a [ into a pipe, so no [ meets a ^ in an
+inline that it didn't meet in STRING. [, ^, \\ and & are ASCII: a character
+of STRING is a byte of its UTF-8."
   (let ((count 0))
     (loop for index from 0 below (1- (length string))
           do (when (and (char= (char string index) #\[)
@@ -420,9 +426,9 @@ a byte of its UTF-8."
                (incf count)))
     count))
 
-;;; Plaintext (cmark_render_plaintext: S_render_node, src/plaintext.c;
-;;; cmark_render and S_out, src/render.c; the extensions' plaintext
-;;; renderers)
+;;; Plaintext (cmark_render_plaintext: S_render_node,
+;;; vendor/cmark-gfm/src/plaintext.c; cmark_render and S_out,
+;;; vendor/cmark-gfm/src/render.c; the extensions' plaintext renderers)
 ;;;
 ;;; Plaintext escapes almost nothing, but repeats a prefix of spaces at the
 ;;; start of every line: each enclosing list item's marker width, 2 for a
@@ -449,8 +455,10 @@ and two spaces below 10, one from 10."
 
 (defun plaintext-prefix-width (kind marker-width)
   "How much a node of KIND widens the prefix for its children: an item by
-its MARKER-WIDTH; a task item by tasklist.c's \"  \"; a footnote definition
-by plaintext.c's \"    \"; anything else not at all."
+its MARKER-WIDTH; a task item by the \"  \" of commonmark_render
+(vendor/cmark-gfm/extensions/tasklist.c); a footnote definition by the
+\"    \" of S_render_node (vendor/cmark-gfm/src/plaintext.c); anything else
+not at all."
   (ecase kind
     (:item marker-width)
     (:task-item (literal-octets "  "))
@@ -512,8 +520,8 @@ following list or code block, is always taken: a request only ever adds."
         (:item (if entering
                    (list (plaintext-out marker-width))
                    (list :request)))
-        ;; tasklist.c's commonmark_render: CR(), "- [x] " or "- [ ] ", then
-        ;; the prefix grows; leaving, CR()
+        ;; commonmark_render (vendor/cmark-gfm/extensions/tasklist.c): CR(),
+        ;; "- [x] " or "- [ ] ", then the prefix grows; leaving, CR()
         (:task-item (if entering
                         (list :request (plaintext-out (literal-octets "- [x] ")))
                         (list :request)))
@@ -535,12 +543,14 @@ following list or code block, is always taken: a request only ever adds."
          (when-entering (plaintext-out (literal-octets "[^"))
                         (plaintext-out (decimal-width number))
                         (plaintext-out (literal-octets "]: "))))
-        ;; strikethrough.c's plaintext_render: "~" entering and leaving
+        ;; plaintext_render (vendor/cmark-gfm/extensions/strikethrough.c):
+        ;; "~" entering and leaving
         (:strikethrough (list (plaintext-out (literal-octets "~"))))
-        ;; table.c's commonmark_render: BLANKLINE() entering and leaving a
-        ;; table; CR() and "|" entering a row; " " entering a cell and " |"
-        ;; leaving it; after the header's last cell, CR(), "|", " --- |" or
-        ;; its aligned form per column, CR()
+        ;; commonmark_render (vendor/cmark-gfm/extensions/table.c):
+        ;; BLANKLINE() entering and leaving a table; CR() and "|" entering a
+        ;; row; " " entering a cell and " |" leaving it; after the header's
+        ;; last cell, CR(), "|", " --- |" or its aligned form per column,
+        ;; CR()
         (:table (list :request))
         (:table-header (if entering
                            (list :request (plaintext-out (literal-octets "|")))

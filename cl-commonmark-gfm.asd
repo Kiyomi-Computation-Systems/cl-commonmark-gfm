@@ -1,5 +1,7 @@
-;;;; ASDF system definitions for cl-commonmark-gfm (M1 design §3; M2 design
-;;;; §3).
+;;;; ASDF system definitions for cl-commonmark-gfm. Each system's package
+;;;; is its name with the slash replaced by a dot. The pure systems, util,
+;;;; conditions, ast, html-tree, native-core and tests, never load CFFI;
+;;;; only ffi, native and the systems built on them do.
 ;;;;
 ;;;; The primary system, cl-commonmark-gfm, holds the public API, and must
 ;;;; be defined even for a caller who never loads it: ASDF's
