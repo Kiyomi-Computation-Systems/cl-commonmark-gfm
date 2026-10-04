@@ -78,6 +78,9 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   process, requires exit status 0 and its summary line with 0 failed.
   ECL's debugger quits with status 0 at the end of stdin, so a condition
   that reaches it can look like a pass (M4 finding 26).
+- Comments and docstrings follow AGENTS.md's Formatting rules: comments for
+  developers, exported symbols' docstrings for users, no references to the
+  plans and no history (M5 comment sweep).
 
 ## Milestones
 
@@ -88,7 +91,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b in PR #10 |
-| M5 release candidate | not started |
+| M5 release candidate | in progress: the comment sweep (branch `m5-comment-sweep`) |
 
 ### M0 checklist
 
@@ -233,6 +236,21 @@ Plans: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md
   container's result; a green GitHub run on the PR, and a green dispatched
   run of `main`'s steps, the static steps included (Task 6)
 
+### M5 checklist
+
+No spec yet. At the maintainer's request, the comment sweep comes first,
+before the documentation.
+
+**The comment sweep** (branch `m5-comment-sweep`):
+
+- [x] A pilot on three files, approved by the maintainer: `src/conditions.lisp`,
+  `src/ffi.lisp` and `src/native-core/linking.lisp`
+- [x] The other 31 files, by five agents in parallel, one per area. A form
+  check, seen to fail, shows that only comments and docstrings changed,
+  and one error message the maintainer approved
+- [x] Two reviews, fixes and a second review; the test suites; AGENTS.md's
+  comment rules; close-out
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -274,6 +292,69 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-04 — M5 comment sweep (branch `m5-comment-sweep`)
+
+- **Done:** every comment and docstring in `src/` and `cl-commonmark-gfm.asd`
+  rewritten for the first release, in 34 files:
+  - no references to the plans (ADRs, design documents, findings, decision
+    labels, plan tasks, review labels) and no history. Where a reference
+    stood in for a reason, the reason is written out;
+  - the public package's docstrings are written for users, everything else
+    for developers;
+  - C identifiers spelled as cmark-gfm's source has them, and its paths
+    given in full;
+  - 213 of 559 docstrings changed (216 of 566 on CCL), and most comments;
+  - one code change, approved by the maintainer: CHECK-INPUT's reason for
+    UNSUPPORTED-INPUT no longer ends "(M2 design finding 16)".
+
+  AGENTS.md's Formatting section now holds the rules, and a global
+  constraint above points to them.
+- **How:** the maintainer approved the rules, then a pilot on three files.
+  Five Opus agents rewrote the other 31 files in parallel, one area each,
+  and two Opus reviewers, one for the pure side and one for the native
+  side, reviewed the result twice. Fixes went to the agent that wrote each
+  file; I applied the second round's nits.
+- **The form check** (throwaway, `.guix-env/tmp/m5-sweep/`) reads every
+  top-level form of each file, on `main` and on the branch, on SBCL, CCL
+  and ECL. It runs under six feature sets, so every one of the 31 reader
+  conditionals is read, and it fails unless the forms match once
+  docstrings are set aside.
+  - It was seen to fail on 17 mutations made on copies: a symbol, a number,
+    a string in code, code in a branch only one Lisp reads, a `#+nil` form,
+    a deleted docstring, a deleted file and others. Each was flagged only by
+    the Lisps that read it.
+  - It passed comment and docstring edits, with the right counts.
+- **Comments that were wrong about the code,** corrected, each one
+  confirmed by a reviewer. Among them:
+  - TRANSFORM-AST isn't built on WALK-AST;
+  - `:unsafe-html nil` writes cmark's `<!-- raw HTML omitted -->`;
+    `:unsafe-html t` under `:gfm` still has tagfilter escape some tags;
+  - cmark's footnote code doesn't copy a label: `cmark_chunk_dup` points it
+    into the entity's buffer;
+  - CMARK_VERSION_STRING names nothing in the pin: the version comes from
+    `cmark_version_string()` and `cmark_version()`;
+  - `api.lisp` said every limit applies before any native call;
+    `*max-output-octets*` applies after the parse;
+  - the option-bit list left out SAFE; `%find-extension`'s allocation is
+    CFFI's copy of its argument; NESTED-STRONG-P checks only the parent.
+- **Tests,** in the Guix container, after the last edit: the pure suite's
+  582 tests on each Lisp, and the native suite's 197, 207 and 188, as
+  before; the watchdog's 37 checks and the preflight's 53. The CCL
+  watchdog restarted nothing.
+- **For later,** found during the sweep and left alone:
+  1. TRANSFORM-AST doesn't CHECK-TYPE its node, unlike the other walks,
+     and no test passes it a non-node.
+  2. ADR-0015 and the M2 design's §4.2 say TRANSFORM-AST is built on
+     WALK-AST; it isn't.
+  3. ADR-0018's reason for decoded output being "never shorter" is stale:
+     the bound tests compare against cmark's raw octets.
+  4. When an override names a missing file, the report doesn't say which
+     override; only the OVERRIDE slot does.
+  5. UNWIND-PROTECT-DEFERRED's CCL branch wraps its cleanup forms in
+     CCL:WITHOUT-INTERRUPTS, which changes nothing there.
+  6. `tests/`, the Makefile and the scripts still cite the plans, review
+     labels included.
 
 ### 2026-10-04 — M4b ECL static deployment (branch `m4b-ecl-static-deployment`)
 

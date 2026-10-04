@@ -1,8 +1,9 @@
 ;;;; CHECK-OPTIONS: resolving and validating cl-commonmark-gfm's entry-point
-;;;; options (M2 design §6.3, §7.2, §7.3). Options arrive as a caller's
-;;;; &REST plist (ADR-0014, "Options arrive as &REST (D11)"): every pair is
-;;;; checked, a repeated key's too, and the leftmost value wins, as with
-;;;; &KEY.
+;;;; options, and the option bits and document attributes they give.
+;;;; Options arrive as a caller's &REST plist, checked by hand so that an
+;;;; odd-length list or an unknown key signals this library's own option
+;;;; condition, not a PROGRAM-ERROR. Every pair is checked, a repeated key's
+;;;; too, and the leftmost value wins, as with &KEY.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
@@ -12,9 +13,9 @@
             (:conc-name checked-)
             (:constructor %make-checked-options)
             (:copier nil))
-  "The result of CHECK-OPTIONS (M2 design §7.2): every option
-CL-COMMONMARK-GFM's entry points take, resolved to its value or its
-function-specific default. Built only by CHECK-OPTIONS."
+  "The result of CHECK-OPTIONS: every option CL-COMMONMARK-GFM's entry
+points take, resolved to its value or its function-specific default. Built
+only by CHECK-OPTIONS."
   (profile nil :read-only t)
   (extensions nil :read-only t)
   (footnotes nil :read-only t)
@@ -25,7 +26,7 @@ function-specific default. Built only by CHECK-OPTIONS."
   (width nil :read-only t)
   (tree-options nil :read-only t))
 
-;;; Which keys each entry point takes (M2 design §7.2)
+;;; Which keys each entry point takes
 
 (defun parse-keys (entry-point)
   "ENTRY-POINT's keys among the five every entry point resolves the same
@@ -39,8 +40,7 @@ without positions, so it isn't one of their keys at all."
 
 (defun render-keys (entry-point)
   "ENTRY-POINT's render-only keys: a bad value signals INVALID-RENDER-OPTION.
-:HTML-TREE has none of these -- its :SOFTBREAK is a tree key instead (M2
-design §7.2)."
+:HTML-TREE has none of these -- its :SOFTBREAK is a tree key instead."
   (ecase entry-point
     (:parse '())
     (:html '(:softbreak :unsafe-html))
@@ -55,7 +55,7 @@ CHECKED-TREE-OPTIONS returns them verbatim."
     ((:parse :html :plaintext) '())
     (:html-tree '(:softbreak :raw-html :link-policy :document-wrapper))))
 
-;;; Value predicates (M2 design §7.2)
+;;; Value predicates
 
 (defun option-boolean-p (value)
   "True when VALUE is exactly T or NIL, the only valid value of a boolean
@@ -87,21 +87,20 @@ keywords from *EXTENSION-KEYWORDS*, in any order. NIL attaches none."
 
 (defun valid-parse-value-p (key value)
   "True when VALUE is a valid value of KEY, one of the five keys PARSE-KEYS
-can list (M2 design §7.2)."
+can list."
   (ecase key
     (:profile (valid-profile-p value))
     (:extensions (valid-extensions-p value))
     ((:footnotes :smart :sourcepos) (option-boolean-p value))))
 
 (defun valid-render-value-p (key value)
-  "True when VALUE is a valid value of KEY, one of RENDER-KEYS' keys (M2
-design §7.2)."
+  "True when VALUE is a valid value of KEY, one of RENDER-KEYS' keys."
   (ecase key
     (:softbreak (valid-softbreak-p value))
     (:unsafe-html (option-boolean-p value))
     (:width (valid-width-p value))))
 
-;;; Signalling (M2 design §7.2, §7.4)
+;;; Signalling
 
 (defun signal-parse-option (operation datum reason)
   "Signal INVALID-PARSE-OPTION for OPERATION, naming DATUM and REASON."
@@ -110,8 +109,8 @@ design §7.2)."
 (defun structural-option-condition (entry-point)
   "The condition CHECK-OPTIONS signals for ENTRY-POINT's structural
 problems -- an odd-length list, an unknown key, or a bad render-only value:
-always INVALID-PARSE-OPTION for :PARSE, which signals it for every problem
-(M2 design §7.2); INVALID-RENDER-OPTION for the other three."
+always INVALID-PARSE-OPTION for :PARSE, which signals it for every problem;
+INVALID-RENDER-OPTION for the other three."
   (if (eql entry-point :parse) 'invalid-parse-option 'invalid-render-option))
 
 (defun signal-structural-option (entry-point operation datum reason)
@@ -163,25 +162,25 @@ OPTIONS is a plist of even length."
 
 (defun validate-options (entry-point operation options)
   "Signal the right condition for the first invalid pair of OPTIONS. Every
-pair is checked, a repeated key's too (ADR-0014 D11)."
+pair is checked, a repeated key's too."
   (loop for tail on options by #'cddr
         for key = (first tail)
         for value = (second tail)
         do (validate-option entry-point operation key value)))
 
-;;; Resolving values and defaults (M2 design §7.2)
+;;; Resolving values and defaults
 
 (defun option-given-p (options key)
   "True when KEY appears in OPTIONS, even when its value is NIL."
   (loop for tail on options by #'cddr thereis (eql (first tail) key)))
 
 (defun canonical-extensions (extensions)
-  "EXTENSIONS reordered to *EXTENSION-KEYWORDS*'s canonical order (M2 design
-§6.3, §7.2). Always a fresh list, built by LOOP's COLLECT: REMOVE-IF-NOT may
-return *EXTENSION-KEYWORDS* itself when EXTENSIONS names every one of them,
-or a tail of it otherwise, and a caller who mutates what CHECK-OPTIONS
-returns -- sorting a parsed document's :EXTENSIONS attribute in place, say
--- must never reach, and corrupt, the global."
+  "EXTENSIONS reordered to *EXTENSION-KEYWORDS*'s canonical order. Always a
+fresh list, built by LOOP's COLLECT: REMOVE-IF-NOT may return
+*EXTENSION-KEYWORDS* itself when EXTENSIONS names every one of them, or a
+tail of it otherwise, and a caller who mutates what CHECK-OPTIONS returns
+-- sorting a parsed document's :EXTENSIONS attribute in place, say -- must
+never reach, and corrupt, the global."
   (loop for keyword in *extension-keywords* when (member keyword extensions) collect keyword))
 
 (defun profile-default-extensions (profile)
@@ -198,7 +197,7 @@ returns -- sorting a parsed document's :EXTENSIONS attribute in place, say
 (defun resolved-extensions (options profile)
   "OPTIONS' :EXTENSIONS, canonicalized, when given; otherwise PROFILE's
 default. An explicit :EXTENSIONS overrides the profile's default even when
-it is NIL (M2 design §7.2)."
+it is NIL."
   (if (option-given-p options :extensions)
       (canonical-extensions (getf options :extensions))
       (profile-default-extensions profile)))
@@ -211,7 +210,8 @@ it is NIL (M2 design §7.2)."
 
 (defun sourcepos-default (entry-point)
   "ENTRY-POINT's default :SOURCEPOS, for the two entry points that take it:
-T for :PARSE, NIL for :HTML (M2 design §7.2, D14)."
+T for :PARSE, NIL for :HTML. An AST is worth more with positions, and HTML
+reads better without data-sourcepos attributes."
   (ecase entry-point (:parse t) (:html nil)))
 
 (defun resolved-sourcepos (options entry-point)
@@ -242,8 +242,7 @@ caller's order, repeats included; NIL for an entry point with no tree keys."
 
 (defun build-checked-options (entry-point options)
   "ENTRY-POINT's CHECKED-OPTIONS from its already-validated OPTIONS: each
-key resolved to its given value (leftmost wins) or its default (M2 design
-§7.2)."
+key resolved to its given value (leftmost wins) or its default."
   (let ((profile (getf options :profile :gfm)))
     (%make-checked-options
      :profile profile
@@ -261,7 +260,7 @@ key resolved to its given value (leftmost wins) or its default (M2 design
 (defun check-options (entry-point operation options)
   "Validate OPTIONS, ENTRY-POINT's &REST option list, naming OPERATION in
 whatever it signals, and return a CHECKED-OPTIONS: every option resolved to
-its value or its function-specific default (M2 design §7.2).
+its value or its function-specific default.
 
 ENTRY-POINT is :PARSE, :HTML, :PLAINTEXT or :HTML-TREE. OPERATION is the
 symbol every condition's :OPERATION names: the caller's own function name.
@@ -284,20 +283,20 @@ other option."
   (validate-options entry-point operation options)
   (build-checked-options entry-point options))
 
-;;; Option bits (M2 design §7.3)
+;;; Option bits
 
 (defun parse-option-bits (checked-options)
-  "CHECKED-OPTIONS' CMARK_OPT_ parse bits: VALIDATE_UTF8 always, plus
-FOOTNOTES, SMART and SOURCEPOS when each is on (M2 design §7.3)."
+  "CHECKED-OPTIONS' CMARK_OPT_ parse bits: VALIDATE_UTF8 always, as a second
+guard behind ENCODE-UTF8, which already writes only valid UTF-8; plus
+FOOTNOTES, SMART and SOURCEPOS when each is on."
   (logior +cmark-opt-validate-utf8+
           (if (checked-footnotes checked-options) +cmark-opt-footnotes+ 0)
           (if (checked-smart checked-options) +cmark-opt-smart+ 0)
           (if (checked-sourcepos checked-options) +cmark-opt-sourcepos+ 0)))
 
 (defun softbreak-bits (checked-options)
-  "The HARDBREAKS or NOBREAKS bit CHECKED-OPTIONS' :SOFTBREAK calls for, or
-0 for :NEWLINE. Shared by HTML-OPTION-BITS and PLAINTEXT-OPTION-BITS (M2
-design §7.3)."
+  "The CMARK_OPT_HARDBREAKS or CMARK_OPT_NOBREAKS bit CHECKED-OPTIONS'
+:SOFTBREAK calls for, or 0 for :NEWLINE. Shared by HTML-OPTION-BITS and PLAINTEXT-OPTION-BITS."
   (ecase (checked-softbreak checked-options)
     (:newline 0)
     (:br +cmark-opt-hardbreaks+)
@@ -305,23 +304,23 @@ design §7.3)."
 
 (defun html-option-bits (checked-options)
   "CHECKED-OPTIONS' CMARK_OPT_ HTML bits: the parse bits, plus the softbreak
-bit and UNSAFE for :UNSAFE-HTML T (M2 design §7.3)."
+bit and UNSAFE for :UNSAFE-HTML T."
   (logior (parse-option-bits checked-options)
           (softbreak-bits checked-options)
           (if (checked-unsafe-html checked-options) +cmark-opt-unsafe+ 0)))
 
 (defun plaintext-option-bits (checked-options)
   "CHECKED-OPTIONS' CMARK_OPT_ plaintext bits: the parse bits, plus the
-softbreak bit (M2 design §7.3)."
+softbreak bit."
   (logior (parse-option-bits checked-options) (softbreak-bits checked-options)))
 
-;;; DOCUMENT-ATTRIBUTES (M2 design §6.3)
+;;; DOCUMENT-ATTRIBUTES
 
 (defun document-attributes (checked-options)
-  "CHECKED-OPTIONS' attributes for a :DOCUMENT node (M2 design §6.3): its
-:PROFILE and :EXTENSIONS, and an :OPTIONS list holding :FOOTNOTES then
-:SMART, each only when it is on. Passed straight to MAKE-NODE :DOCUMENT, so
-the result must satisfy the AST schema's :DOCUMENT row."
+  "CHECKED-OPTIONS' attributes for a :DOCUMENT node: its :PROFILE and
+:EXTENSIONS, and an :OPTIONS list holding :FOOTNOTES then :SMART, each only
+when it is on. Passed straight to MAKE-NODE :DOCUMENT, so the result must
+satisfy the AST schema's :DOCUMENT row."
   (list :profile (checked-profile checked-options)
         :extensions (checked-extensions checked-options)
         :options (append (and (checked-footnotes checked-options) (list :footnotes))

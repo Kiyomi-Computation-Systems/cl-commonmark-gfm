@@ -1,13 +1,12 @@
-;;;; The footnote pre-pass: resolving, numbering and placing footnotes (M1
-;;;; design §5.4; M2 design §4.4).
+;;;; The footnote pre-pass: resolving, numbering and placing footnotes.
 ;;;;
 ;;;; cmark's parser rewrites footnotes before its HTML renderer runs
-;;;; (process_footnotes in src/blocks.c). This pure pre-pass does the same
-;;;; work for any AST, without changing it: it decides which definitions
-;;;; survive, numbers them, and gives each resolving reference its index
-;;;; among its definition's references (ADR-0014's steps 1 to 4). The
-;;;; converter (convert.lisp) then renders the survivors in one section after
-;;;; everything else.
+;;;; (process_footnotes in vendor/cmark-gfm/src/blocks.c). This pure
+;;;; pre-pass does the same work for any AST, without changing it: it
+;;;; decides which definitions survive, numbers them, and gives each
+;;;; resolving reference its index among its definition's references. The
+;;;; converter (convert.lisp) then renders the survivors in one section
+;;;; after everything else.
 ;;;;
 ;;;; Nodes are immutable, so one node object may sit at several places in a
 ;;;; tree, and each place is its own definition or reference. Places are
@@ -15,7 +14,7 @@
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
-;;; Places: owners and ordinals (M2 design §4.4)
+;;; Places: owners and ordinals
 ;;;
 ;;; Every reference place has an owner: the document body, or the innermost
 ;;; definition place around it. The body is owner 0, and definition places
@@ -50,15 +49,15 @@ Keys compare with EQUAL."
 
 (defun unsupported-extension (node)
   "Signal UNSUPPORTED-EXTENSION-NODE for AST->HTML-TREE, naming NODE, an
-:EXTENSION node (M1 design D10)."
+:EXTENSION node, which the converter has no rendering for. No parse under
+the pinned cmark-gfm produces one."
   (error 'unsupported-extension-node
          :operation 'ast->html-tree
          :datum node
          :reason "extension nodes have no HTML tree"))
 
 (defun find-places (root)
-  "Walk ROOT's tree once, ROOT included (M2 design §4.4), and return three
-lists:
+  "Walk ROOT's tree once, ROOT included, and return three lists:
 - every definition place, as a (NODE . OWNER) cons, where OWNER is the
   place's number as an owner, in the order the walk enters the places,
   parents before children, which is tree order;
@@ -104,7 +103,7 @@ UNSUPPORTED-EXTENSION-NODE at the first :EXTENSION node the walk enters."
 (defstruct (footnote
             (:constructor make-footnote (definition owner number reference-count))
             (:copier nil))
-  "A surviving footnote definition (M1 design §5.4 step 3): the DEFINITION
+  "A surviving footnote definition, made by NUMBER-FOOTNOTES: the DEFINITION
 node, the OWNER number of the place it was kept from, its NUMBER, and
 REFERENCE-COUNT, how many references resolve to it."
   (definition nil :read-only t)
@@ -127,14 +126,15 @@ among that footnote's references."
 PLAN, or NIL when that reference is dangling."
   (values (gethash key (footnote-plan-citations plan))))
 
-;;; The label table (M4 design §5.7)
+;;; The label table
 ;;;
 ;;; Labels match with STRING=, so an EQUAL hash table would do, but CCL
 ;;; hashes short strings into few, clustered values. An EQUAL table of
-;;; 71,705 labels of one to four characters took 3.6 s on CCL, and 0.02 s
-;;; on SBCL. So a label table hashes each label itself, with LABEL-HASH,
-;;; into an EQL hash table, whose values are buckets: alists from label to
-;;; value, searched with STRING=, for the labels that share a hash.
+;;; 71,705 labels of one to four characters took 3.6 s on CCL, and under
+;;; 0.02 s on SBCL. So a label table hashes each label itself, with
+;;; LABEL-HASH, into an EQL hash table, whose values are buckets: alists
+;;; from label to value, searched with STRING=, for the labels that share a
+;;; hash.
 
 (defun label-hash (label)
   "The 32-bit FNV-1a hash of LABEL's character codes, a fixnum. It spreads
@@ -159,7 +159,7 @@ different labels."
   "Make TABLE hold VALUE for LABEL, which it holds nothing for yet."
   (push (cons label value) (gethash (label-hash label) table)))
 
-;;; The pre-pass (M1 design §5.4 steps 1 to 4)
+;;; The pre-pass: four steps, which PLAN-FOOTNOTES runs in order
 
 (defun first-definitions (definitions)
   "Step 1: a label table from each label to the first place in DEFINITIONS
@@ -190,7 +190,9 @@ so far; and an EQL hash table from each such place to its reference count."
 tree order, are the places COUNTS holds: the kept definitions that at least
 one reference resolves to. Returns them as FOOTNOTEs numbered 1, 2, ... in
 tree order, and an EQL hash table from each surviving place to its
-FOOTNOTE."
+FOOTNOTE. cmark numbers them by first reference instead, but its parser
+then moves the definitions to the end in number order, so a parsed tree
+holds them in that order."
   (let ((footnotes (make-hash-table :test 'eql))
         (number 0))
     (values (loop for place in definitions
@@ -211,14 +213,15 @@ returns it."
     table))
 
 (defun plan-footnotes (root)
-  "Run the footnote pre-pass over ROOT (M1 design §5.4; M2 design §4.4) and
-return its FOOTNOTE-PLAN. One WALK-AST finds the places; no step recurses.
-Definitions and references are found everywhere in the tree, inside
-definitions (even dropped ones) and images included. Labels match with
-STRING=. Of the definitions sharing a label, the first the walk leaves is
-kept, and survivors are numbered in the order they appear. Signals
-UNSUPPORTED-EXTENSION-NODE, naming the first :EXTENSION node in ROOT's tree,
-depth-first."
+  "Run the footnote pre-pass over ROOT and return its FOOTNOTE-PLAN. One
+WALK-AST finds the places; no step recurses. Definitions and references are
+found everywhere in the tree, inside definitions (even dropped ones) and
+images included. Labels match with STRING=: cmark matches them
+case-insensitively, but a parsed AST's references carry their definitions'
+labels as written. Of the definitions sharing a label, the first the walk
+leaves is kept, and survivors are numbered in the order they appear.
+Signals UNSUPPORTED-EXTENSION-NODE, naming the first :EXTENSION node in
+ROOT's tree, depth-first."
   (multiple-value-bind (tree-order exit-order references) (find-places root)
     (multiple-value-bind (resolutions counts)
         (resolve-references references (first-definitions exit-order))

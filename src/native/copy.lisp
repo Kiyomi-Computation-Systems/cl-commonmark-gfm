@@ -1,9 +1,8 @@
-;;;; COPY-NATIVE-TREE: a detached AST from a parsed tree (M2 design §6;
-;;;; ADR-0018). One WALK-NATIVE builds the AST bottom-up through MAKE-NODE,
-;;;; so a copied AST passes the schema. A stack of frames, one for each node
-;;;; entered and not yet left, collects each node's finished children: no
-;;;; recursion, so depth costs no Lisp stack (ADR-0015). The AST holds only
-;;;; Lisp data, and outlives its document.
+;;;; COPY-NATIVE-TREE: a detached AST from a parsed tree. One WALK-NATIVE
+;;;; builds the AST bottom-up through MAKE-NODE, so a copied AST passes the
+;;;; schema. A stack of frames, one for each node entered and not yet left,
+;;;; collects each node's finished children: no recursion, so depth costs no
+;;;; Lisp stack. The AST holds only Lisp data, and outlives its document.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -26,8 +25,8 @@ CHILDREN, newest first, of which there are CHILD-COUNT."
   (children '())
   (child-count 0))
 
-;;; Attributes (M2 design §6.3). Each string accessor is called only on the
-;;; kinds it serves, where cmark never returns null (M2 design §5.1).
+;;; Attributes. Each string accessor is called only on the kinds it serves,
+;;; where cmark never returns null.
 
 (defun copied-list-attributes (document node)
   "A :LIST's attributes: its :TYPE and :TIGHT, and for an ordered list its
@@ -43,10 +42,11 @@ CHILDREN, newest first, of which there are CHILD-COUNT."
 
 (defun copied-reference-label (document node operation)
   "A footnote reference's :LABEL: the literal of its definition, which is
-the label as written (M2 design finding 6). Its own literal is its number.
-A reference without a definition signals NATIVE-PARSE-ERROR naming
-OPERATION; cmark has already turned every dangling one into text
-(process_footnotes, src/blocks.c)."
+the label as written. Its own literal is its number, which cmark wrote
+over its label. A reference without a definition signals
+NATIVE-PARSE-ERROR naming OPERATION; cmark has already turned every
+dangling one into text (process_footnotes,
+vendor/cmark-gfm/src/blocks.c)."
   (let ((definition (native-footnote-definition document node)))
     (unless definition
       (error 'native-parse-error
@@ -58,11 +58,11 @@ OPERATION; cmark has already turned every dangling one into text
 (defun copied-cell-alignment (stack operation)
   "The :ALIGN of the table cell about to be entered under STACK: its
 table's alignment for the cell's column, which is its index in its row
-(get_cell_alignment, extensions/table.c). The row's frame tops STACK, and
-the table's is under it. A column past the table's alignments signals
-NATIVE-PARSE-ERROR naming OPERATION, with the index as its datum; cmark
-gives every row exactly its table's columns (try_opening_table_row,
-extensions/table.c)."
+(get_cell_alignment, vendor/cmark-gfm/extensions/table.c). The row's frame
+tops STACK, and the table's is under it. A column past the table's
+alignments signals NATIVE-PARSE-ERROR naming OPERATION, with the index as
+its datum; cmark gives every row exactly its table's columns
+(try_opening_table_row, vendor/cmark-gfm/extensions/table.c)."
   (let* ((row (first stack))
          (table (second stack))
          (column (copy-frame-child-count row))
@@ -75,8 +75,8 @@ extensions/table.c)."
     (aref alignments column)))
 
 (defun copied-attributes (document node kind checked-options stack operation)
-  "The attributes NODE of KIND gets in the AST (M2 design §6.3). STACK holds
-the frames of NODE's ancestors, its parent's on top."
+  "The attributes NODE of KIND gets in the AST. STACK holds the frames of
+NODE's ancestors, its parent's on top."
   (ecase kind
     (:document (document-attributes checked-options))
     (:list (copied-list-attributes document node))
@@ -95,12 +95,12 @@ the frames of NODE's ancestors, its parent's on top."
       :strikethrough :table :table-header :table-row)
      '())))
 
-;;; Positions (M2 design §6.4)
+;;; Positions
 
 (defun copied-sourcepos (document node)
   "NODE's position, ((START-LINE . START-COLUMN) . (END-LINE . END-COLUMN)),
-copied as cmark reports it: inverted ranges and zero columns included,
-never repaired (ADR-0005). NIL when its start line is 0, cmark's mark for
+copied as cmark reports it, never repaired: inverted ranges, zero columns
+and negative ones included. NIL when its start line is 0, cmark's mark for
 no position, as on a softbreak, a linebreak or an email autolink."
   (let ((start-line (native-start-line document node)))
     (if (zerop start-line)
@@ -125,7 +125,7 @@ attributes, position, and for a table its alignments."
   "FRAME's node, built with MAKE-NODE from what FRAME holds, its children
 in order. FRAME is done with, and MAKE-NODE copies the children list, so
 the list is reversed in place. A schema violation would be a copier bug,
-and signals INVALID-AST-NODE (M2 design §6.1)."
+and signals INVALID-AST-NODE."
   (make-node (copy-frame-kind frame)
              :attributes (copy-frame-attributes frame)
              :children (nreverse (copy-frame-children frame))
@@ -141,25 +141,24 @@ and signals INVALID-AST-NODE (M2 design §6.1)."
 (defun copy-native-tree (document checked-options &optional (operation 'copy-native-tree))
   "A detached AST of DOCUMENT, a live native document parsed with
 CHECKED-OPTIONS: a :DOCUMENT node, with every node of the parsed tree
-below it (M2 design §6). It shares nothing with cmark, so it outlives
-DOCUMENT.
+below it. It shares nothing with cmark, so it outlives DOCUMENT.
 
-- Attributes come from M2 design §6.3: the document's from CHECKED-OPTIONS
-  (DOCUMENT-ATTRIBUTES); a footnote reference's :LABEL from its
-  definition; a table cell's :ALIGN from its table, by the cell's index in
-  its row.
+- Attributes come from COPIED-ATTRIBUTES: the document's from
+  CHECKED-OPTIONS (DOCUMENT-ATTRIBUTES); a footnote reference's :LABEL
+  from its definition; a table cell's :ALIGN from its table, by the cell's
+  index in its row.
 - Positions are copied only when CHECKED-OPTIONS' :SOURCEPOS is true,
-  which means the parse set CMARK_OPT_SOURCEPOS: without it, cmark's
-  positions drift after a multi-line code span or raw HTML (M2 design
-  finding 7).
+  which means the parse set CMARK_OPT_SOURCEPOS: without it, cmark skips
+  adjust_subj_node_newlines (vendor/cmark-gfm/src/inlines.c), so its
+  positions drift after a multi-line code span or raw HTML.
 - Text nodes stay split where cmark split them.
 
 Counts nodes, the document included, as it goes, and signals
 RESOURCE-LIMIT-EXCEEDED, through CHECK-LIMIT, at the first past
-*MAX-NODES* (M2 design §5.5). Signals NATIVE-PARSE-ERROR for a footnote
-reference without a definition, or a table cell past its table's columns,
-neither of which cmark builds under the pin. Every condition it signals
-itself names OPERATION, the entry point that called it."
+*MAX-NODES*. Signals NATIVE-PARSE-ERROR for a footnote reference without
+a definition, or a table cell past its table's columns, neither of which
+cmark builds under the pin. Every condition it signals itself names
+OPERATION, the entry point that called it."
   (let ((maximum (effective-maximum '*max-nodes*))
         (count 0)
         (stack '())

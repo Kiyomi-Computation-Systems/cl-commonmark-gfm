@@ -1,8 +1,8 @@
-;;;; WALK-NATIVE: the one walk over a parsed tree (M2 design §5.1). The
-;;;; copier, the output-bound walk and startup's smoke parse all use it. It
-;;;; follows cmark's own first-child, next and parent pointers, so it keeps
-;;;; no stack and has no cmark_iter to free, and depth costs it nothing
-;;;; (ADR-0015).
+;;;; WALK-NATIVE: the one walk over a parsed tree. The copier, the
+;;;; output-bound walk and startup's smoke parse all use it. It follows
+;;;; cmark's own first-child, next and parent pointers, so it keeps no stack
+;;;; and has no cmark_iter to free, and depth costs it nothing: cmark builds
+;;;; trees far deeper than a recursive walk's Lisp stack would allow.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -32,11 +32,10 @@ NIL once it climbs out of ROOT."
 
 (defun walk-native (function document)
   "Visit DOCUMENT's root and every node under it, depth-first, children in
-order, with WALK-AST's protocol (M2 design §4.1): (FUNCALL FUNCTION :ENTER
-NODE) before a node's children and (FUNCALL FUNCTION :EXIT NODE) after
-them, so a leaf gets both. When an :ENTER call returns :SKIP, the node's
-children and its :EXIT are skipped; any other value is ignored. Returns
-NIL.
+order, with WALK-AST's protocol: (FUNCALL FUNCTION :ENTER NODE) before a
+node's children and (FUNCALL FUNCTION :EXIT NODE) after them, so a leaf
+gets both. When an :ENTER call returns :SKIP, the node's children and its
+:EXIT are skipped; any other value is ignored. Returns NIL.
 
 NODE is a cmark node pointer, valid only inside DOCUMENT's
 WITH-NATIVE-DOCUMENT scope. Each step goes through the alive-checked

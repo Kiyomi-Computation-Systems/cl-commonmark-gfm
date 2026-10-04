@@ -1,16 +1,15 @@
 ;;;; The cl-commonmark-gfm.native-core package: the native layer's pure
-;;;; decisions (M2 design §3, §5.5, §6.2, §7, §8.1; ADR-0008, ADR-0009,
-;;;; ADR-0016). It holds cmark's constants, CLASSIFY-NODE and
-;;;; RESOLVE-CMARK-LIBRARIES (M2b plan Task 2); CHECK-OPTIONS, the option
-;;;; bits, DOCUMENT-ATTRIBUTES and the three resource limits (Task 3); the
-;;;; per-node terms of the output bounds (Task 9); and FOOTNOTE-ENTITY-INDEX,
-;;;; the input guard's scan (Task 9b).
+;;;; decisions. It holds the pin and cmark's constants; the version
+;;;; cross-check's pure half; CLASSIFY-NODE; RESOLVE-CMARK-LIBRARIES and
+;;;; LINKED-METHOD-P; CHECK-OPTIONS, the option bits and
+;;;; DOCUMENT-ATTRIBUTES; the three resource limits; FOOTNOTE-ENTITY-INDEX,
+;;;; the input guard's scan; and the per-node terms of the output bounds.
 ;;;;
 ;;;; Pure: no CFFI and no UIOP anywhere in this system. The operating
 ;;;; system, an environment variable's value and a file-existence check all
 ;;;; arrive as ordinary arguments, never read directly, so this system loads
-;;;; and its tests pass with no C library present (the pure-systems global
-;;;; constraint in .plans/progress.md).
+;;;; and its tests pass with no C library present. make check-purity fails
+;;;; if the pure suite loads CFFI.
 
 (defpackage #:cl-commonmark-gfm.native-core
   (:use #:cl)
@@ -26,11 +25,12 @@
   (:export ;; The pin, and the extensions this library can attach
            #:*cmark-gfm-version*
            #:*extension-keywords*
-           ;; The version cross-check's pure half (M3 design §5)
+           ;; The version cross-check's pure half
            #:version-number
            #:number-version
-           ;; cmark's constants, transcribed from cmark-gfm.h, and the table
-           ;; mapping each one back to its C name (M2 design §8.1)
+           ;; cmark's constants, transcribed from
+           ;; vendor/cmark-gfm/src/cmark-gfm.h, and the table mapping each
+           ;; one back to its C name
            #:*cmark-header-constants*
            #:+cmark-node-document+
            #:+cmark-node-block-quote+
@@ -65,14 +65,14 @@
            #:+cmark-ordered-list+
            #:+cmark-period-delim+
            #:+cmark-paren-delim+
-           ;; Node classification (M2 design §6.2; ADR-0008)
+           ;; Node classification
            #:classify-node
-           ;; Library discovery (ADR-0009)
+           ;; Library discovery
            #:resolve-cmark-libraries
            #:*cmark-gfm-libraries*
-           ;; Linked ECL programs (M4 design §6.1; ADR-0021)
+           ;; Linked ECL programs
            #:linked-method-p
-           ;; Options (M2 design §6.3, §7.2, §7.3)
+           ;; Options
            #:check-options
            #:checked-options
            #:checked-profile
@@ -88,17 +88,17 @@
            #:html-option-bits
            #:plaintext-option-bits
            #:document-attributes
-           ;; Limits (M2 design §5.5; ADR-0016)
+           ;; Limits
            #:*max-input-octets*
            #:*max-nodes*
            #:*max-output-octets*
            #:effective-maximum
            #:check-limit
            #:table-cell-bound
-           ;; The input guard (M2 design §5.6; finding 16; M2b plan Task 9b)
+           ;; The input guard
            #:footnote-entity-index
-           ;; The output bounds' per-node terms (M2 design §5.5; ADR-0016):
-           ;; HTML, from src/html.c and the extensions' html_render
+           ;; The output bounds' per-node terms: HTML, from
+           ;; vendor/cmark-gfm/src/html.c and the extensions' html_render
            #:decimal-width
            #:html-sourcepos-octets
            #:html-block-quote-bound
@@ -132,8 +132,9 @@
            #:html-footnote-suffix-bound
            #:html-footnote-backrefs-bound
            #:footnote-reference-bound
-           ;; plaintext, from src/plaintext.c, src/render.c and the
-           ;; extensions' plaintext_render
+           ;; plaintext, from vendor/cmark-gfm/src/plaintext.c,
+           ;; vendor/cmark-gfm/src/render.c and the extensions' plaintext
+           ;; renderers
            #:plaintext-item-marker-width
            #:plaintext-prefix-width
            #:plaintext-out-bound

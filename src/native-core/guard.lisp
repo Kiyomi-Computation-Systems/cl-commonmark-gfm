@@ -1,30 +1,35 @@
-;;;; FOOTNOTE-ENTITY-INDEX: the pure scan behind the input guard (M2 design
-;;;; §5.6; finding 16; M2b plan Task 9b). Mirrors houdini_unescape_ent
-;;;; (vendor/cmark-gfm/src/houdini_html_u.c), restricted to the one
-;;;; codepoint that matters here: ^ (U+005E, decimal 94). The shell,
-;;;; CHECK-INPUT in src/api.lisp, calls this and signals UNSUPPORTED-INPUT
-;;;; for a match; nothing here signals anything.
+;;;; FOOTNOTE-ENTITY-INDEX: the pure scan behind the input guard. With
+;;;; footnotes on, cmark-gfm 0.29.0.gfm.13 mishandles a footnote reference
+;;;; whose [ is immediately followed by an entity that decodes to ^:
+;;;; handle_close_bracket (vendor/cmark-gfm/src/inlines.c) points such a
+;;;; reference's label into the entity's own short-lived buffer, with a
+;;;; length counted in source columns that runs past the buffer's end, then
+;;;; frees that buffer while the label still points into it. The scan
+;;;; mirrors houdini_unescape_ent (vendor/cmark-gfm/src/houdini_html_u.c),
+;;;; restricted to the one codepoint that matters here: ^ (U+005E, decimal
+;;;; 94). The shell, CHECK-INPUT in src/api.lisp, calls this and signals
+;;;; UNSUPPORTED-INPUT for a match; nothing here signals anything.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
-;;; Digit classes (houdini.h's _isdigit and _isxdigit; the pin never
-;;; defines HOUDINI_USE_LOCALE, so both are plain ASCII, never
+;;; Digit classes (_isdigit and _isxdigit, vendor/cmark-gfm/src/houdini.h;
+;;; the pin never defines HOUDINI_USE_LOCALE, so both are plain ASCII, never
 ;;; locale-dependent)
 
 (defun ascii-decimal-digit-value (char)
-  "CHAR's value as a decimal digit, or NIL when it isn't one (houdini.h's
-_isdigit: (c) >= '0' && (c) <= '9'). Checked by explicit ASCII range, never
-DIGIT-CHAR-P: on SBCL, DIGIT-CHAR-P also accepts non-ASCII Unicode decimal
-digits (ARABIC-INDIC, FULLWIDTH, and others), which _isdigit, always
-ASCII-only, never does -- a difference that would let this guard over-match
-an \"entity\" cmark itself never decodes."
+  "CHAR's value as a decimal digit, or NIL when it isn't one (_isdigit in
+vendor/cmark-gfm/src/houdini.h: (c) >= '0' && (c) <= '9'). Checked by
+explicit ASCII range, never DIGIT-CHAR-P: on SBCL, DIGIT-CHAR-P also
+accepts non-ASCII Unicode decimal digits (ARABIC-INDIC, FULLWIDTH, and
+others), which _isdigit, always ASCII-only, never does -- a difference that
+would let this guard over-match an \"entity\" cmark itself never decodes."
   (and (char<= #\0 char #\9) (- (char-code char) (char-code #\0))))
 
 (defun ascii-hex-digit-value (char)
   "CHAR's value as a hex digit, 0 to 15, or NIL when it isn't one
-(houdini.h's _isxdigit: strchr \"0123456789ABCDEFabcdef\", either case).
-Checked by explicit ASCII range, for the same reason as
-ASCII-DECIMAL-DIGIT-VALUE."
+(_isxdigit in vendor/cmark-gfm/src/houdini.h: strchr
+\"0123456789ABCDEFabcdef\", either case). Checked by explicit ASCII range,
+for the same reason as ASCII-DECIMAL-DIGIT-VALUE."
   (cond
     ((char<= #\0 char #\9) (- (char-code char) (char-code #\0)))
     ((char<= #\A char #\F) (+ 10 (- (char-code char) (char-code #\A))))
@@ -112,10 +117,9 @@ houdini_unescape_ent decodes to ^ (U+005E, 94)."
 
 (defun footnote-entity-index (string)
   "The index in STRING of the first [ immediately followed by an entity
-that decodes to ^ (U+005E), or NIL (M2 design §5.6, finding 16): &#, then
-1 to 8 decimal digits valued 94, then a semicolon; &#x or &#X, then 1 to 8
-hex digits valued 94, then a semicolon; or &Hat;, matched
-case-sensitively.
+that decodes to ^ (U+005E), or NIL: &#, then 1 to 8 decimal digits valued
+94, then a semicolon; &#x or &#X, then 1 to 8 hex digits valued 94, then a
+semicolon; or &Hat;, matched case-sensitively.
 
 One pass over STRING: the outer scan visits each index once, and the
 entity check at a [ never looks past a small, fixed window -- at most

@@ -1,4 +1,4 @@
-;;;; The cl-commonmark-gfm.html-tree package: its public interface (M1 design §5, §6).
+;;;; The cl-commonmark-gfm.html-tree package: its public interface.
 
 (defpackage #:cl-commonmark-gfm.html-tree
   (:use #:cl)

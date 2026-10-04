@@ -1,12 +1,13 @@
-;;;; The output bounds (M2 design §5.5; ADR-0016): HTML-OUTPUT-BOUND and
-;;;; PLAINTEXT-OUTPUT-BOUND, upper bounds on the UTF-8 octets RENDER-HTML
-;;;; and RENDER-PLAINTEXT would write for a live document. Each is one
-;;;; WALK-NATIVE that reads every node's facts and sums /native-core's
-;;;; per-node terms (src/native-core/output-bounds.lisp). MARKDOWN->HTML and
+;;;; The output bounds: HTML-OUTPUT-BOUND and PLAINTEXT-OUTPUT-BOUND, upper
+;;;; bounds on the UTF-8 octets RENDER-HTML and RENDER-PLAINTEXT would write
+;;;; for a live document. Each is one WALK-NATIVE that reads every node's
+;;;; facts and sums /native-core's per-node terms
+;;;; (src/native-core/output-bounds.lisp). MARKDOWN->HTML and
 ;;;; MARKDOWN->PLAINTEXT check them against *MAX-OUTPUT-OCTETS* between the
 ;;;; parse and the render: cmark_strbuf_grow aborts the process inside the
-;;;; render (src/buffer.c), where nothing can stop it. Like every walk,
-;;;; these keep their state on explicit stacks (ADR-0015).
+;;;; render (vendor/cmark-gfm/src/buffer.c), where nothing can stop it. Like
+;;;; every walk, these keep their state on explicit stacks, so depth costs
+;;;; no Lisp stack.
 
 (in-package #:cl-commonmark-gfm.native)
 
@@ -54,23 +55,24 @@ reads them; 0 without."
 
 (defun tight-paragraph-p (walk)
   "True when the paragraph about to be entered under WALK's ancestors is in
-a tight list: S_render_node (src/html.c) writes no tags for a paragraph
-whose grandparent is a CMARK_NODE_LIST that is tight."
+a tight list: S_render_node (vendor/cmark-gfm/src/html.c) writes no tags
+for a paragraph whose grandparent is a CMARK_NODE_LIST that is tight."
   (let ((grandparent (second (html-bound-walk-ancestors walk))))
     (and grandparent (eql (car grandparent) :list) (cdr grandparent))))
 
 (defun nested-strong-p (walk)
   "True when the strong emphasis about to be entered under WALK's ancestors
-is inside another: S_render_node (src/html.c) writes no tags for it."
+is a direct child of another: S_render_node (vendor/cmark-gfm/src/html.c)
+writes no tags for it."
   (eql (car (first (html-bound-walk-ancestors walk))) :strong))
 
 (defun next-cell-alignment (walk operation)
   "The alignment of the next table cell under WALK: its table's, for the
 cell's column, its index in its row (get_cell_alignment,
-extensions/table.c). A column past the table's alignments signals
-NATIVE-PARSE-ERROR naming OPERATION: cmark gives every row exactly its
-table's columns (try_opening_table_row), and reading past them would read
-past the C array."
+vendor/cmark-gfm/extensions/table.c). A column past the table's alignments
+signals NATIVE-PARSE-ERROR naming OPERATION: cmark gives every row exactly
+its table's columns (try_opening_table_row), and reading past them would
+read past the C array."
   (let ((alignments (html-bound-walk-alignments walk))
         (column (html-bound-walk-column walk)))
     (unless (< column (length alignments))
@@ -84,10 +86,10 @@ past the C array."
 (defun footnote-reference-label-octets (document node operation)
   "The octets of the label of the footnote definition NODE, a footnote
 reference, resolves to: cmark_render_html writes that definition's literal
-(S_render_node, src/html.c). A reference without one signals
-NATIVE-PARSE-ERROR naming OPERATION: cmark turns every dangling reference
-into text (process_footnotes, src/blocks.c), and the renderer would follow
-the null pointer."
+(S_render_node, vendor/cmark-gfm/src/html.c). A reference without one
+signals NATIVE-PARSE-ERROR naming OPERATION: cmark turns every dangling
+reference into text (process_footnotes, vendor/cmark-gfm/src/blocks.c),
+and the renderer would follow the null pointer."
   (let ((definition (native-footnote-definition document node)))
     (unless definition
       (error 'native-parse-error
@@ -177,9 +179,9 @@ reach them. Signals UNSUPPORTED-EXTENSION-NODE, naming OPERATION, for an
 (defun html-footnotes-bound (walk markdown operation)
   "What WALK's footnotes add once every node is counted: the section around
 the definitions, each reference's index suffix, and every repeat backref,
-bounded from the input (M2 design §5.5): the tree no longer holds the
-references in definitions cmark dropped, which still count
-(process_footnotes, src/blocks.c). Of MARKDOWN's FOOTNOTE-REFERENCE-BOUND
+bounded from the input: the tree no longer holds the references in
+definitions cmark dropped, which still count (process_footnotes,
+vendor/cmark-gfm/src/blocks.c). Of MARKDOWN's FOOTNOTE-REFERENCE-BOUND
 openers, each definition kept takes one, its own [^label]:, so the
 references, dropped ones included, number at most the rest: those are the
 openers the suffix and backref terms are given. A tree with more
@@ -206,9 +208,9 @@ rather than trust it."
 (defun html-output-bound (document checked-options markdown
                           &optional (operation 'html-output-bound))
   "An upper bound on the UTF-8 octets RENDER-HTML would write for DOCUMENT,
-a live native document parsed from MARKDOWN with CHECKED-OPTIONS (M2 design
-§5.5): one WALK-NATIVE summing /native-core's HTML terms, then the
-footnotes' suffixes and repeat backrefs, bounded from MARKDOWN.
+a live native document parsed from MARKDOWN with CHECKED-OPTIONS: one
+WALK-NATIVE summing /native-core's HTML terms, then the footnotes'
+suffixes and repeat backrefs, bounded from MARKDOWN.
 
 It reads what changes cmark_render_html's markup: :SOURCEPOS's
 data-sourcepos, :UNSAFE-HTML's raw HTML, :SOFTBREAK's breaks, and whether
@@ -273,10 +275,10 @@ signals NATIVE-PARSE-ERROR naming OPERATION."
 (defun plaintext-output-bound (document checked-options
                                &optional (operation 'plaintext-output-bound))
   "An upper bound on the UTF-8 octets RENDER-PLAINTEXT would write for
-DOCUMENT, a live native document parsed with CHECKED-OPTIONS (M2 design
-§5.5): one WALK-NATIVE that turns every node's events into
-PLAINTEXT-EVENT-STEPS and sums their PLAINTEXT-STEPS-BOUND, under the
-prefix in effect, with a frame per entered node on an explicit stack.
+DOCUMENT, a live native document parsed with CHECKED-OPTIONS: one
+WALK-NATIVE that turns every node's events into PLAINTEXT-EVENT-STEPS and
+sums their PLAINTEXT-STEPS-BOUND, under the prefix in effect, with a frame
+per entered node on an explicit stack.
 
 It reads what changes cmark_render_plaintext's output: :SOFTBREAK, whose
 :BR turns wrapping off (CMARK_OPT_HARDBREAKS) and whose :SPACE leaves the

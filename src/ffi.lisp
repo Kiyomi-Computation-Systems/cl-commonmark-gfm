@@ -1,39 +1,39 @@
 ;;;; The cl-commonmark-gfm.ffi package: one CFFI declaration per cmark-gfm
-;;;; function the native layer calls (M2 design §5.1; ADR-0008). Each is
-;;;; named after its C function, with - for _, and typed as its header
-;;;; declares it: vendor/cmark-gfm/src/cmark-gfm.h, src/cmark-gfm-extension_api.h
-;;;; and extensions/cmark-gfm-core-extensions.h.
+;;;; function the native layer calls. The project compiles no C, so these
+;;;; declarations stand in for cmark-gfm's headers. Each is named after its
+;;;; C function, with - for _, and typed as its header declares it:
+;;;; src/cmark-gfm.h, src/cmark-gfm-extension_api.h and
+;;;; extensions/cmark-gfm-core-extensions.h. Every C source path in this
+;;;; file is cmark-gfm's, relative to vendor/cmark-gfm/.
 ;;;;
 ;;;; - C int and every C enum (cmark_node_type, cmark_list_type,
 ;;;;   cmark_delim_type) are :INT; size_t is :SIZE; uint16_t is :UINT16.
 ;;;; - Every pointer is :POINTER, strings cmark returns included: the native
 ;;;;   layer decodes them itself, and can tell a null from an empty string.
 ;;;; - The task item's C bool is :UINT8, tested against zero, so only its
-;;;;   one defined byte is read (ADR-0008's second ABI belief).
+;;;;   one defined byte is read. No C compiler checks that width here; the
+;;;;   vocabulary fixture's checked and unchecked task items test the read.
 ;;;;
 ;;;; No library is named here. The native layer loads the pinned pair by
-;;;; absolute path at startup (ADR-0009); until then, calling any of these
-;;;; signals an error, each Lisp its own: SBCL's
-;;;; UNDEFINED-ALIEN-FUNCTION-ERROR and ECL's TYPE-ERROR from
-;;;; FOREIGN-DATA-POINTER (M4 finding 20), and CCL's "Can't resolve foreign
+;;;; absolute path at startup; until then, calling any of these signals an
+;;;; error, each Lisp its own: SBCL's UNDEFINED-ALIEN-FUNCTION-ERROR, ECL's
+;;;; TYPE-ERROR from FOREIGN-DATA-POINTER, and CCL's "Can't resolve foreign
 ;;;; symbol". In an ECL program with cmark-gfm linked in, each is a direct C
-;;;; call, bound when the program was linked, and nothing is loaded (M4
-;;;; design §6.1).
+;;;; call, bound when the program was linked, and nothing is loaded.
 ;;;;
 ;;;; Every cmark call compiles here, so this file records the method CFFI
-;;;; compiled them with (FFI-METHOD; M4 design §6.1, ADR-0021). On ECL,
-;;;; CFFI compiles each call by CFFI-SYS:*CFFI-ECL-METHOD* as the call
-;;;; compiles (src/cffi-ecl.lisp): :DFFI and :DLOPEN look the function up in
-;;;; a library loaded at run time, and :C/C++ writes a direct C call, which
-;;;; the linker binds (M4 finding 6). At run time the variable holds ECL's
-;;;; default again, whatever the build set (M4 finding 25), so the record is
-;;;; read as this file compiles, with the calls themselves. Startup reads it,
-;;;; so a program whose files were compiled under different methods behaves
-;;;; by what its calls do.
+;;;; compiled them with (FFI-METHOD). On ECL, CFFI compiles each call by
+;;;; CFFI-SYS:*CFFI-ECL-METHOD* as the call compiles (CFFI's
+;;;; src/cffi-ecl.lisp): :DFFI and :DLOPEN look the function up in a library
+;;;; loaded at run time, and :C/C++ writes a direct C call, which the linker
+;;;; binds. At run time the variable holds ECL's default again, whatever the
+;;;; build set, so the record is read as this file compiles, with the calls
+;;;; themselves. Startup reads it, so a program whose files were compiled
+;;;; under different methods behaves by what its calls do.
 
 (defpackage #:cl-commonmark-gfm.ffi
   (:use #:cl)
-  (:export ;; The method these calls were compiled with (M4 design §6.1)
+  (:export ;; The method these calls were compiled with
            #:ffi-method
            ;; Parser
            #:cmark-parser-new
@@ -82,7 +82,7 @@
 
 (in-package #:cl-commonmark-gfm.ffi)
 
-;;; The method these calls were compiled with (M4 design §6.1; ADR-0021)
+;;; The method these calls were compiled with
 
 (defmacro compiled-ffi-method ()
   "CFFI-SYS:*CFFI-ECL-METHOD*'s value as this macro expands, quoted: on ECL,
@@ -99,9 +99,8 @@ so its compiled code holds the value as a literal."
 compiled, kept by COMPILED-FFI-METHOD; NIL on SBCL and CCL. Not the
 variable's value now: CFFI sets it again from ECL's features as it loads,
 so a linked program would find ECL's default there, :DFFI or :DLOPEN,
-whatever its build set (M4 finding 25). LINKED-METHOD-P tells from it
-whether the program is linked, and so whether startup loads anything (M4
-design §6.1)."
+whatever its build set. LINKED-METHOD-P tells from it whether the program
+is linked, and so whether startup loads anything."
   (compiled-ffi-method))
 
 ;;; Parser (src/cmark-gfm.h; src/cmark-gfm-extension_api.h)
@@ -112,8 +111,7 @@ design §6.1)."
 
 (cffi:defcfun ("cmark_parser_attach_syntax_extension" cmark-parser-attach-syntax-extension) :int
   "int cmark_parser_attach_syntax_extension(cmark_parser *parser,
-cmark_syntax_extension *extension). Always returns 1 (src/blocks.c; M2
-design finding 10)."
+cmark_syntax_extension *extension). Always returns 1 (src/blocks.c)."
   (parser :pointer)
   (extension :pointer))
 
@@ -251,7 +249,7 @@ static flag (extensions/core-extensions.c), so callers serialize it.")
                cmark-gfm-extensions-get-tasklist-item-checked)
     :uint8
   "bool cmark_gfm_extensions_get_tasklist_item_checked(cmark_node *node),
-read as its one byte (ADR-0008)."
+read as its one byte."
   (node :pointer))
 
 ;;; Rendering (src/cmark-gfm.h). Each returns a buffer the caller frees,
@@ -278,8 +276,8 @@ read as its one byte (ADR-0008)."
 
 (cffi:defcfun ("cmark_version" cmark-version) :int
   "int cmark_version(void): CMARK_GFM_VERSION, an int packed as (major << 24)
-| (minor << 16) | (patch << 8) | gfm (src/cmark-gfm_version.h.in, src/cmark.c;
-M3 design §3 finding 2). The comment above this declaration in cmark-gfm.h
+| (minor << 16) | (patch << 8) | gfm (src/cmark-gfm_version.h.in,
+src/cmark.c). The comment above this declaration in src/cmark-gfm.h
 describes upstream cmark's own layout instead, major in bits 16-23; it
 doesn't hold for gfm's packing, so it isn't followed here.")
 
@@ -288,4 +286,4 @@ doesn't hold for gfm's packing, so it isn't followed here.")
 
 (cffi:defcfun ("cmark_get_default_mem_allocator" cmark-get-default-mem-allocator) :pointer
   "cmark_mem *cmark_get_default_mem_allocator(void): a struct of three
-function pointers, calloc, realloc and free, in that order (cmark-gfm.h).")
+function pointers, calloc, realloc and free, in that order (src/cmark-gfm.h).")

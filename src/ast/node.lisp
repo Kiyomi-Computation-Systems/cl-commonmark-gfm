@@ -40,9 +40,11 @@ so a destructive operation on the result (e.g. SORT) cannot corrupt NODE."
 (defun bounded-key-string (key)
   "KEY as a reason string names it: printed with ~(~A~), under the bounds
 src/conditions.lisp's report uses (*PRINT-CIRCLE* T, *PRINT-LENGTH* 10,
-*PRINT-LEVEL* 4, *PRINT-READABLY* NIL). A keyword prints exactly as it did
-in M1. A caller's circular or deeply nested KEY prints cut short, where M1
-hung or ran out of memory; so does a long or shared one."
+*PRINT-LEVEL* 4, *PRINT-READABLY* NIL). The report's own bindings come too
+late, since the reason is formatted when the condition is signalled. A
+keyword prints in full. A caller's circular or deeply nested KEY prints cut
+short instead of hanging or exhausting memory; so does a long or shared
+one."
   (let ((*print-circle* t)
         (*print-length* 10)
         (*print-level* 4)
@@ -65,11 +67,14 @@ NODE's kind has no such attribute."
 
 (defun valid-position-p (value)
   "True when VALUE is a (LINE . COLUMN) cons of integers. cmark has been
-seen to report a negative start column (M3 finding 7 -- a table's rebuilt
-paragraph has no position of its own, so an inline inside it gets a
+seen to report a negative start column: a table's rebuilt paragraph has no
+position of its own (try_inserting_table_header_paragraph,
+vendor/cmark-gfm/extensions/table.c), so an inline inside it gets a
 position computed from a missing origin, and an autolink at the start of
-a line gets column -1); line and end positions have not. The AST accepts
-any integer in either slot, as cmark reports it, by design (ADR-0005)."
+a line gets column -1. No negative line or end position has been seen.
+The AST keeps positions as cmark reports them, never repaired, so it
+accepts any integer in either slot: rejecting a negative one would make
+PARSE fail on valid Markdown."
   (and (consp value)
        (integerp (car value))
        (integerp (cdr value))))
@@ -77,7 +82,8 @@ any integer in either slot, as cmark reports it, by design (ADR-0005)."
 (defun valid-sourcepos-p (value)
   "True when VALUE is NIL or ((LINE . COLUMN) . (LINE . COLUMN)) of
 integers: the AST accepts any integer in all four slots, as cmark reports
-them, by design (M3 finding 7; ADR-0005). Inverted ranges are allowed."
+them (see VALID-POSITION-P). Inverted ranges are allowed: cmark reports
+some, such as 23:1-22:0 for an HTML block."
   (or (null value)
       (and (consp value)
            (valid-position-p (car value))
@@ -264,9 +270,8 @@ TYPE-ERROR, via CHECK-TYPE, when A or B is not a NODE -- A is checked first,
 so its datum is the one named when both are bad.
 
 Loops over an explicit stack of (A . B) node pairs instead of recursing into
-children, so depth is bounded by memory rather than by the Lisp call stack
-(M1 design §4.4; M2 design §4.2). A pair of EQL nodes is equal without being
-descended into."
+children, so depth is bounded by memory rather than by the Lisp call stack.
+A pair of EQL nodes is equal without being descended into."
   (check-type a node)
   (check-type b node)
   (let ((stack (list (cons a b))))

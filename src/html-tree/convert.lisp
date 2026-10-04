@@ -1,31 +1,32 @@
-;;;; AST->HTML-TREE: converting a validated AST into an LHTML-shaped tree (M1
-;;;; design §5; M2 design §4.3).
+;;;; AST->HTML-TREE: converting a validated AST into an LHTML-shaped tree.
 ;;;;
 ;;;; A port of cmark-gfm's HTML renderer loop: S_render_node and
-;;;; S_put_footnote_backref in src/html.c, and the html_render functions of
-;;;; extensions/table.c, tasklist.c and strikethrough.c. cmark hands each
-;;;; enter and exit event of its iterator to S_render_node; here WALK-AST
-;;;; hands each event to RENDER-EVENT. The renderer builds tree nodes where
-;;;; cmark writes bytes, and a "\n" string wherever cmark writes a newline
-;;;; (M1 design §5.2, ADR-0014). Nothing here recurses over a tree's depth or
-;;;; a list's length (ADR-0015).
+;;;; S_put_footnote_backref in vendor/cmark-gfm/src/html.c, and the
+;;;; html_render functions of vendor/cmark-gfm/extensions/table.c,
+;;;; tasklist.c and strikethrough.c. cmark hands each enter and exit event
+;;;; of its iterator to S_render_node; here WALK-AST hands each event to
+;;;; RENDER-EVENT. The renderer builds tree nodes where cmark writes bytes,
+;;;; and a "\n" string wherever cmark writes a newline: cmark lays out the
+;;;; same element differently in different places, so the tree carries the
+;;;; layout, and HTML-TREE->STRING adds none. Nothing here recurses over a
+;;;; tree's depth or a list's length, so memory, not the Lisp call stack,
+;;;; bounds the trees it converts.
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
-;;; Options (M1 design §5.1)
+;;; Options
 
 (defparameter *render-option-choices*
   '((:raw-html :omit :text)
     (:softbreak :newline :space :br)
     (:link-policy :safe :unsafe))
   "Each option of AST->HTML-TREE but :DOCUMENT-WRAPPER, followed by the values
-it accepts, default first (ADR-0012).")
+it accepts, default first.")
 
 (defun signal-invalid-render-option (operation datum reason)
   "Signal INVALID-RENDER-OPTION for OPERATION, naming DATUM and REASON. OPERATION
 is ordinarily AST->HTML-TREE, its own name; MARKDOWN->HTML-TREE passes its own
-name instead, when it checks its tree options before any native call (M2
-design §7.1; ADR-0012)."
+name instead, when it checks its tree options before any native call."
   (error 'invalid-render-option :operation operation :datum datum :reason reason))
 
 (defun document-wrapper-p (value)
@@ -54,10 +55,10 @@ AST->HTML-TREE's options with valid values. Every pair is checked, a repeated
 key's too.
 
 This checker is internal to .HTML-TREE, not exported: MARKDOWN->HTML-TREE
-imports it by name (ADR-0012) to validate its own tree options before any
-native call, so the rules for :RAW-HTML, :SOFTBREAK, :LINK-POLICY and
-:DOCUMENT-WRAPPER stay in one place. AST->HTML-TREE calls it on its own
-OPTIONS, passing its own name."
+imports it by name to validate its own tree options before any native call,
+so the rules for :RAW-HTML, :SOFTBREAK, :LINK-POLICY and :DOCUMENT-WRAPPER
+stay in one place. AST->HTML-TREE calls it on its own OPTIONS, passing its
+own name."
   (unless (evenp (length options))
     (signal-invalid-render-option operation options "options must be a plist of even length"))
   (loop for (key value) on options by #'cddr
@@ -68,7 +69,7 @@ OPTIONS, passing its own name."
 leftmost value wins, as with &KEY."
   (getf options key (second (assoc key *render-option-choices*))))
 
-;;; The renderer's state (M2 design §4.3)
+;;; The renderer's state
 
 (defstruct (pending-element
             (:constructor make-pending-element (tag attributes))
@@ -83,15 +84,14 @@ top-level items."
 
 (defstruct (renderer
             (:copier nil))
-  "Everything one conversion keeps from one event to the next (M2 design
-§4.3).
+  "Everything one conversion keeps from one event to the next.
 
-What stays the same: the three render policies (ADR-0012), the PLAN from
-PLAN-FOOTNOTES, and the DOCUMENT being converted.
+What stays the same: the three render policies, the PLAN from PLAN-FOOTNOTES,
+and the DOCUMENT being converted.
 
 The output: ELEMENTS, the stack of PENDING-ELEMENTs, innermost first; and BOL,
 true when the output so far is empty or ends in a newline, the one bit of
-layout cmark's cr reads.
+layout cmark_html_render_cr reads.
 
 Plain mode, cmark's renderer->plain: PLAIN is the image whose :ENTER started
 it, or NIL, and ALT a string output stream holding its alt text so far.
@@ -135,7 +135,7 @@ again at its :EXIT, the node itself isn't among the ANCESTORS."
 root: no ancestor has been entered above the WALK-BASE."
   (eql (renderer-ancestors renderer) (renderer-walk-base renderer)))
 
-;;; Output: the stack of open elements, and BOL (M1 design §5.2)
+;;; Output: the stack of open elements, and BOL
 
 (defun merge-strings (strings)
   "STRINGS concatenated into one fresh string."
@@ -147,7 +147,7 @@ root: no ancestor has been entered above the WALK-BASE."
 
 (defun normalize-items (items)
   "ITEMS with each run of adjacent strings merged into one fresh string, and
-empty strings dropped (M1 design §5.2)."
+empty strings dropped."
   (let ((result '())
         (run '()))
     (flet ((end-run ()
@@ -174,8 +174,9 @@ STRING sets BOL from its last character."
   (emit-text renderer (string #\Newline)))
 
 (defun emit-cr (renderer)
-  "Write a newline unless the output so far is empty or already ends in one:
-cmark_html_render_cr (src/html.h)."
+  "Write a newline unless the output so far is empty or already ends in one,
+as cmark_html_render_cr (vendor/cmark-gfm/src/html.h) does. The docstrings
+below call this cr."
   (unless (renderer-bol renderer)
     (emit-newline renderer)))
 
@@ -283,7 +284,7 @@ ordered list that doesn't start at 1, and none otherwise."
 
 (defun backref-paragraph-exit-p (renderer)
   "True at the :EXIT of a definition's backref paragraph: the walk carries
-BACKREFS, and the paragraph is the walk's root (M2 design §4.4)."
+BACKREFS, and the paragraph is the walk's root."
   (and (renderer-backrefs renderer) (walk-root-p renderer)))
 
 (defun render-paragraph (renderer entering)
@@ -477,7 +478,7 @@ parent decides at the :ENTER and at the :EXIT."
 (defun destination-url (renderer node)
   "The :DESTINATION of a :LINK or :IMAGE NODE, percent-encoded, or \"\" when
 the link policy is :SAFE and it is dangerous. The check runs on the raw
-destination (M1 design §5.5)."
+destination, before encoding, as in cmark-gfm's renderer."
   (let ((destination (node-attribute node :destination)))
     (if (and (eql (renderer-link-policy renderer) :safe) (dangerous-url-p destination))
         ""
@@ -518,7 +519,7 @@ once plain mode has ended: <img /> with src, alt and title."
   "Count one more reference of the current owner, and return its citation
 under the plan, (FOOTNOTE . K), or NIL when it dangles. Every reference
 place the renderer meets counts exactly once, resolving or not, as the
-pre-pass counts it (M2 design §4.4)."
+pre-pass counts it."
   (reference-citation (renderer-plan renderer)
                       (citation-key (renderer-owner renderer)
                                     (incf (renderer-ordinal renderer)))))
@@ -531,7 +532,9 @@ pre-pass counts it (M2 design §4.4)."
   "FOOTNOTE's label, percent-encoded, as its ids and hrefs carry it."
   (href-encode (footnote-label (footnote-definition footnote))))
 
-;;; NOTINLINE as in document.lisp: a test redefines this, called elsewhere here.
+;;; A test redefines REFERENCE-ID. Its calls are all in this file, and
+;;; CLHS 3.2.2.3 lets a compiler bind such calls to this definition unless
+;;; it is declared NOTINLINE.
 (declaim (notinline reference-id))
 
 (defun reference-id (footnote k)
@@ -587,14 +590,14 @@ label, and shows K in a sup after the arrow."
              (emit-text renderer " "))
            (emit-backref renderer footnote k)))
 
-;;; Dispatch: one handler for WALK-AST's events (M2 design §4.3)
+;;; Dispatch: one handler for WALK-AST's events
 
 (defun render-node (renderer node entering)
   "Render the :ENTER of NODE, when ENTERING, or its :EXIT, outside plain
-mode, following cmark's S_render_node: M2 design §4.3's events table, row
-by row. A leaf does all its work on :ENTER. Returns :SKIP at a definition's
-:ENTER, and NIL otherwise: a definition leaves its place, and the footnote
-section renders it. The pre-pass has already ruled out :EXTENSION."
+mode, following cmark's S_render_node case by case. A leaf does all its
+work on :ENTER. Returns :SKIP at a definition's :ENTER, and NIL otherwise:
+a definition leaves its place, and the footnote section renders it. The
+pre-pass has already ruled out :EXTENSION."
   (ecase (node-kind node)
     (:document nil)
     (:block-quote (render-block-quote renderer entering))
@@ -679,7 +682,7 @@ its definition's backref paragraph."
         (renderer-backrefs renderer) backrefs)
   (walk-ast (lambda (event node) (render-event renderer event node)) root))
 
-;;; The footnote section (M1 design §5.4; M2 design §4.4)
+;;; The footnote section
 
 (defun definition-node-p (node)
   "True when NODE is a :FOOTNOTE-DEFINITION node."
@@ -763,22 +766,29 @@ output."
 
 (defun ast->html-tree (node &rest options)
   "Convert the AST NODE into an HTML tree, as cmark-gfm's HTML renderer
-would render it (M1 design §5). Returns a list of top-level items, strings
-and elements, with cmark's newlines as \"\\n\" strings; or, with
-:DOCUMENT-WRAPPER, one element of that tag holding them. A NODE that isn't a
-:DOCUMENT converts as a document's only child.
+would render it. Returns a list of top-level items, strings and elements,
+whose strings carry the newlines cmark writes; or, with :DOCUMENT-WRAPPER,
+one element of that tag holding them. A NODE that isn't a :DOCUMENT
+converts as a document's only child.
 
-OPTIONS (ADR-0012), each value's default first:
-  :RAW-HTML :OMIT | :TEXT
-  :SOFTBREAK :NEWLINE | :SPACE | :BR
-  :LINK-POLICY :SAFE | :UNSAFE
-  :DOCUMENT-WRAPPER NIL | a keyword naming a non-void element
+OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
+value must be valid.
+- :RAW-HTML: :OMIT, the default, turns raw HTML into cmark's comment,
+  (:*COMMENT* NIL \" raw HTML omitted \"); :TEXT keeps its markup as text.
+- :SOFTBREAK: :NEWLINE, the default, turns a soft break into a newline;
+  :SPACE, into a space; :BR, into (:BR NIL) and a newline.
+- :LINK-POLICY: :SAFE, the default, blanks a link or image URL that starts,
+  in any case, with javascript:, vbscript:, file: or data:, but not
+  data:image/png, gif, jpeg or webp, as cmark-gfm does; :UNSAFE keeps every
+  URL.
+- :DOCUMENT-WRAPPER: NIL, the default, or a keyword naming a non-void
+  element, which wraps the result in one element of that tag.
 
 Signals INVALID-RENDER-OPTION for a malformed option list, an unknown key or
 a bad value, before converting anything; and UNSUPPORTED-EXTENSION-NODE,
 naming the first :EXTENSION node depth-first, when the tree holds one.
 It loops over WALK-AST's events, so the Lisp stack doesn't bound a tree's
-depth (M2 design §4.3). Returns a fresh tree, and leaves NODE as it was."
+depth. Returns a fresh tree, and leaves NODE as it was."
   (check-tree-options options 'ast->html-tree)
   (let* ((document (as-document node))
          (renderer (make-renderer :raw-html (option-value options :raw-html)

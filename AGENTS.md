@@ -80,6 +80,15 @@ We run this when we're done and ready to merge the PR.
 - Two-space indentation
 - Max 100 columns
 - Comments: `;;;;` file, `;;;` section, `;;` within code, `;` inline
+- Comments and docstrings describe the code as it is. The docstrings of
+  the symbols the `cl-commonmark-gfm` package exports are for its users;
+  every other comment and docstring is for developers. Cite nothing in
+  `/.plans` (ADRs, plans, design documents, findings, milestones) and no
+  review labels, and tell no history: where a citation stood in for a
+  reason, write the reason out.
+- Spell C identifiers as cmark-gfm's source does. Give its paths in full
+  (`vendor/cmark-gfm/src/inlines.c`), unless the file's header has already
+  given that path in full or said what its paths are relative to.
 
 ### Flow Control
 

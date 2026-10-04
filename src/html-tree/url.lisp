@@ -1,4 +1,5 @@
-;;;; URL percent-encoding and the dangerous-URL check (M1 design §5.5).
+;;;; URL percent-encoding, for link and image destinations and footnote
+;;;; labels, and the dangerous-URL check of the :SAFE link policy.
 
 (in-package #:cl-commonmark-gfm.html-tree)
 
@@ -7,7 +8,7 @@
 (defparameter *href-safe-punctuation* "-_.+!*(),%#@?=;:/$~&'"
   "Punctuation HREF-ENCODE leaves unescaped, alongside ASCII alphanumerics.
 Mirrors houdini_escape_href's HREF_SAFE table, except that & and ' are safe
-here too: the serializer entity-escapes them later (M1 design §5.5).")
+here too: the serializer entity-escapes them later.")
 
 (defparameter *hex-digits* "0123456789ABCDEF"
   "Uppercase hex digits, indexed by nibble value, for HREF-ENCODE's %XX
@@ -30,9 +31,9 @@ all of them, and they are always percent-encoded."
   (write-char (char *hex-digits* (ldb (byte 4 0) octet)) stream))
 
 (defun href-encode (string)
-  "Percent-encode STRING for use as a link or image destination, mirroring
-cmark-gfm's HOUDINI_ESCAPE_HREF (M1 design §5.5). STRING is encoded as UTF-8
-with CHAR-UTF8-OCTETS (cl-commonmark-gfm.util); each octet that is an ASCII
+  "Percent-encode STRING, a link or image destination or a footnote label,
+mirroring cmark-gfm's houdini_escape_href. STRING is encoded as UTF-8 with
+CHAR-UTF8-OCTETS (cl-commonmark-gfm.util); each octet that is an ASCII
 alphanumeric or a character of *HREF-SAFE-PUNCTUATION* stays as its
 character, and every other octet becomes %XX in uppercase hex. Because %
 passes through unescaped, an existing escape is never re-encoded."
@@ -47,7 +48,7 @@ passes through unescaped, an existing escape is never re-encoded."
 
 (defparameter *dangerous-url-schemes* '("javascript:" "vbscript:" "file:" "data:")
   "Schemes DANGEROUS-URL-P blanks under the :SAFE link policy, mirroring
-cmark-gfm's _scan_dangerous_url (M1 design §5.5).")
+cmark-gfm's _scan_dangerous_url.")
 
 (defparameter *safe-data-image-prefixes*
   '("data:image/png" "data:image/gif" "data:image/jpeg" "data:image/webp")
@@ -55,12 +56,11 @@ cmark-gfm's _scan_dangerous_url (M1 design §5.5).")
 checked as a prefix, is not dangerous.")
 
 (defun case-insensitive-prefix-p (prefix string)
-  "True when STRING starts with PREFIX, compared with STRING-EQUAL (AGENTS.md
-prescribes STRING-EQUAL, not a hand-rolled fold, for case-insensitive string
-comparison). PREFIX is always plain ASCII here, so this is ASCII-insensitive
-in effect: on SBCL, CCL and ECL, CHAR-EQUAL's case pairs are one-to-one, and
-U+017F (LATIN SMALL LETTER LONG S) is not paired with #\\s or #\\S, so it
-cannot fold into a dangerous scheme name on any of the three (S6)."
+  "True when STRING starts with PREFIX, compared with STRING-EQUAL. PREFIX is
+always plain ASCII here, so this folds ASCII case only, as cmark-gfm's
+_scan_dangerous_url does: on SBCL, CCL and ECL, CHAR-EQUAL's case pairs are
+one-to-one, and U+017F (LATIN SMALL LETTER LONG S) is not paired with #\\s
+or #\\S, so it cannot fold into a dangerous scheme name on any of the three."
   (and (<= (length prefix) (length string))
        (string-equal prefix string :end2 (length prefix))))
 

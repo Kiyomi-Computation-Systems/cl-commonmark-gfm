@@ -1,11 +1,12 @@
-;;;; The cl-commonmark-gfm package: the public API (M2 design §3, §7;
-;;;; ADR-0017). One package for a caller: it re-exports the public symbols
-;;;; of the conditions, the AST and the HTML tree, and four variables of
-;;;; /native-core, and holds the entry points. Each entry point checks its
-;;;; argument, its options and the limits before any native call, then
-;;;; starts cmark-gfm if it hasn't started, and holds its state until the
-;;;; document is released, so cmark-gfm is never closed under the parse
-;;;; (M2 design §5.3).
+;;;; The cl-commonmark-gfm package: the public API. One package for a
+;;;; caller: it re-exports the public symbols of the conditions, the AST
+;;;; and the HTML tree, and four variables of /native-core, and holds the
+;;;; entry points. Each entry point checks its argument and its options,
+;;;; and runs CHECK-INPUT's limits and input guard, before any native call.
+;;;; It then starts cmark-gfm if it hasn't started, and holds its state
+;;;; until the document is released, so cmark-gfm is never closed under the
+;;;; parse: RESET-NATIVE-STATE, which the save hook calls before an image
+;;;; is saved, refuses while any call holds the state.
 
 (uiop:define-package #:cl-commonmark-gfm
   (:use #:cl)
@@ -37,7 +38,7 @@
   ;; CHECK-TREE-OPTIONS is internal to .HTML-TREE: it isn't exported, so
   ;; :USE-REEXPORT above never reaches it. MARKDOWN->HTML-TREE imports it by
   ;; name to validate its own tree options, with AST->HTML-TREE's own rules,
-  ;; before any native call, so ADR-0012's rules for :RAW-HTML, :SOFTBREAK,
+  ;; before any native call, so the rules for :RAW-HTML, :SOFTBREAK,
   ;; :LINK-POLICY and :DOCUMENT-WRAPPER stay in one place.
   (:import-from #:cl-commonmark-gfm.html-tree
                 #:check-tree-options)
@@ -55,28 +56,30 @@
 ;;; The input limits and guard, shared by every entry point
 
 (defparameter *limit-variables* '(*max-input-octets* *max-nodes* *max-output-octets*)
-  "The three limits' variables (M2 design §5.5).")
+  "The three limits' variables, whose bindings CHECK-INPUT checks first.")
 
 (defun check-input (markdown checked-options operation)
   "Apply the limits and the input guard that guard cmark's parse to
 MARKDOWN, a string, naming OPERATION, the caller's entry point, with its
-already-checked CHECKED-OPTIONS (M2 design §5.5, §5.6; ADR-0016). Called
-before any native call:
+already-checked CHECKED-OPTIONS. cmark aborts the process, which no Lisp
+handler can catch, when a buffer would pass 1,073,741,823 bytes or an
+allocation fails; the three limits keep its buffers under that size and
+bound its memory. Called before any native call:
 - all three limit variables' bindings, first, whether or not OPERATION
   uses the limit: a bad one signals before any work, not after a parse;
 - MARKDOWN's UTF-8 length against *MAX-INPUT-OCTETS*, measured before
   anything is encoded;
 - MARKDOWN's table-cell bound against *MAX-NODES*: padded table cells are
   built while cmark parses, so a count taken later would come too late;
-- while CHECKED-OPTIONS' footnotes are on, MARKDOWN against the pattern of
-  M2 design finding 16: a [ immediately followed by an entity that decodes
-  to ^. With footnotes on, cmark-gfm 0.29.0.gfm.13's footnote branch
-  (handle_close_bracket, vendor/cmark-gfm/src/inlines.c) reads such a
-  reference's label past the end of the entity's own short-lived buffer,
-  then frees that buffer while the label still points into it -- a heap
-  read no Lisp handler can catch, so this input is rejected instead of
-  parsed. With footnotes off, cmark never reaches that branch, so the
-  guard doesn't run.
+- while CHECKED-OPTIONS' footnotes are on, MARKDOWN against the guard's
+  pattern: a [ immediately followed by an entity that decodes to ^. With
+  footnotes on, cmark-gfm 0.29.0.gfm.13's handle_close_bracket
+  (vendor/cmark-gfm/src/inlines.c) points such a reference's label into
+  the entity's own short-lived buffer, with a length counted in source
+  columns that runs past the buffer's end, then frees that buffer while
+  the label still points into it -- a heap read no Lisp handler can
+  catch, so this input is rejected instead of parsed. With footnotes off,
+  cmark never takes that footnote branch, so the guard doesn't run.
 
 Signals a TYPE-ERROR when any limit variable isn't bound to a
 non-negative integer, RESOURCE-LIMIT-EXCEEDED for a breach of either
@@ -93,15 +96,14 @@ datum the index of the [ that starts it."
                :operation operation
                :datum index
                :reason (concatenate 'string "[ followed by an entity decoding to ^, which "
-                                    "cmark-gfm 0.29.0.gfm.13 misreads (M2 design finding 16)")))))
+                                    "cmark-gfm 0.29.0.gfm.13 misreads")))))
   nil)
 
 ;;; PARSE
 
 (defun parse (markdown &rest options)
   "Parse MARKDOWN, a string, with cmark-gfm, and return its AST: a :DOCUMENT
-node holding Lisp data only, valid for as long as it is kept (M2 design
-§6, §7.1).
+node holding Lisp data only, valid for as long as it is kept.
 
 OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
 value must be valid.
@@ -127,8 +129,9 @@ the AST as U+FFFD.
 Signals a TYPE-ERROR when MARKDOWN isn't a string, and
 INVALID-PARSE-OPTION for any bad option, before any call to cmark.
 
-The limits, each checked before cmark does the work it guards (ADR-0016),
-signal RESOURCE-LIMIT-EXCEEDED:
+The limits keep cmark's buffers under the size at which it aborts the
+process, and bound its memory. Each is checked before cmark does the work
+it guards, and signals RESOURCE-LIMIT-EXCEEDED:
 - *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever
   it is bound to: MARKDOWN's UTF-8 length, before parsing;
 - *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
@@ -141,14 +144,14 @@ signals a TYPE-ERROR, before any call to cmark.
 While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
 entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
 UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape (M2 design finding 16). With :FOOTNOTES NIL this check doesn't run,
-since cmark never reaches the faulty code path.
+shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
+reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails. In an
+(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
+of directories), and can signal a NATIVE-ERROR when that fails. In an
 ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way (M4 design §6.1).
+override, but checks the linked cmark-gfm the same way.
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -163,7 +166,7 @@ allocator can still abort the process. No Lisp handler can catch that."
 
 (defun markdown->html (markdown &rest options)
   "Render MARKDOWN, a string, to HTML with cmark-gfm's own HTML renderer, and
-return the result as a string (M2 design §7.1).
+return the result as a string.
 
 OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
 value must be valid.
@@ -180,9 +183,10 @@ value must be valid.
   data-sourcepos attribute.
 - :SOFTBREAK: :NEWLINE, the default, writes a newline; :SPACE writes a
   space; :BR writes \"<br />\" then a newline.
-- :UNSAFE-HTML: NIL, the default, comments out raw HTML
-  (\"<!-- raw HTML omitted -->\") and blanks dangerous URLs; T keeps both
-  verbatim, as cmark-gfm's own CMARK_OPT_UNSAFE does.
+- :UNSAFE-HTML: NIL, the default, writes a comment in place of raw HTML
+  (\"<!-- raw HTML omitted -->\") and blanks dangerous URLs; T keeps both,
+  as cmark-gfm's own CMARK_OPT_UNSAFE does, though :TAGFILTER, when
+  attached (the :GFM default), still escapes a few tags, such as <script>.
 
 Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for
 a bad :PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART or :SOURCEPOS value; and
@@ -190,8 +194,9 @@ INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
 unknown key, or a bad :SOFTBREAK or :UNSAFE-HTML value -- before any native
 call.
 
-The limits, each checked before cmark does the work it guards (ADR-0016),
-signal RESOURCE-LIMIT-EXCEEDED:
+The limits keep cmark's buffers under the size at which it aborts the
+process, and bound its memory. Each is checked before cmark does the work
+it guards, and signals RESOURCE-LIMIT-EXCEEDED:
 - *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
   is bound to: MARKDOWN's UTF-8 length, before parsing;
 - *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
@@ -208,14 +213,14 @@ any call to cmark.
 While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
 entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
 UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape (M2 design finding 16). With :FOOTNOTES NIL this check doesn't run,
-since cmark never reaches the faulty code path.
+shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
+reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails. In an
+(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
+of directories), and can signal a NATIVE-ERROR when that fails. In an
 ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way (M4 design §6.1).
+override, but checks the linked cmark-gfm the same way.
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -233,7 +238,7 @@ allocator can still abort the process. No Lisp handler can catch that."
 
 (defun markdown->plaintext (markdown &rest options)
   "Render MARKDOWN, a string, to plain text with cmark-gfm's own plaintext
-renderer, and return the result as a string (M2 design §7.1).
+renderer, and return the result as a string.
 
 OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
 value must be valid.
@@ -244,8 +249,8 @@ value must be valid.
   :WIDTH off for the whole text: nothing wraps. :SPACE writes a space, and
   turns wrapping off too.
 - :WIDTH: 0, the default, for no wrapping, or a column from 1 to
-  2,147,483,647 to wrap text at. It wraps only under :SOFTBREAK :NEWLINE
-  (S_render_node, src/plaintext.c), never inside a heading.
+  2,147,483,647 to wrap text at. It wraps only under :SOFTBREAK :NEWLINE,
+  never inside a heading.
 
 This entry point parses without source positions: :SOURCEPOS isn't one of
 its options.
@@ -255,8 +260,9 @@ a bad :PROFILE, :EXTENSIONS, :FOOTNOTES or :SMART value; and
 INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
 unknown key, or a bad :SOFTBREAK or :WIDTH value -- before any native call.
 
-The limits, each checked before cmark does the work it guards (ADR-0016),
-signal RESOURCE-LIMIT-EXCEEDED:
+The limits keep cmark's buffers under the size at which it aborts the
+process, and bound its memory. Each is checked before cmark does the work
+it guards, and signals RESOURCE-LIMIT-EXCEEDED:
 - *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
   is bound to: MARKDOWN's UTF-8 length, before parsing;
 - *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
@@ -273,14 +279,14 @@ any call to cmark.
 While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
 entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
 UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape (M2 design finding 16). With :FOOTNOTES NIL this check doesn't run,
-since cmark never reaches the faulty code path.
+shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
+reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails. In an
+(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
+of directories), and can signal a NATIVE-ERROR when that fails. In an
 ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way (M4 design §6.1).
+override, but checks the linked cmark-gfm the same way.
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -298,18 +304,20 @@ allocator can still abort the process. No Lisp handler can catch that."
 
 (defun markdown->html-tree (markdown &rest options)
   "Render MARKDOWN, a string, into an HTML tree: (AST->HTML-TREE (PARSE
-MARKDOWN ...) ...), without building a detached AST the caller keeps (M2
-design §7.1).
+MARKDOWN ...) ...), without building a detached AST the caller keeps.
 
 OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
 value must be valid.
 - :PROFILE, :EXTENSIONS, :FOOTNOTES and :SMART: as PARSE.
-- :SOFTBREAK, :RAW-HTML, :LINK-POLICY and :DOCUMENT-WRAPPER: AST->HTML-TREE's
-  own options (ADR-0012), default first:
-  - :SOFTBREAK :NEWLINE | :SPACE | :BR
-  - :RAW-HTML :OMIT | :TEXT
-  - :LINK-POLICY :SAFE | :UNSAFE
-  - :DOCUMENT-WRAPPER NIL | a keyword naming a non-void element
+- :SOFTBREAK: :NEWLINE, the default, writes a newline; :SPACE writes a
+  space; :BR writes a (:BR NIL) element, then a newline.
+- :RAW-HTML: :OMIT, the default, writes the comment MARKDOWN->HTML writes
+  in place of raw HTML; :TEXT writes the raw HTML as text.
+- :LINK-POLICY: :SAFE, the default, blanks dangerous URLs, as
+  MARKDOWN->HTML does by default; :UNSAFE keeps them.
+- :DOCUMENT-WRAPPER: NIL, the default, or a keyword naming a non-void
+  element, to wrap the whole tree in.
+The last four, the tree options, are AST->HTML-TREE's own.
 
 This entry point parses without source positions: :SOURCEPOS isn't one of
 its options, since the tree carries none.
@@ -319,11 +327,12 @@ a bad :PROFILE, :EXTENSIONS, :FOOTNOTES or :SMART value; and
 INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
 unknown key, or a bad :SOFTBREAK, :RAW-HTML, :LINK-POLICY or
 :DOCUMENT-WRAPPER value. Every option is checked before any native call --
-the tree ones by AST->HTML-TREE's own checker (ADR-0012) -- so a bad option
-of any kind creates no parser.
+the tree ones by AST->HTML-TREE's own checker -- so a bad option of any
+kind creates no parser.
 
-The limits, each checked before cmark does the work it guards (ADR-0016),
-signal RESOURCE-LIMIT-EXCEEDED:
+The limits keep cmark's buffers under the size at which it aborts the
+process, and bound its memory. Each is checked before cmark does the work
+it guards, and signals RESOURCE-LIMIT-EXCEEDED:
 - *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
   is bound to: MARKDOWN's UTF-8 length, before parsing;
 - *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
@@ -336,14 +345,14 @@ signals a TYPE-ERROR, before any call to cmark.
 While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
 entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
 UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape (M2 design finding 16). With :FOOTNOTES NIL this check doesn't run,
-since cmark never reaches the faulty code path.
+shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
+reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails. In an
+(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
+of directories), and can signal a NATIVE-ERROR when that fails. In an
 ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way (M4 design §6.1).
+override, but checks the linked cmark-gfm the same way.
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."

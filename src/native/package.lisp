@@ -1,12 +1,11 @@
 ;;;; The cl-commonmark-gfm.native package: the native layer's imperative
-;;;; shell (M2 design §3, §5, §6; ADR-0008, ADR-0009). It starts cmark-gfm,
-;;;; owns every native parser, root and render buffer, walks a parsed tree,
-;;;; renders it, and copies it into an AST. Its decisions live in the pure
-;;;; /native-core.
+;;;; shell. It starts cmark-gfm, owns every native parser, root and render
+;;;; buffer, walks a parsed tree, renders it, and copies it into an AST. Its
+;;;; decisions live in the pure /native-core.
 ;;;;
 ;;;; Internal: the primary system builds on it, and the native suite tests
 ;;;; it, but nothing here is part of the public API. The library's only
-;;;; reader conditionals live in this system (M2 design §3).
+;;;; reader conditionals live in this system.
 
 (defpackage #:cl-commonmark-gfm.native
   (:use #:cl)
@@ -44,7 +43,7 @@
                 #:*max-nodes*
                 #:effective-maximum
                 #:check-limit
-                ;; The output bounds' per-node terms (M2 design §5.5)
+                ;; The output bounds' per-node terms
                 #:html-sourcepos-octets
                 #:html-block-quote-bound
                 #:html-list-bound
@@ -127,12 +126,12 @@
                 #:cmark-version
                 #:cmark-version-string
                 #:cmark-get-default-mem-allocator)
-  (:export ;; Startup (M2 design §5.2), and holding the state (§5.3)
+  (:export ;; Startup, and holding the state
            #:native-state
            #:with-native-state
-           ;; Lifetimes (M2 design §5.4)
+           ;; Lifetimes
            #:with-native-document
-           ;; Walking (M2 design §5.1)
+           ;; Walking
            #:walk-native
            ;; The node accessors, each (accessor document node), but
            ;; NATIVE-ROOT, which takes the document alone
@@ -161,16 +160,16 @@
            #:native-table-columns
            #:native-table-alignments
            #:native-task-checked
-           ;; Rendering (M2 design §5.4)
+           ;; Rendering
            #:render-html
            #:render-plaintext
            #:render-xml
-           ;; Copying a parsed tree into an AST (M2 design §6)
+           ;; Copying a parsed tree into an AST
            #:copy-native-tree
-           ;; The output bounds (M2 design §5.5)
+           ;; The output bounds
            #:html-output-bound
            #:plaintext-output-bound
-           ;; For tests, and for saved images (M2 design §5.3)
+           ;; For tests, and for saved images
            #:reset-native-state
            #:native-state-published-p
            #:native-open-counts

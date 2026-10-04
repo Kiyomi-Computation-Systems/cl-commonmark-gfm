@@ -1,24 +1,26 @@
 ;;;; cmark-gfm's C constants, transcribed from
-;;;; vendor/cmark-gfm/src/cmark-gfm.h (M2 design §8.1; ADR-0008, ADR-0009).
-;;;; tests/native-core.lisp evaluates the header text independently and
-;;;; checks every value here against it, so a transcription slip, or a pin
-;;;; bump that moves one, fails a test instead of drifting silently.
+;;;; vendor/cmark-gfm/src/cmark-gfm.h. The project compiles no C, so no C
+;;;; compiler checks them. tests/native-core.lisp evaluates the header text
+;;;; independently and checks every value here against it, so a
+;;;; transcription slip, or a pin bump that moves one, fails a test instead
+;;;; of drifting silently.
 
 (in-package #:cl-commonmark-gfm.native-core)
 
-;;; The pin (ADR-0002)
+;;; The pin
 
 (defparameter *cmark-gfm-version* "0.29.0.gfm.13"
-  "The cmark-gfm release this library is pinned to (ADR-0002), as
-CMARK_VERSION_STRING must report it. A DEFPARAMETER, not a DEFCONSTANT: a
-DEFCONSTANT of a string isn't EQL to itself across a reload, which breaks a
-second LOAD of this file.")
+  "The cmark-gfm release this library is pinned to, as cmark_version_string()
+must return it. A DEFPARAMETER, not a DEFCONSTANT: a DEFCONSTANT of a
+string isn't EQL to itself across a reload, which breaks a second LOAD of
+this file.")
 
-;;; Node types (cmark-gfm.h lines 34-69). CMARK_NODE_TYPE_BLOCK and
-;;; CMARK_NODE_TYPE_INLINE are themselves built from CMARK_NODE_TYPE_PRESENT;
-;;; every cmark_node_type enumerator but CMARK_NODE_NONE ORs one of the two
-;;; with a small per-kind value. The two tag constants stay internal: nothing
-;;; outside this file needs them, only the 22 node-type constants they build.
+;;; Node types (vendor/cmark-gfm/src/cmark-gfm.h, lines 34-69).
+;;; CMARK_NODE_TYPE_BLOCK and CMARK_NODE_TYPE_INLINE are themselves built
+;;; from CMARK_NODE_TYPE_PRESENT; every cmark_node_type enumerator but
+;;; CMARK_NODE_NONE ORs one of the two with a small per-kind value. The two
+;;; tag constants stay internal: nothing outside this file needs them, only
+;;; the 22 node-type constants they build.
 
 (defconstant +cmark-node-type-block+ (logior #x8000 #x0000))
 (defconstant +cmark-node-type-inline+ (logior #x8000 #x4000))
@@ -47,12 +49,12 @@ second LOAD of this file.")
 (defconstant +cmark-node-image+ (logior +cmark-node-type-inline+ #x000a))
 (defconstant +cmark-node-footnote-reference+ (logior +cmark-node-type-inline+ #x000b))
 
-;;; Option bits (cmark-gfm.h lines 695-769). cmark-gfm.h defines more
-;;; CMARK_OPT_ bits than this: NORMALIZE, GITHUB_PRE_LANG,
-;;; LIBERAL_HTML_TAG, STRIKETHROUGH_DOUBLE_TILDE,
-;;; TABLE_PREFER_STYLE_ATTRIBUTES and FULL_INFO_STRING are real cmark
-;;; options, but no version-1 entry point sets them (M2 design §7.2), so
-;;; they are left untranscribed rather than carried as dead constants.
+;;; Option bits (vendor/cmark-gfm/src/cmark-gfm.h, lines 695-769). The
+;;; header defines more CMARK_OPT_ bits than this: SAFE and NORMALIZE,
+;;; which have no effect, and GITHUB_PRE_LANG, LIBERAL_HTML_TAG,
+;;; STRIKETHROUGH_DOUBLE_TILDE, TABLE_PREFER_STYLE_ATTRIBUTES and
+;;; FULL_INFO_STRING. No entry point sets them, so they are left
+;;; untranscribed rather than carried as dead constants.
 
 (defconstant +cmark-opt-sourcepos+ (ash 1 1))
 (defconstant +cmark-opt-hardbreaks+ (ash 1 2))
@@ -62,11 +64,12 @@ second LOAD of this file.")
 (defconstant +cmark-opt-footnotes+ (ash 1 13))
 (defconstant +cmark-opt-unsafe+ (ash 1 17))
 
-;;; cmark_list_type and cmark_delim_type (cmark-gfm.h lines 80-90). Both
-;;; enums give their first entry, CMARK_NO_LIST or CMARK_NO_DELIM, the
-;;; implicit value 0; this library never needs either "no" sentinel (a
-;;; bullet list has no :DELIMITER, so nothing ever tests for CMARK_NO_DELIM),
-;;; so only the other three values across the two enums get a Lisp name.
+;;; cmark_list_type and cmark_delim_type (vendor/cmark-gfm/src/cmark-gfm.h,
+;;; lines 80-90). Both enums give their first entry, CMARK_NO_LIST or
+;;; CMARK_NO_DELIM, the implicit value 0; this library never needs either
+;;; "no" sentinel (a bullet list has no :DELIMITER, so nothing ever tests
+;;; for CMARK_NO_DELIM), so only the other two values of each enum get a
+;;; Lisp name.
 
 (defconstant +cmark-bullet-list+ 1)
 (defconstant +cmark-ordered-list+ 2)
@@ -74,7 +77,7 @@ second LOAD of this file.")
 (defconstant +cmark-paren-delim+ 2)
 
 ;;; *CMARK-HEADER-CONSTANTS*: every constant above, by its C name, for the
-;;; header test (M2 design §8.1, tests/native-core.lisp).
+;;; header test in tests/native-core.lisp.
 
 (defparameter *cmark-header-constants*
   (list (cons "CMARK_NODE_DOCUMENT" +cmark-node-document+)
@@ -114,19 +117,19 @@ second LOAD of this file.")
 vendor/cmark-gfm/src/cmark-gfm.h, as (\"C_NAME\" . VALUE). The header test
 evaluates the pinned header text independently of this file and checks each
 pair here against it, so a transcription slip, or a pin bump that moves a
-value, fails a test (M2 design §8.1).
+value, fails a test.
 
 A DEFPARAMETER, not a DEFCONSTANT: a DEFCONSTANT of a list isn't EQL to
 itself across a reload, which breaks a second LOAD of this file.")
 
 ;;; The five GFM extensions, in the canonical order an :EXTENSIONS list is
-;;; checked and reported back in (M2 design §6.3, §7.2).
+;;; checked and reported back in.
 
 (defparameter *extension-keywords* '(:table :strikethrough :autolink :tagfilter :tasklist)
   "The five core GFM extensions cl-commonmark-gfm can attach, in their
 canonical order: the order the :GFM profile attaches them, an explicit
 :EXTENSIONS list is reported back in, and a :DOCUMENT node's :EXTENSIONS
-attribute lists them in (M2 design §6.3, §7.2).
+attribute lists them in.
 
 A DEFPARAMETER, not a DEFCONSTANT: a DEFCONSTANT of a list isn't EQL to
 itself across a reload, which breaks a second LOAD of this file.")

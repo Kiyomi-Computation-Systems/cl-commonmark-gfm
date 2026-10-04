@@ -1,5 +1,7 @@
-;;;; Conditions signalled by cl-commonmark-gfm (M1 design §3; extended for
-;;;; the native layer by M2 design §7.4).
+;;;; The conditions cl-commonmark-gfm signals. Each is a
+;;;; COMMONMARK-GFM-ERROR, which names the operation that failed, the
+;;;; offending datum and the reason, and reports as "operation: reason:
+;;;; datum".
 
 (defpackage #:cl-commonmark-gfm.conditions
   (:use #:cl)
@@ -80,12 +82,14 @@ round-trip here."
       "Return CONDITION's reason: a short phrase describing what is wrong with
 the datum.")
 
-;;; M1 subtypes
+;;; ASTs and HTML trees
 
 (define-condition invalid-ast-node (commonmark-gfm-error) ()
   (:documentation
-   "Signalled by MAKE-NODE, COPY-NODE, NODE-ATTRIBUTE and TRANSFORM-AST when
-a node fails schema validation."))
+   "Signalled by MAKE-NODE and COPY-NODE when a node fails schema
+validation, by NODE-ATTRIBUTE for a key its node's kind lacks, and by
+TRANSFORM-AST when its function returns anything but a node, a list of
+nodes or NIL, or the root doesn't come back as exactly one node."))
 
 (define-condition invalid-html-tree (commonmark-gfm-error) ()
   (:documentation
@@ -95,7 +99,7 @@ a node fails schema validation."))
   (:documentation
    "Signalled by AST->HTML-TREE for an :EXTENSION node."))
 
-;;; Option conditions (M2 design §7.2, §7.4, D16)
+;;; Options
 
 (define-condition invalid-option (commonmark-gfm-error) ()
   (:documentation
@@ -106,19 +110,16 @@ directly."))
   (:documentation
    "Signalled by PARSE for any malformed, unknown or out-of-range option, and
 by MARKDOWN->HTML, MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE for a bad
-:PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART or :SOURCEPOS value (M2 design
-§7.2)."))
+:PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART or :SOURCEPOS value."))
 
 (define-condition invalid-render-option (invalid-option) ()
   (:documentation
-   "Signalled by AST->HTML-TREE for a malformed or unknown rendering option
-(M1 design §5; ADR-0012). Also signalled by MARKDOWN->HTML,
-MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE for any option problem that
-isn't INVALID-PARSE-OPTION's: an unknown key, an odd-length option list, or
-a bad non-parse value (M2 design §7.2). M1's condition; now a subtype of
-INVALID-OPTION."))
+   "Signalled by AST->HTML-TREE for a malformed or unknown rendering option,
+and by MARKDOWN->HTML, MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE for any
+option problem that isn't INVALID-PARSE-OPTION's: an unknown key, an
+odd-length option list, or a bad non-parse value."))
 
-;;; Resource limits (M2 design §5.5, §7.4, D10)
+;;; Resource limits
 
 (define-condition resource-limit-exceeded (commonmark-gfm-error)
   ((limit :reader condition-limit
@@ -132,7 +133,7 @@ INVALID-OPTION."))
             "The effective maximum that applied: LIMIT's value, or its hard
 cap when that is lower."))
   (:documentation
-   "Signalled when a value exceeds one of the three limits of M2 design §5.5:
+   "Signalled when a value exceeds one of the three limits,
 *MAX-INPUT-OCTETS*, *MAX-NODES* or *MAX-OUTPUT-OCTETS*. DATUM is the value
 found; REASON says when the hard cap applied."))
 
@@ -144,20 +145,22 @@ limit was exceeded.")
       "Return CONDITION's maximum: the effective maximum that applied,
 LIMIT's value or its hard cap when that is lower.")
 
-;;; The input guard (M2 design §5.6, §7.4; finding 16; M2b plan Task 9b)
+;;; The input guard
 
 (define-condition unsupported-input (commonmark-gfm-error) ()
   (:documentation
-   "Signalled by the four entry points' shared input guard when MARKDOWN
-holds a [ immediately followed by an entity that decodes to ^ (U+005E),
-while footnotes are on: cmark-gfm 0.29.0.gfm.13's footnote branch
-(handle_close_bracket, vendor/cmark-gfm/src/inlines.c) copies such a
-reference's label past the end of the entity's own short-lived buffer,
-then frees that buffer while the label still points into it (M2 design
-§5.6, finding 16). DATUM is the index in MARKDOWN of the [ that starts the
-pattern; REASON names the pattern."))
+   "Signalled by PARSE, MARKDOWN->HTML, MARKDOWN->PLAINTEXT and
+MARKDOWN->HTML-TREE, with footnotes on, when MARKDOWN holds a [
+immediately followed by an entity that decodes to ^ (U+005E). cmark-gfm
+0.29.0.gfm.13 can't parse that safely: its footnote code
+(handle_close_bracket, vendor/cmark-gfm/src/inlines.c) points such a
+reference's label into the entity's own short-lived buffer, with a length
+counted in source columns that runs past the buffer's end, then frees that
+buffer while the label still points into it. So the input is rejected
+before cmark-gfm sees it. DATUM is the index in MARKDOWN of the [ that
+starts the pattern; REASON names the pattern."))
 
-;;; Native-layer conditions (M2 design §5.2, §5.4, §6.3, §7.4, D16)
+;;; The native layer
 
 (define-condition native-error (commonmark-gfm-error) ()
   (:documentation
@@ -176,11 +179,15 @@ that was used instead. NIL when it was the ordinary directory search.")
    (paths :reader condition-paths
           :initarg :paths
           :initform nil
-          :documentation "The directories searched, or the one path that failed to load."))
+          :documentation
+          "The directories searched; the one path that isn't a regular file or
+failed to load; or NIL for a malformed override."))
   (:documentation
-   "Signalled when RESOLVE-CMARK-LIBRARIES cannot find the pinned cmark-gfm
-pair, or when loading a resolved path fails (M2 design §5.2 steps 2 and 3).
-PATHS lists the directories searched, or the one path that failed to load."))
+   "Signalled when starting cmark-gfm can't find the pinned version's two
+libraries, libcmark-gfm and libcmark-gfm-extensions, when an override that
+names them is malformed, or when loading one of them fails. PATHS lists
+the directories searched; holds the one path that isn't a regular file or
+failed to load; or is NIL for a malformed override."))
 
 (define-condition native-abi-mismatch (native-error)
   ((expected-version :reader condition-expected-version
@@ -190,59 +197,56 @@ PATHS lists the directories searched, or the one path that failed to load."))
    (found-version :reader condition-found-version
                   :initarg :found-version
                   :initform nil
-                  :documentation "The version string CMARK_VERSION_STRING actually returned.")
+                  :documentation
+                  "The version the loaded cmark-gfm reported, or NIL when reading it failed.")
    (paths :reader condition-paths
           :initarg :paths
           :initform nil
           :documentation
           "The library paths that were loaded when the mismatched version was found, or
-:LINKED in a linked program, which loads none (M4 design §6.1)."))
+:LINKED in a linked program, which loads none."))
   (:documentation
-   "Signalled when the loaded library's CMARK_VERSION_STRING isn't the pinned
-cmark-gfm version, or when checking it signals any other error from the
-loaded libraries, such as a missing function (M2 design §5.2 step 4)."))
+   "Signalled when the loaded cmark-gfm isn't the pinned version, by the
+string cmark_version_string() returns or by cmark_version()'s number, or
+when checking it signals any other error from the loaded libraries, such as
+a missing function."))
 
 (define-condition dynamic-ffi-unavailable (native-error) ()
   (:documentation
-   "Signalled on an ECL built without dynamic FFI (:DFFI) whose native layer
-isn't linked, at startup's first step, before discovery and before
-anything loads (M2 design §5.2 step 1; M4 design §6.2): on such an ECL,
-CFFI refuses to load a library at run time, so startup can't load the
-pinned pair (M4 finding 29). DATUM is the missing feature, :DFFI;
-REASON says how to link cmark-gfm into a program instead: compile with
+   "Signalled on an ECL built without dynamic FFI (no :DFFI feature) when
+cmark-gfm isn't linked into the program: such an ECL can't load a library
+at run time. Starting cmark-gfm signals it first, before looking for or
+loading anything. DATUM is the missing feature, :DFFI; REASON says how to
+link cmark-gfm into a program instead: compile with
 CFFI-SYS:*CFFI-ECL-METHOD* set to :C/C++, and link
-libcmark-gfm-extensions.a and libcmark-gfm.a. A linked program's startup
-loads nothing, and never signals it (M4 design §6.1)."))
+libcmark-gfm-extensions.a and libcmark-gfm.a. A program with cmark-gfm
+linked in loads nothing, and never signals it."))
 
 (define-condition native-initialization-error (native-error) ()
   (:documentation
-   "Signalled when starting the native layer fails after its libraries load:
-a missing GFM extension, a null allocator free pointer, a failed smoke parse
+   "Signalled when starting cmark-gfm fails after its libraries load: a
+missing GFM extension, a null allocator free pointer, a failed smoke parse
 (a null root included), or any other error from the loaded libraries during
-those steps (M2 design §5.2 steps 5 to 8). On CCL, also signalled in two
-cases once both libraries load (M4 design §5.3): for any error while
-recording the pair, such as a truename that can't be read, DATUM then the
-original error; and when a startup loads a pair other than the one the
-process loaded first, which CCL can't unload, DATUM then the refused pair's
-truenames, and REASON naming the process's pair."))
+those steps. Also signalled on CCL, which can't unload a library, so a
+process keeps the first pair of cmark-gfm libraries it loads: when a later
+startup loads a different pair, DATUM then the refused pair's truenames and
+REASON naming the process's pair; and for any error while recording a
+pair, such as a truename that can't be read, DATUM then the original
+error."))
 
 (define-condition native-parse-error (native-error) ()
   (:documentation
    "Signalled when cmark-gfm's parser returns a null root, when a node
 accessor that never returns null for the kinds it serves does anyway, or
 when the copier meets a footnote reference with no definition or a table
-cell whose column has no entry in its table's alignments (M2 design §5.1,
-§5.4, §6.3)."))
+cell whose column has no entry in its table's alignments."))
 
 (define-condition native-render-error (native-error) ()
   (:documentation
-   "Signalled when one of cmark-gfm's renderers returns a null buffer (M2
-design §5.4)."))
+   "Signalled when one of cmark-gfm's renderers returns a null buffer."))
 
-;;; DEFINE-CONDITION's :READER option documents the slot, not the reader
-;;; function it generates, so the new readers get their own docstrings here
-;;; too. CONDITION-PATHS is shared by two sibling conditions, so it gets one
-;;; docstring covering both.
+;;; As above, the readers get their own docstrings. CONDITION-PATHS is
+;;; shared by two sibling conditions, so its docstring covers both.
 
 (setf (documentation 'condition-override 'function)
       "Return CONDITION's override: the override value in effect when the
@@ -252,14 +256,14 @@ ordinary directory search.")
 
 (setf (documentation 'condition-paths 'function)
       "Return CONDITION's paths: the directories searched, the one path that
-failed to load, or the library paths involved, depending on CONDITION's
-type. In a linked program, which loads no library, NATIVE-ABI-MISMATCH's
-are :LINKED (M4 design §6.1).")
+isn't a regular file or failed to load, NIL for a malformed override, or
+the library paths involved, depending on CONDITION's type. In a linked
+program, which loads no library, NATIVE-ABI-MISMATCH's are :LINKED.")
 
 (setf (documentation 'condition-expected-version 'function)
       "Return CONDITION's expected-version: the cmark-gfm version string this
 library is pinned to.")
 
 (setf (documentation 'condition-found-version 'function)
-      "Return CONDITION's found-version: the version string
-CMARK_VERSION_STRING actually returned.")
+      "Return CONDITION's found-version: the version the loaded cmark-gfm
+reported, or NIL when reading it failed.")
