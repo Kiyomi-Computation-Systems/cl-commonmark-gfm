@@ -591,6 +591,38 @@ filesystem."
             :environment "lib/libcmark-gfm.so:/opt/lib/libcmark-gfm-extensions.so"
             :regular-file-p (constantly t))))))
 
+;;; 1. Override: the report names the override
+
+(defun missing-file-report (present &rest arguments)
+  "The report of the NATIVE-LIBRARY-NOT-FOUND that RESOLVE-CMARK-LIBRARIES
+signals for ARGUMENTS when only the paths in PRESENT are regular files, or
+NIL when it signals none."
+  (let ((condition (native-library-not-found-error
+                    (lambda ()
+                      (apply #'resolve-cmark-libraries
+                             :regular-file-p (regular-file-p-for present) arguments)))))
+    (and condition (princ-to-string condition))))
+
+(define-test resolve-cmark-libraries-reports-which-override-names-a-missing-file
+  ;; Either override can name the same paths, and the special variable wins
+  ;; when both are set, so only the report can say which one to fix. Each
+  ;; case runs with the core missing, then with only the extensions missing.
+  (let* ((core "/opt/lib/libcmark-gfm.so")
+         (extensions "/opt/lib/libcmark-gfm-extensions.so")
+         (libraries (list core extensions))
+         (environment (format nil "~A:~A" core extensions)))
+    (loop for (named unnamed . arguments)
+            in (list (list "*CMARK-GFM-LIBRARIES*" "CL_COMMONMARK_GFM_LIBS"
+                           :libraries libraries)
+                     (list "CL_COMMONMARK_GFM_LIBS" "*CMARK-GFM-LIBRARIES*"
+                           :environment environment)
+                     (list "*CMARK-GFM-LIBRARIES*" "CL_COMMONMARK_GFM_LIBS"
+                           :libraries libraries :environment environment))
+          do (dolist (present (list '() (list core)))
+               (let ((report (apply #'missing-file-report present arguments)))
+                 (true (search named report) "~S should name ~A" report named)
+                 (false (search unnamed report) "~S should not name ~A" report unnamed))))))
+
 ;;; 2. Directory search
 
 (define-test resolve-cmark-libraries-searches-linux-directories-in-order
@@ -693,6 +725,28 @@ filesystem."
       (true (search "no searched directory holds both pinned libraries" report))
       (true (search "*CMARK-GFM-LIBRARIES*" report))
       (true (search "CL_COMMONMARK_GFM_LIBS" report)))))
+
+;;; The entry point: the override it used
+
+(define-test resolve-cmark-libraries-returns-the-override-it-used
+  ;; Its second value: the override's name, or NIL for the directory
+  ;; search. Startup puts it in the report of a library that won't load.
+  (let* ((core "/opt/lib/libcmark-gfm.so")
+         (extensions "/opt/lib/libcmark-gfm-extensions.so")
+         (libraries (list core extensions))
+         (environment (format nil "~A:~A" core extensions))
+         (regular-file-p (regular-file-p-for (list core extensions
+                                                     (linux-core-path "/usr/lib")
+                                                     (linux-extensions-path "/usr/lib")))))
+    (flet ((override-used (&rest arguments)
+             (nth-value 1 (apply #'resolve-cmark-libraries
+                                 :os :linux :multiarch nil :regular-file-p regular-file-p
+                                 arguments))))
+      (is string= "*CMARK-GFM-LIBRARIES*" (override-used :libraries libraries))
+      (is string= "CL_COMMONMARK_GFM_LIBS" (override-used :environment environment))
+      (is string= "*CMARK-GFM-LIBRARIES*"
+          (override-used :libraries libraries :environment environment))
+      (false (override-used)))))
 
 (define-test resolve-cmark-libraries-condition-names-its-operation
   (let ((condition (native-library-not-found-error

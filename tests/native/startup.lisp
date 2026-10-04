@@ -203,8 +203,27 @@ and that the next ordinary call starts up."
         (is equal (list not-a-library) (condition-paths condition))
         (is equal override (condition-override condition))
         (true (search not-a-library (condition-reason condition))
-              "the reason carries the loader's message"))
+              "the reason carries the loader's message")
+        (true (search "*CMARK-GFM-LIBRARIES*" (condition-reason condition))
+              "the reason names the override that named the file"))
       (check-nothing-left-behind (list core not-a-library)))))
+
+(define-test a-library-that-fails-to-load-is-reported-with-its-source
+  ;; LOAD-LIBRARY alone, with each source startup can pass it: the name of
+  ;; either override, or NIL for the directory search.
+  (let ((core (first (state-paths)))
+        (not-a-library (uiop:native-namestring (fixture-path "vocabulary.md"))))
+    (loop for (override override-name opening)
+            in (list (list (list core not-a-library) "*CMARK-GFM-LIBRARIES*"
+                           "*CMARK-GFM-LIBRARIES* names a library")
+                     (list (format nil "~A:~A" core not-a-library) "CL_COMMONMARK_GFM_LIBS"
+                           "CL_COMMONMARK_GFM_LIBS names a library")
+                     (list nil nil "the directory search found a library"))
+          do (let ((condition (raised native-library-not-found
+                                      (native::load-library not-a-library override override-name))))
+               (when condition
+                 (true (search opening (condition-reason condition))
+                       "~S should say ~S" (condition-reason condition) opening))))))
 
 (define-test another-version-signals-native-abi-mismatch
   ;; Step 4, through the version wrapper.
