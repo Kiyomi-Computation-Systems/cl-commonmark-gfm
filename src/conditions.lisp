@@ -195,7 +195,8 @@ PATHS lists the directories searched, or the one path that failed to load."))
           :initarg :paths
           :initform nil
           :documentation
-          "The library paths that were loaded when the mismatched version was found."))
+          "The library paths that were loaded when the mismatched version was found, or
+:LINKED in a linked program, which loads none (M4 design §6.1)."))
   (:documentation
    "Signalled when the loaded library's CMARK_VERSION_STRING isn't the pinned
 cmark-gfm version, or when checking it signals any other error from the
@@ -203,8 +204,15 @@ loaded libraries, such as a missing function (M2 design §5.2 step 4)."))
 
 (define-condition dynamic-ffi-unavailable (native-error) ()
   (:documentation
-   "Signalled on ECL without dynamic FFI (:DFFI) support (M2 design §5.2 step
-1). Exercised in M4b, on an ECL built without it (M4 design §6.4)."))
+   "Signalled on an ECL built without dynamic FFI (:DFFI) whose native layer
+isn't linked, at startup's first step, before discovery and before
+anything loads (M2 design §5.2 step 1; M4 design §6.2): on such an ECL,
+CFFI refuses to load a library at run time, so startup can't load the
+pinned pair (M4 finding 29). DATUM is the missing feature, :DFFI;
+REASON says how to link cmark-gfm into a program instead: compile with
+CFFI-SYS:*CFFI-ECL-METHOD* set to :C/C++, and link
+libcmark-gfm-extensions.a and libcmark-gfm.a. A linked program's startup
+loads nothing, and never signals it (M4 design §6.1)."))
 
 (define-condition native-initialization-error (native-error) ()
   (:documentation
@@ -245,7 +253,8 @@ ordinary directory search.")
 (setf (documentation 'condition-paths 'function)
       "Return CONDITION's paths: the directories searched, the one path that
 failed to load, or the library paths involved, depending on CONDITION's
-type.")
+type. In a linked program, which loads no library, NATIVE-ABI-MISMATCH's
+are :LINKED (M4 design §6.1).")
 
 (setf (documentation 'condition-expected-version 'function)
       "Return CONDITION's expected-version: the cmark-gfm version string this

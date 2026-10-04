@@ -8,6 +8,14 @@
 # no agents, no tokens. Edit, commit and push on the host; send builds and
 # tests through here.
 #
+# GUIX_ENV_MANIFEST names another manifest: a file name at the repository
+# root, such as manifest-ecl-nodffi.scm (M4 design §6.4; ADR-0004). Unset
+# or empty, it's manifest.scm. Before Guix starts, a value holding a / is
+# refused, even one naming a real file, and so is a name with no file.
+# The variable is preserved into the container, where
+# scripts/guix-env-enter gives that manifest a fasl cache named after it
+# (finding 9); a path would mis-key that cache.
+#
 # GUIX_ENV_DRY_RUN=1 prints `cd <dir>` and the guix command, one argument
 # per line, instead of running it: tests/guix-env-launcher.sh asserts on
 # that.
@@ -22,6 +30,12 @@ fi
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
+manifest=${GUIX_ENV_MANIFEST:-manifest.scm}
+case $manifest in
+  */*) die "GUIX_ENV_MANIFEST='$manifest' holds a /; it must be a file name at the repository root, as manifest.scm is" ;;
+esac
+[ -f "$manifest" ] || die "no such manifest: $manifest (GUIX_ENV_MANIFEST)"
+
 if [ $# -eq 0 ]; then
   set -- bash
 fi
@@ -29,8 +43,8 @@ fi
 # --network: `make ocicl` clones ocicl, and ocicl fetches systems.
 # scripts/guix-env-enter points ocicl's state and ASDF's fasl cache at
 # .guix-env/, which outlives the container; the container's own HOME does not.
-set -- time-machine -C channels.scm -- shell -m manifest.scm \
-  --container --network '--preserve=^(TERM|COLORTERM|LANG)$' \
+set -- time-machine -C channels.scm -- shell -m "$manifest" \
+  --container --network '--preserve=^(TERM|COLORTERM|LANG|GUIX_ENV_MANIFEST)$' \
   -- sh scripts/guix-env-enter "$@"
 
 if [ -n "${GUIX_ENV_DRY_RUN:-}" ]; then

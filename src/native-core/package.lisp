@@ -70,6 +70,8 @@
            ;; Library discovery (ADR-0009)
            #:resolve-cmark-libraries
            #:*cmark-gfm-libraries*
+           ;; Linked ECL programs (M4 design §6.1; ADR-0021)
+           #:linked-method-p
            ;; Options (M2 design §6.3, §7.2, §7.3)
            #:check-options
            #:checked-options

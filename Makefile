@@ -49,11 +49,14 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-guix check-guix-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
 
+# The name column is as wide as the longest target's name.
 help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_.-]+:.*?## / \
-	  { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	  { n++; name[n] = $$1; text[n] = $$2; if (length($$1) > width) width = length($$1) } \
+	  END { format = "  \033[36m%-" width "s\033[0m %s\n"; \
+	        for (i = 1; i <= n; i++) printf format, name[i], text[i] }' $(MAKEFILE_LIST)
 
 check-help: ## Fail if any .PHONY target is undocumented in `make help`
 	@missing=0; \
@@ -293,10 +296,10 @@ endef
 # check-purity and check-native, and so `make test`, pass them to the Lisp
 # runs as CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES. Unset (the
 # default), nothing is passed and the harness's own defaults hold (seed 1,
-# the CI counts). scripts/guix-env preserves only TERM, COLORTERM and LANG
-# into the container, so these must be make variables, never an inherited
-# environment variable: `scripts/guix-env make check-native
-# PROPERTY_SEED=42` replays seed 42.
+# the CI counts). scripts/guix-env preserves only TERM, COLORTERM, LANG and
+# GUIX_ENV_MANIFEST into the container, so these must be make variables,
+# never an inherited environment variable: `scripts/guix-env make
+# check-native PROPERTY_SEED=42` replays seed 42.
 PROPERTY_SEED  ?=
 PROPERTY_CASES ?=
 PROPERTY_ENV := $(strip $(if $(PROPERTY_SEED),CL_COMMONMARK_GFM_SEED=$(PROPERTY_SEED)) \
@@ -349,6 +352,164 @@ check-guix: ## Test scripts/guix-env on the host, then run the checks inside the
 
 check-guix-inside: ## (inside the container) Assert the pinned toolchain and isolation
 	@CMARK_GFM_VERSION=$(CMARK_GFM_VERSION) OCICL_TAG=$(OCICL_TAG) sh scripts/guix-env-selftest
+
+# check-ecl-static builds the smoke program, tests/static/, as an ECL
+# program with cmark-gfm linked in, and runs it (M4 design §6.3). Its
+# fasls, compiled under CFFI's :c/c++ method, go into ECL_STATIC_DIR with
+# the program, and nowhere else: no other ECL may share them (finding 9).
+# tests/static/build.lisp sets ASDF's output translations itself, so no
+# inherited translation can send them elsewhere, and the recipe empties
+# ECL_STATIC_DIR before each build. The program runs with
+# CL_COMMONMARK_GFM_LIBS naming two files there that don't exist, so a
+# startup that looks for files fails.
+#
+# The program's exit status alone doesn't show that it ran its checks. An
+# ECL program that fails as it starts, before its epilogue, stops in ECL's
+# debugger, which quits with status 0 at the end of its stdin (finding 26;
+# the top level's :eof command, ECL 24.5.10's src/lsp/top.lsp). On
+# Debian's ECL, a program built without the build's prologue does just
+# that (finding 7). So the recipe also requires the program's summary line,
+# with at least one check and 0 failed.
+ECL_STATIC_DIR        := build/ecl-static
+ECL_STATIC_PATH       := $(CURDIR)/$(ECL_STATIC_DIR)
+ECL_STATIC_CORE       := $(ECL_STATIC_PATH)/missing-libcmark-gfm.so
+ECL_STATIC_EXTENSIONS := $(ECL_STATIC_PATH)/missing-libcmark-gfm-extensions.so
+
+# As TEST_SOURCE_REGISTRY, plus tests/static/, non-recursively, for the
+# smoke system and for the condition test's, which check-ecl-nodffi-inside
+# loads.
+STATIC_SOURCE_REGISTRY := $(CURDIR)/:$(CURDIR)/tests/static/:$(CURDIR)/ocicl//
+
+# The directory holding cmark-gfm's static archives, libcmark-gfm.a and
+# libcmark-gfm-extensions.a, which Debian ships in libcmark-gfm-dev and
+# libcmark-gfm-extensions-dev. Left empty, it is the directory of the first
+# path in CL_COMMONMARK_GFM_LIBS, which the containers set (ADR-0004);
+# otherwise the first of discovery's Linux directories, multiarch first,
+# that holds both pinned shared libraries (ADR-0009;
+# src/native-core/discovery.lisp), as Debian's /usr/lib/x86_64-linux-gnu
+# does. That search is Linux's alone: elsewhere, such as on macOS,
+# CMARK_GFM_ARCHIVE_DIR must name the directory (M4 design §6.3).
+CMARK_GFM_ARCHIVE_DIR ?=
+
+check-ecl-static: ## Build and run an ECL program with cmark-gfm linked in
+	@scripts/require-tools "$(GOAL)" ecl
+	@dir='$(subst ','\'',$(CMARK_GFM_ARCHIVE_DIR))'; \
+	if [ -z "$$dir" ] && [ -n "$${CL_COMMONMARK_GFM_LIBS:-}" ]; then \
+	  core=$${CL_COMMONMARK_GFM_LIBS%%:*}; \
+	  dir=$${core%/*}; \
+	elif [ -z "$$dir" ]; then \
+	  case $$(uname -m) in \
+	    x86_64) multiarch=/usr/lib/x86_64-linux-gnu ;; \
+	    aarch64) multiarch=/usr/lib/aarch64-linux-gnu ;; \
+	    *) multiarch= ;; \
+	  esac; \
+	  searched="$${multiarch:+$$multiarch }/usr/lib64 /usr/lib /usr/local/lib"; \
+	  for candidate in $$searched; do \
+	    if [ -f "$$candidate/libcmark-gfm.so.$(CMARK_GFM_VERSION)" ] \
+	       && [ -f "$$candidate/libcmark-gfm-extensions.so.$(CMARK_GFM_VERSION)" ]; then \
+	      dir=$$candidate; \
+	      break; \
+	    fi; \
+	  done; \
+	  if [ -z "$$dir" ]; then \
+	    echo "make $(GOAL): no directory holds both pinned cmark-gfm libraries." >&2; \
+	    echo "Searched discovery's Linux directories: $$searched." >&2; \
+	    echo "Set CMARK_GFM_ARCHIVE_DIR to the directory holding libcmark-gfm.a and" \
+	      "libcmark-gfm-extensions.a. Elsewhere than Linux, such as on macOS, it must be set." >&2; \
+	    exit 2; \
+	  fi; \
+	fi; \
+	missing=0; \
+	for archive in libcmark-gfm-extensions.a libcmark-gfm.a; do \
+	  if [ ! -f "$$dir/$$archive" ]; then \
+	    echo "make $(GOAL): $$dir/$$archive not found." >&2; \
+	    missing=1; \
+	  fi; \
+	done; \
+	if [ "$$missing" -ne 0 ]; then \
+	  echo "On Debian, libcmark-gfm-dev and libcmark-gfm-extensions-dev ship them;" \
+	    "or set CMARK_GFM_ARCHIVE_DIR to the directory holding both." >&2; \
+	  exit 2; \
+	fi; \
+	rm -rf $(ECL_STATIC_DIR) && mkdir -p $(ECL_STATIC_DIR) || exit 1; \
+	CL_SOURCE_REGISTRY="$(STATIC_SOURCE_REGISTRY)" CMARK_GFM_ARCHIVE_DIR="$$dir" \
+	  ecl -norc -load tests/static/build.lisp </dev/null || exit 1; \
+	CL_COMMONMARK_GFM_LIBS="$(ECL_STATIC_CORE):$(ECL_STATIC_EXTENSIONS)" \
+	  $(ECL_STATIC_DIR)/cl-commonmark-gfm-static-smoke $(FIXTURES_DIR)/ \
+	  </dev/null >$(ECL_STATIC_DIR)/smoke.log 2>&1; \
+	status=$$?; \
+	cat $(ECL_STATIC_DIR)/smoke.log; \
+	[ "$$status" -eq 0 ] || exit 1; \
+	grep -q '^check-ecl-static: [1-9][0-9]* checks, 0 failed$$' $(ECL_STATIC_DIR)/smoke.log || { \
+	  echo "make $(GOAL): the program exited 0, but printed no" \
+	    "'check-ecl-static: <n> checks, 0 failed', n above 0" >&2; \
+	  exit 1; \
+	}
+
+check-ecl-nodffi: ## Run the ECL-without-dynamic-FFI container's checks
+	@GUIX_ENV_MANIFEST=manifest-ecl-nodffi.scm scripts/guix-env make check-ecl-nodffi-inside
+
+# Run on a Guix host outside any Guix environment, this target first
+# points at `make check-ecl-nodffi`, which runs it in the container whose
+# ECL has no dynamic FFI: scripts/require-tools would point at the
+# ordinary one.
+#
+# *FEATURES* is a plain Lisp list, set once as ECL starts; reading it
+# calls no foreign function, so an uncompiled -eval form sees exactly what
+# a compiled one would. Unlike a real native probe, this guard exercises
+# no FFI or interrupt path, so it needs no compiling. It prints what it
+# found, and exits 3 for an ECL with :dffi, so an ECL that fails to run,
+# with any other status or without that line, is reported as such, with
+# its output.
+#
+# The condition test, tests/static/nodffi.lisp, does probe the FFI, so ASDF
+# compiles it first, with cl-commonmark-gfm, into this container's own fasl
+# cache (finding 9); then a process of its own loads them and runs it (M4
+# design §6.4). It runs with CL_COMMONMARK_GFM_LIBS malformed, so a
+# startup that ran discovery before step 1 would signal
+# native-library-not-found there, and the test would fail. ECL reads each
+# -eval form as it runs it (ECL 24.5.10's src/lsp/cmdline.lsp), so the last
+# can name the package the load made. Like the smoke program, it must print
+# its summary line, with at least one check and 0 failed: an ECL process
+# can exit 0 from its debugger (finding 26).
+check-ecl-nodffi-inside: ## (inside that container) The dynamic-FFI guard, dynamic-ffi-unavailable's condition test, then check-ecl-static
+	@if command -v guix >/dev/null 2>&1 && [ -z "$${GUIX_ENVIRONMENT:-}" ]; then \
+	  echo "make $(GOAL): this target runs inside the container whose ECL has no" \
+	    "dynamic FFI. On this Guix host, run 'make check-ecl-nodffi', which starts it." >&2; \
+	  exit 2; \
+	fi
+	@scripts/require-tools "$(GOAL)" ecl
+	@out=$$(ecl -norc -eval '(let ((dffi (member :dffi *features*))) (format t "~&features: ~:[no :dffi~;:dffi~]~%" dffi) (finish-output) (si:quit (if dffi 3 0)))' </dev/null 2>&1); \
+	status=$$?; \
+	case "$$out" in *'features: no :dffi'*) found=yes ;; *) found=no ;; esac; \
+	if [ "$$status" -eq 0 ] && [ "$$found" = yes ]; then \
+	  echo "check-ecl-nodffi-inside: ok, this ECL has no :dffi"; \
+	elif [ "$$status" -eq 3 ]; then \
+	  echo "check-ecl-nodffi-inside: this ECL has :dffi; it is for the container without dynamic FFI, run 'make check-ecl-nodffi' instead" >&2; \
+	  exit 1; \
+	else \
+	  printf '%s\n' "$$out" >&2; \
+	  echo "check-ecl-nodffi-inside: ecl failed to run (exit $$status), so whether it has :dffi is unknown" >&2; \
+	  exit 1; \
+	fi
+	@CL_SOURCE_REGISTRY="$(STATIC_SOURCE_REGISTRY)" ecl -norc -eval '(require :asdf)' \
+	  -eval '(asdf:load-system "cl-commonmark-gfm-static-nodffi")' -eval '(si:quit 0)' </dev/null
+	@log=build/ecl-nodffi/condition.log; \
+	mkdir -p build/ecl-nodffi || exit 1; \
+	CL_SOURCE_REGISTRY="$(STATIC_SOURCE_REGISTRY)" CL_COMMONMARK_GFM_LIBS=not-a-pair \
+	  ecl -norc -eval '(require :asdf)' \
+	  -eval '(asdf:load-system "cl-commonmark-gfm-static-nodffi")' \
+	  -eval '(si:quit (if (cl-commonmark-gfm.static-nodffi:main) 0 1))' \
+	  </dev/null >"$$log" 2>&1; \
+	status=$$?; \
+	cat "$$log"; \
+	[ "$$status" -eq 0 ] || exit 1; \
+	grep -q '^check-ecl-nodffi: [1-9][0-9]* checks, 0 failed$$' "$$log" || { \
+	  echo "make $(GOAL): the condition test exited 0, but printed no" \
+	    "'check-ecl-nodffi: <n> checks, 0 failed', n above 0" >&2; \
+	  exit 1; \
+	}
+	@$(MAKE) --no-print-directory check-ecl-static
 
 clean: ## Remove build outputs (keeps .guix-env/)
 	rm -rf build

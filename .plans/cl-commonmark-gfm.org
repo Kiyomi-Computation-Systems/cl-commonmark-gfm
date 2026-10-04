@@ -109,7 +109,9 @@ nothing outside the project: no alexandria, and no UTF-8 library.
 - On Guix, every build and test runs in the pinned container
   (=scripts/guix-env=, ADR-0004).  It carries the three Lisps, cmark-gfm
   0.29.0.gfm.13, a C toolchain and a from-source ocicl, and nothing from the
-  host's =HOME=.  =make check-guix= verifies it.
+  host's =HOME=.  =make check-guix= verifies it.  A second container, the
+  same toolchain with ECL built without dynamic FFI, runs
+  =make check-ecl-nodffi= (ADR-0004).
 
 ** AST contract
 
@@ -450,6 +452,10 @@ they close nothing, and the save fails instead.  If a save goes ahead
 anyway, a restore hook clears any published state when the image starts
 (M2 design §5.3).
 
+A linked ECL program skips discovery and loading: cmark-gfm is linked into
+it, so startup reads neither override, loads nothing, and starts at the
+version checks (ADR-0021).
+
 The Guix container sets =CL_COMMONMARK_GFM_LIBS= to its profile's two
 versioned paths; its =LD_LIBRARY_PATH= is for ocicl's =libcrypto= only
 (ADR-0004).
@@ -531,11 +537,22 @@ configuration on macOS.
 ECL supports CFFI dynamic loading when =:dffi= is present.  On ECL builds
 without it, CFFI's normal =load-foreign-library= route cannot load a library.
 
-- Detect missing =:dffi= and signal =dynamic-ffi-unavailable=, before
-  discovery, with static-link instructions rather than a generic
-  unresolved-library failure.
-- Document a deployment path that links cmark-gfm into the ECL application,
-  then uses ECL's supported static foreign-library mechanism.
+- *Linked programs* (ADR-0021).  A program whose native layer ECL
+  compiled with CFFI's =:c/c++= method has cmark-gfm linked in: each cmark
+  call is a direct C call.  =src/ffi.lisp=, where every cmark call
+  compiles, records the method as they compile, so record and calls
+  always agree (M4 finding 31); at run time, CFFI's variable holds ECL's
+  default again (M4 finding 25).  A linked startup skips the dynamic-FFI
+  check, discovery and loading: it reads neither override, and its
+  state's paths are =:linked= (ADR-0009).  A recipe,
+  =tests/static/build.lisp=, builds one with ECL's own ASDF.  Debian's
+  ECL ships no =libasdf.a= to link in, so there the program loads ECL's
+  ASDF as it starts (M4 finding 23).  The recipe's user documentation
+  comes in M5.
+- *Without dynamic FFI,* a native layer that isn't linked signals
+  =dynamic-ffi-unavailable= at startup's first step, before discovery: its
+  datum is =:dffi=, and its reason says how to link cmark-gfm in instead
+  (ADR-0009; M4 finding 29).
 - *Dynamic FFI, exercised in M4a.*  The native suite runs on ECL.  ECL
   unloads both libraries on close, so another pair loads cleanly, and it
   keeps no pair record (M4 finding 4).  It saves no images.
@@ -547,12 +564,10 @@ without it, CFFI's normal =load-foreign-library= route cannot load a library.
   allocates.  So on ECL, interrupting or timing out a thread during a call
   isn't safe, and the interrupt race doesn't run there.  M5's
   documentation warns ECL users.
-- CI's one job runs ECL's native suite on =main= and on =workflow_dispatch=
-  (ADR-0013).
-- *Static deployment comes in M4b*
-  ([[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]] §6): a recipe
-  builds an ECL program with cmark-gfm linked in, and
-  =make check-ecl-static= exercises it.
+- CI's one job runs ECL's native suite on =main= and on =workflow_dispatch=,
+  then =make check-ecl-static=, which builds and runs a linked program
+  with Debian's ECL (ADR-0013).  =make check-ecl-nodffi= runs locally, in
+  a second Guix container whose ECL has no dynamic FFI (ADR-0004).
 - The pure core continues to load and test with no ECL FFI configuration.
 
 ** Initial support matrix
@@ -562,7 +577,7 @@ without it, CFFI's normal =load-foreign-library= route cannot load a library.
 | SBCL | required | required |
 | CCL | required, amd64 only | required, amd64 only (Intel, or Rosetta with an x86_64 cmark-gfm) |
 | ECL with dynamic FFI | required | required |
-| ECL static deployment | documented/tested | documented/tested |
+| ECL static deployment | tested by =make check-ecl-static=: in CI on =main= and on dispatch, with Debian's ECL, and in the Guix containers, with and without dynamic FFI; documented in M5 | untested; documented in M5 |
 
 Windows is not supported (ADR-0001).  CI runs on Linux amd64 only; there are
 no macOS or arm64 runners (ADR-0013).  The macOS column is verified by hand
@@ -635,7 +650,7 @@ escapes, but does not check URLs added to a tree after conversion.
 | =native-error= | the parent of the six below |
 | =native-library-not-found= | the pinned core/extensions pair could not be found or loaded |
 | =native-abi-mismatch= | the runtime cmark-gfm version is not the pin, or asking the library for it failed |
-| =dynamic-ffi-unavailable= | ECL requires its static deployment route |
+| =dynamic-ffi-unavailable= | an ECL without =:dffi=, whose native layer isn't linked, can't load cmark-gfm at run time; the datum is =:dffi=, and the reason says how to link cmark-gfm in instead (ADR-0009, ADR-0021) |
 | =native-initialization-error= | startup failed after the version check: an extension or the allocator's =free= is missing, a call into the loaded libraries failed, or the smoke parse failed in any way |
 | =native-parse-error= | a document could not be produced |
 | =native-render-error= | a renderer could not produce a buffer |
@@ -836,7 +851,11 @@ report the pinned version (ADR-0002): Debian trixie ships it; the Guix
 container provides it; the maintainer's macOS install is checked by hand.
 Startup verifies the core library, the extensions library and the runtime
 version separately (ADR-0009).  Failing clearly is preferable to silently
-loading plain cmark.
+loading plain cmark.  Only building a linked ECL program needs =-dev=
+packages: it links cmark-gfm's static archives, which Debian ships in
+=libcmark-gfm-dev= and =libcmark-gfm-extensions-dev=, and the program then
+needs no cmark-gfm library (ADR-0021).  The library's other uses still need
+only the runtime packages (ADR-0009).
 
 Phase 2 may provide reproducible bundled-source artifacts, pinned to a specific
 upstream revision and recording compiler/architecture/library version.  It
@@ -880,7 +899,8 @@ Pure tests:
   the table-cell bound and the output bounds' per-node terms; the input
   guard's matches and near misses; the UTF-8 encoder, and the decoder
   against the Unicode Standard's well-formed sequences and its
-  maximal-subpart examples; the corpus reader's counts.
+  maximal-subpart examples; the corpus reader's counts; and
+  =linked-method-p=, true for =:c/c++= alone (ADR-0021).
 - *The UTF-8 property* (ADR-0020): =decode-utf8= never signals on random
   octets, and what it returns survives encoding and decoding again.
 - *Purity:* =make check-purity= runs the pure suite on SBCL, CCL and ECL,
@@ -931,7 +951,8 @@ that the override is reported as not found (M4 finding 12).
   collections; render stress; the two ABI-belief tests.
 - *Every native condition but =dynamic-ffi-unavailable=* is signalled at
   least once, through a bad override or an internal wrapper redefined for
-  the test.  That one needs an ECL without =:dffi=, in M4b.
+  the test.  That one needs an ECL without =:dffi=: the condition test
+  below signals it.
 - *Threads* (ADR-0017): concurrent calls give what sequential ones give, on
   the inputs that race without the finish lock; many first calls at once
   start cmark once.  Every test thread starts through one helper, which
@@ -994,6 +1015,32 @@ CI, runs each from a fixed seed with fixed case counts.  =make fuzz= runs
 many more cases from a random seed, and prints a failure's seed and shrunk
 input.
 
+ECL's linked programs have two checks of their own (ADR-0021;
+[[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]] §6.3 and §6.4).
+They are plain programs, not Parachute suites: each loads the library
+alone.  Each passes only with exit status 0 and its summary line with 0
+failed: ECL's debugger quits with status 0 at the end of stdin (M4
+finding 26).
+
+- *The smoke program,* =make check-ecl-static=.  The recipe builds it as
+  a linked program, which runs with =CL_COMMONMARK_GFM_LIBS= naming files
+  that don't exist.  Its 65 checks: the method is =:c/c++=, and the state
+  linked, with the pinned version; nothing listed by CFFI or mapped, right
+  after the first startup and again at the end; the 28 oracle fixtures,
+  through =markdown->html= and the tree path, byte for byte; a reset that
+  closes nothing, after which a render starts again and ignores an
+  override; and the open counters at zero at the end.  It runs in CI on
+  =main= and on dispatch, with Debian's ECL, and in both Guix containers.
+- *The condition test,* =tests/static/nodffi.lisp=, on an ECL without
+  dynamic FFI, with =CL_COMMONMARK_GFM_LIBS= malformed.  Its 5 checks: the
+  method is that ECL's default, =:dlopen=; discovery signals
+  =native-library-not-found= for that value; and the first
+  =markdown->html= signals =dynamic-ffi-unavailable= instead, so step 1
+  came before discovery, with datum =:dffi= and a report saying how to
+  link.  =make check-ecl-nodffi=, run on the host, runs it in the second
+  Guix container (ADR-0004), after a guard that its ECL lacks =:dffi=,
+  then the smoke program on that ECL.  Not in CI (M4 design D5).
+
 There is no sanitizer or Valgrind gate (ADR-0013).  M2 was to revisit that
 if the counters proved too weak, and M2b added none: the counters, the
 GC-pressure cycles and the render stress tests stand.  The two upstream
@@ -1016,7 +1063,12 @@ and its oracles on SBCL, with no override set, so discovery searches
 suite on CCL and ECL, also with no override, on a push to =main= or a
 dispatch only.  They would add about 2.3 and 9 minutes to every run (M4
 finding 5), so pull requests keep SBCL's alone.  The job's time limit
-goes from 20 to 30 minutes.  The manual macOS run records the same facts.
+goes from 20 to 30 minutes.  From M4b, on a push to =main= or a dispatch,
+a step after the CCL and ECL suites installs =libcmark-gfm-dev= and
+=libcmark-gfm-extensions-dev=, for cmark-gfm's archives, and the next
+runs =make check-ecl-static=.  The packages come after the native suites,
+so discovery only ever sees the runtime packages.  The manual macOS run
+records the same facts.
 
 ** Milestones
 
@@ -1109,11 +1161,14 @@ justified by observed differences.  One design, two slices, each with its
 own plan, branch and PR
 ([[file:2026-10-03-m4-ccl-ecl-design.md][M4 design]]):
 
-1. *M4a, CCL and ECL with dynamic FFI.*  The native suite runs on all three
-   Lisps, CI runs it on CCL and ECL on =main=, and the hand-offs from M2a,
-   M2b and M3 are settled.
-2. *M4b, ECL static deployment.*  A recipe builds an ECL program with
-   cmark-gfm linked in, which starts up without loading anything, and
+1. *M4a, CCL and ECL with dynamic FFI*
+   ([[file:2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md][M4a plan]]).
+   The native suite runs on all three Lisps, CI runs it on CCL and ECL on
+   =main=, and the hand-offs from M2a, M2b and M3 are settled.
+2. *M4b, ECL static deployment*
+   ([[file:2026-10-03-m4b-ecl-static-deployment-implementation.md][M4b plan]]).
+   A recipe builds an ECL program with cmark-gfm linked in, which starts
+   up without loading cmark-gfm or using dynamic FFI, and
    =make check-ecl-static= exercises it.  =dynamic-ffi-unavailable= is
    tested on a real ECL without dynamic FFI.
 
@@ -1231,6 +1286,17 @@ never an invalid-free crash or unexplained unresolved symbol.
     has an extension.  CI runs CCL's and ECL's native suites on =main= and
     on =workflow_dispatch=; pull requests keep SBCL's.  Amends 1, 14, 15,
     19, 23 and 26 (ADR-0008, ADR-0009, ADR-0013, ADR-0017 and ADR-0020,
+    amended).
+28. An ECL program is linked when ECL compiled the native layer with
+    CFFI's =:c/c++= method, which =src/ffi.lisp= records as its calls
+    compile.  A linked startup finds and loads nothing, and ignores the
+    override.  On an ECL without =:dffi=, a native layer that isn't linked
+    signals =dynamic-ffi-unavailable=, with datum =:dffi= and a reason
+    saying how to link.  A recipe builds a linked program with ECL's own
+    ASDF, and =make check-ecl-static= runs it, in CI on =main= and on
+    =workflow_dispatch=.  A second Guix container, whose ECL has no
+    dynamic FFI, runs =make check-ecl-nodffi= locally.  Amends 10, 15, 19
+    and 23 (ADR-0021; ADR-0004, ADR-0009, ADR-0013 and ADR-0017,
     amended).
 
 Full records live in =.plans/decisions/=.

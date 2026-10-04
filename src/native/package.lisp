@@ -30,6 +30,7 @@
                 #:+cmark-paren-delim+
                 #:classify-node
                 #:resolve-cmark-libraries
+                #:linked-method-p
                 #:check-options
                 #:checked-extensions
                 #:checked-sourcepos
@@ -87,6 +88,7 @@
                 #:encode-utf8
                 #:decode-utf8)
   (:import-from #:cl-commonmark-gfm.ffi
+                #:ffi-method
                 #:cmark-parser-new
                 #:cmark-parser-attach-syntax-extension
                 #:cmark-parser-feed

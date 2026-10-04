@@ -18,7 +18,9 @@
   CCL forget the pair's library records that nothing holds open; ECL's
   deferred interrupts were tried, and don't hold where a region allocates,
   so on ECL, interrupting or timing out a thread during a call isn't safe,
-  and the interrupt race skips ECL
+  and the interrupt race skips ECL; amended 2026-10-04, in M4b, by
+  ADR-0021 and the same spec's §6.1: a linked ECL program's startup finds
+  and loads nothing, and ignores the override; its reset closes nothing
 - **Date:** 2026-09-30
 - **Scope:** `parse`, `markdown->html`, `markdown->plaintext` and
   `markdown->html-tree`; their options and conditions; the
@@ -29,7 +31,8 @@
   §11
 - **Related:** ADR-0006 (`:gfm` enables footnotes), ADR-0008 (lifetimes and
   counters), ADR-0009 (discovery), ADR-0012 (the tree options), ADR-0014
-  (options as `&rest`), ADR-0016 (the limits)
+  (options as `&rest`), ADR-0016 (the limits), ADR-0021 (linked ECL
+  programs)
 - **Prior art:** chez-cmark-gfm ADR-0006 (a liveness flag), ADR-0008 and
   ADR-0009 (source positions by entry point)
 
@@ -139,6 +142,9 @@ publishes nothing, and the next call starts again.
   something else in the process keeps libcmark-gfm loaded (finding 15).
   On CCL, a retry can start only the pair the process loaded first
   (ADR-0009).
+- **A linked ECL program** has cmark-gfm linked in, so its startup finds
+  and loads nothing. It ignores `*cmark-gfm-libraries*` and
+  `CL_COMMONMARK_GFM_LIBS`, and a reset closes nothing (ADR-0021).
 - Errors from the loaded libraries, such as a missing function when an
   override names some other library, become project conditions that name
   the original (spec §5.2). So a handler for `native-error` catches every

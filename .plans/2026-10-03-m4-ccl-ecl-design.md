@@ -6,7 +6,15 @@
   ECL; §5.2's race, which skips ECL; §5.3's failed-startup and restore
   rules; §5.4's
   outcomes and forgetting; §5.6's cancelled runs; §5.8's documents; §7's
-  checks
+  checks. Amended 2026-10-03, before M4b, by its probes: findings 23 to
+  25; §1's M4b goal; §6.1's method record and fasl directory; §6.3's
+  recipe and smoke program; §7's M4b checks; §9. Amended 2026-10-04,
+  during M4b: findings 26 to 31; D5's CI note; §4's reader conditionals
+  and §6.1's method record, now in `src/ffi.lisp` (the user's decision
+  after the first review); §6.3's summary line, archive directory and
+  checks after the first startup; §6.4's condition test, its checks that
+  couldn't fail replaced by an order check (the user's decision); §6.6's
+  ADR-0017; §7's M4b checks
 - **Milestone:** M4, in two slices, each with its own plan, branch and PR:
   M4a on branch `m4a-ccl-ecl-dynamic-ffi`, then M4b on its own branch once
   M4a has merged
@@ -38,7 +46,8 @@ static-link recipe is exercised. So M4 delivers two slices:
    all three Lisps, CI runs it on CCL and ECL on `main`, and the hand-offs
    from M2a, M2b and M3 are settled.
 2. **M4b, ECL static deployment** (§6). An ECL program with cmark-gfm
-   linked in starts up without loading anything. A recipe builds one, and
+   linked in starts up without loading cmark-gfm or using dynamic FFI. A
+   recipe builds one, and
    `make check-ecl-static` exercises it. `dynamic-ffi-unavailable` is
    tested on a real ECL without dynamic FFI.
 
@@ -69,7 +78,7 @@ static-link recipe is exercised. So M4 delivers two slices:
 | D2 | What startup does on CCL, which keeps every library it has called (findings 2 and 3) | **One pair per process.** Once a CCL process has loaded a pair, a startup naming another signals, and the same pair starts again (§5.3). |
 | D3 | What CI spends on CCL and ECL (finding 5) | **Their native suites run on `main` only,** at ADR-0020's counts, with the job's timeout raised from 20 to 30 minutes. PR runs keep SBCL's native suite. A `workflow_dispatch` trigger runs `main`'s steps on any branch. `NATIVE_LISPS` keeps its `sbcl` default, so `make test` stays what a PR runs (§5.6). |
 | D4 | How startup knows cmark-gfm is linked into the program | **From the build:** linked when ECL compiled the native layer with CFFI's `:c/c++` method. Nothing to set (§6.1). |
-| D5 | Where a real ECL without dynamic FFI runs | **Locally, in a second Guix container** (§6.4). CI runs the static program on the stock ECL, with its dynamic FFI disabled. |
+| D5 | Where a real ECL without dynamic FFI runs | **Locally, in a second Guix container** (§6.4). CI runs the linked program on the stock ECL; its checks look at what was loaded (finding 24). |
 | D6 | What the static check runs | **The 28 oracle fixtures,** through `markdown->html` and through the tree path (§6.3). |
 
 ## 3. Findings
@@ -340,14 +349,112 @@ Found during M4a, by Task 2 and the second review:
       source (`reopen-user-libraries`), and hasn't run. The manual macOS
       run (ADR-0001) is to cover the two image tests.
 
+Found before M4b, by its probes (2026-10-03: the whole library built as a
+linked program on the container's ECL, on its ECL without dynamic FFI, and
+on Debian trixie's ECL under Docker; ECL probes compiled):
+
+23. **Debian's ECL has an old ASDF, and no ASDF to link into a program.**
+    - Debian trixie's ECL 24.5.10 comes with ASDF 3.1.8.8, where the
+      container's has 3.3.7. It ships ECL's modules only as loadable files
+      (`asdf.fas`, `cmp.fas`), with no `libasdf.a` or `libcmp.a` to link;
+      `libecl-dev` holds only headers and `libecl.so`. The container's
+      ECL ships both archives.
+    - **That is finding 7's failure.** CFFI's compiled code refers to
+      ASDF's packages: a restart in its `src/functions.lisp` calls
+      `asdf:operate` with `asdf:load-op`. So a program holding CFFI needs
+      ASDF's packages as it starts. ASDF's program build links ECL's
+      `libasdf.a` in, where ECL ships it. Debian's ECL ships none, so the
+      program started without ASDF and stopped.
+    - **ASDF 3.1.8.8 can't build the whole library itself.** Its
+      `make-build` stopped while compiling bordeaux-threads: "The function
+      %MAKE-LOCK is undefined". With everything compiled by
+      `asdf:load-system` first, `make-build` only linked, and succeeded.
+    - **What worked:** on Debian's ECL, a program whose prologue requires
+      ECL's own ASDF before any compiled file starts; on the container's
+      ECL, with and without dynamic FFI, a program with ASDF linked in.
+      Each started, and rendered HTML and the HTML tree. ASDF 3.3 also
+      links ECL's `libcmp.a`, unless told `:no-uiop`; ASDF 3.1.8.8 neither
+      links it nor knows that keyword.
+    - **What didn't:** loading Debian's `cl-asdf` (ASDF 3.3.7.3) over ECL's
+      own got the compile through, but the link then failed on the
+      missing `libcmp.a`.
+24. **Replacing ECL's own FFI functions catches nothing.** ECL compiles a
+    call to `si:load-foreign-module` or `si:call-cfun` as a direct C call.
+    With both replaced by functions that signal, CFFI's compiled
+    `load-foreign-library` still loaded a library, and its dynamic
+    `foreign-funcall` still called `strlen`. So the smoke program checks
+    what was loaded instead (§6.3).
+25. **A linked program's `cffi-sys:*cffi-ecl-method*` is ECL's default
+    again.** CFFI sets the variable as the program starts, from ECL's
+    features, whatever the build set: `:dffi` on the stock ECL, `:dlopen`
+    on one without dynamic FFI. Only a value captured as the native layer
+    compiles tells a linked program from another. The whole library
+    compiled and linked under `:c/c++` without trouble, CFFI's own
+    `extern` declarations of `strlen`, `memcpy` and `free` included.
+
+Found during M4b, by Task 2:
+
+26. **An ECL program that fails as it starts can exit 0.** The error
+    reaches ECL's debugger, which quits with status 0 at the end of its
+    stdin (the top level's `:eof` command, ECL 24.5.10's
+    `src/lsp/top.lsp`). On Debian, without the prologue, the program exited
+    0, and `make check-ecl-static` passed with no check run. So the target
+    also requires the program's summary line, with 0 failed. The build
+    script handles every serious condition itself for the same reason:
+    ECL's command-line handler exits 1 on an `error`, but leaves any other
+    serious condition to the debugger.
+27. **`ext:quit` doesn't end a program from its prologue.** ECL runs the
+    prologue and the epilogue under `ext:safe-eval`, whose
+    `unwind-protect` cleanup returns from it, stopping the unwind that
+    `ext:quit` starts. On Debian, with `asdf.fas` moved away, the
+    prologue's `(ext:quit 3)` was swallowed, and the program went on to
+    finding 7's failure and exited 0. So both forms end the program with
+    `ext:exit`, which runs the exit hooks and calls `exit()` without
+    unwinding.
+28. **ECL links every compiled file with `c::*ld-libs*`,** not only the
+    program (`bundle-cc`, `src/cmp/cmpbackend-cxx/cmpbackend-cxx.lsp`). So
+    the archives go into it before anything compiles. Without them, the
+    build stopped loading `src/ffi.fas`: "undefined symbol:
+    cmark_node_get_start_line". This refines finding 6.
+
+Found during M4b, by Task 3:
+
+29. **Without step 1, an ECL without dynamic FFI fails only at step 3,
+    with advice that leads nowhere.** Discovery runs and finds the pair;
+    then CFFI refuses the load, as it does for every load on an ECL
+    without `:dffi`, whatever the method (`%load-foreign-library`,
+    `src/cffi-ecl.lisp`). The report is `native-library-not-found`, naming
+    the core's path, and CFFI's message points at ECL's
+    `ffi:load-foreign-library`, not at a linked program. Step 1's check is
+    what makes the failure say what to do.
+
+Found during M4b, by the first review's fixes:
+
+30. **ECL reads a `?` or a `\` in a path as a wildcard too,** as it does a
+    `*` (finding 12): `uiop:native-namestring` refuses such a pathname. So
+    the recipe refuses an archive directory holding one, before anything
+    compiles. A blank or a quote is fine: the recipe escapes each for
+    ECL's split of `c::*ld-libs*` (`split-program-options`,
+    `src/cmp/cmpos-run.lsp`).
+31. **A program behaves by the method of the file that compiled its
+    calls.** ASDF doesn't recompile a file because the method changed:
+    the first review built programs with one file recompiled under another
+    method. With the record in `startup.lisp`, a program whose calls were
+    compiled with `:dffi` took the linked path, loaded nothing, and failed
+    at step 4 with a misattributed `native-abi-mismatch`, even with the
+    real pair; the opposite mix loaded a pair it never called. With the
+    record in `src/ffi.lisp`, which compiles the calls in the same file,
+    record and calls always agree: all four mixed builds started by what
+    their calls do (§6.1).
+
 ## 4. What both slices keep
 
 - The pure systems change only if §5.7 finds a fix there.
 - The project still compiles no C of its own. The static recipe compiles
   Lisp through ECL's C backend, as every ECL build does.
-- Reader conditionals stay in `/native` (ADR-0017). M4 adds three there:
-  CCL's pair record (§5.3), CCL forgetting the libraries it closes
-  (§5.4), and the method linked mode reads (§6.1).
+- Reader conditionals stay in `/native` (ADR-0017). M4 adds two there:
+  CCL's pair record (§5.3), and CCL forgetting the libraries it closes
+  (§5.4). The method linked mode reads (§6.1) needs none.
 - **"CFFI only" gains one exception** (finding 15): to keep a saved image
   from reopening cmark-gfm, `/native` may edit a Lisp's own records of the
   libraries it loaded, through that Lisp's internals. No foreign call goes
@@ -538,8 +645,12 @@ images.
 - **What makes a program linked.** An ECL program is linked when ECL
   compiled the native layer with `cffi-sys:*cffi-ecl-method*` set to
   `:c/c++`. Every cmark call in it is then a direct C call, bound when the
-  program is linked (finding 6). `/native` records, when it is compiled,
-  which method that was. Nothing is set at run time (D4).
+  program is linked (finding 6). `src/ffi.lisp`, where every cmark call
+  compiles, records which method that was: a macro reads the variable as
+  the file compiles, since at run time it holds ECL's default again
+  (finding 25). Startup reads that record, so even a program whose files
+  were compiled under different methods behaves by what its calls do.
+  Nothing is set at run time (D4).
 - **What startup does when linked.** It skips step 1 (the dynamic-FFI
   check), step 2 (discovery) and step 3 (loading). Steps 4 to 9 run as
   now: the version string and number, registering and finding the five
@@ -552,8 +663,9 @@ images.
 - **Every other program is unchanged:** SBCL, CCL, and ECL with the
   `:dffi` or `:dlopen` method.
 - **What a linked build needs:**
-  - its own fasl cache (finding 9). Otherwise a normal ECL session could
-    load fasls whose calls name symbols it never linked;
+  - its own fasl directory, emptied before each build (finding 9).
+    Otherwise a normal ECL session could load fasls whose calls name
+    symbols it never linked, or one ECL could load another's;
   - the two archives first in `c::*ld-libs*`, the extensions before the
     core (finding 6).
 - **A pure test covers the decision** on all three Lisps: which steps run,
@@ -572,29 +684,46 @@ images.
 ### 6.3 The recipe and `make check-ecl-static`
 
 - **The recipe** is a build script and a small system for the smoke
-  program, under `tests/static/`, outside the project's `.asd`:
-  1. load ASDF and CFFI, and set `cffi-sys:*cffi-ecl-method*` to `:c/c++`;
-  2. put both archives first in `c::*ld-libs*`;
-  3. build a monolithic program with `asdf:make-build`, its fasls under
-     `build/ecl-static/`.
+  program, under `tests/static/`, outside the project's `.asd`. It uses
+  ECL's own ASDF:
+  1. load ASDF and CFFI; set `cffi-sys:*cffi-ecl-method*` to `:c/c++`;
+     put both archives first in `c::*ld-libs*`, the extensions before the
+     core;
+  2. compile everything, CFFI included, with `asdf:load-system` and
+     `:force :all`, into an emptied `build/ecl-static/`. ASDF 3.1.8.8's
+     `make-build` can't compile it itself (finding 23);
+  3. build a monolithic program with `asdf:make-build`. Where ECL ships
+     `libasdf.a`, ASDF is linked in, and the program loads nothing as it
+     starts. Where it doesn't, as on Debian, the program's prologue
+     requires ECL's own ASDF before any compiled file starts, since
+     CFFI's code refers to ASDF's packages (finding 23).
 
-  The Debian start failure (finding 7) is fixed here.
-- **The smoke program:**
-  - on an ECL with `:dffi`, first replaces `si:call-cfun` and
-    `si:load-foreign-module` with functions that signal, so any use of
-    dynamic FFI fails the check;
-  - checks that the published state is linked, its paths `:linked`, and its
-    version `0.29.0.gfm.13`;
+  This fixes the Debian start failure (findings 7 and 23).
+- **The smoke program** runs with `CL_COMMONMARK_GFM_LIBS` naming two
+  files that don't exist, so a startup that looks for files fails. It:
+  - checks that the native layer was compiled with `:c/c++`, and that the
+    published state is linked: its paths `:linked`, its version
+    `0.29.0.gfm.13`;
   - runs each of the 28 oracle fixtures, with its case's flags, through
     `markdown->html` and through `(html-tree->string (markdown->html-tree
     …))`, each compared byte for byte with the committed HTML;
-  - checks that the open counters end at zero;
+  - resets the native state, and renders one fixture again with
+    `*cmark-gfm-libraries*` naming files that don't exist: a linked state
+    closes nothing, starts again, and ignores the override;
+  - checks that CFFI lists no foreign library and, on Linux, that
+    `/proc/self/maps` names no libcmark-gfm, right after the first startup
+    and again at the end, since the reset closes whatever that startup
+    loaded; and that the open counters end at zero. Replacing ECL's own
+    FFI functions to catch a load would catch nothing (finding 24);
   - prints one line per failure and a summary, and exits 1 on any
     failure.
-- **`make check-ecl-static`** builds and runs it.
-  - It takes the archives from beside the shared libraries that discovery
-    finds (ADR-0009): the container's profile, through
-    `CL_COMMONMARK_GFM_LIBS`, or Debian's multiarch directory.
+- **`make check-ecl-static`** builds and runs it. It passes only when the
+  program exits 0 and prints its summary with 0 failed (finding 26).
+  - It takes the archives from `CMARK_GFM_ARCHIVE_DIR`, or else from
+    beside the shared libraries that discovery finds on Linux (ADR-0009):
+    the container's profile, through `CL_COMMONMARK_GFM_LIBS`, or Debian's
+    multiarch directory. Elsewhere, such as on macOS, the variable must
+    name the directory.
   - It fails fast, naming what's missing: `ecl` through
     `scripts/require-tools`, or an archive, with the packages that ship
     it.
@@ -611,11 +740,16 @@ images.
 - **`make check-ecl-nodffi`** runs on the host, as `make check-guix` does,
   and runs `make check-ecl-nodffi-inside` in that container. That target
   first checks that its ECL lacks `:dffi`, and fails otherwise. Then:
-  - **the condition test:** the first `markdown->html` signals
-    `dynamic-ffi-unavailable`, and leaves nothing behind: CFFI lists no
-    library, `/proc/self/maps` holds no libcmark-gfm, and the open
-    counters are zero. Its datum is `:dffi`, and its report names
-    `:c/c++`;
+  - **the condition test,** a program without Parachute, like the smoke
+    program, run with `CL_COMMONMARK_GFM_LIBS` malformed: the first
+    `markdown->html` signals `dynamic-ffi-unavailable`, so step 1 came
+    before discovery, which would have signalled
+    `native-library-not-found` for that value. Its datum is `:dffi`, and
+    its report names `cffi-sys:*cffi-ecl-method*`, `:c/c++` and both
+    archives. It passes only when it exits 0 and prints its summary with
+    0 failed (finding 26). Checks that nothing was left behind aren't
+    made there: on that ECL, CFFI refuses every load, and step 1 comes
+    before any parse, so they couldn't fail;
   - **the smoke program** (§6.3), built and run on that ECL.
 - **Not in CI** (D5). The close-outs record its result.
 
@@ -637,6 +771,7 @@ ADR-0013 is amended again.
   `dynamic-ffi-unavailable`'s datum and reason.
 - **ADR-0004,** amended: the second container.
 - **ADR-0013,** amended: the static step and the `-dev` packages.
+- **ADR-0017,** amended: a linked startup ignores the override.
 - **The plan:** the ECL section, the support matrix's "ECL static
   deployment" row, the Tests section and the decision log.
 - **`progress.md`:** M4b's close-out, with the second container's result
@@ -678,14 +813,18 @@ constraint).
 
 **M4b:**
 - **Linked mode:**
-  - the smoke program built with the `:dffi` method fails its linked-state
-    check, or a poisoned function signals;
-  - a startup that loads even when linked trips the poisoned
-    `si:load-foreign-module`.
+  - the smoke program built with the `:dffi` method fails its linked
+    checks: its startup looks for files that don't exist;
+  - a linked startup that still runs steps 1 to 3 fails the same way;
+  - with the method read at run time instead of as the file compiles,
+    the program isn't linked (finding 25);
+  - the smoke program's nothing-loaded checks fail when the first startup
+    loads the pair, and when the program loads it later.
 - **The linked decision's pure test:** each method mapped to the wrong
   steps fails it.
 - **`dynamic-ffi-unavailable`:**
-  - without step 1's check, CFFI's own error arrives instead, and the
+  - without step 1's check, or with step 1 after discovery, the malformed
+    `CL_COMMONMARK_GFM_LIBS` makes discovery signal first, and the
     condition test fails;
   - without the instructions in its reason, the report check fails.
 - **The smoke comparisons:** one fixture byte flipped fails both paths for
@@ -715,3 +854,6 @@ entries: 27 for M4a (CCL's one pair per process, and CCL and ECL in CI on
 - **The whole native suite as a linked program.** The smoke program
   covers linked startup and rendering, and the dynamic suites cover the
   rest.
+- **ASDF compiled into a program on an ECL that ships none to link,** such
+  as Debian's. Such a program loads ECL's own ASDF as it starts
+  (finding 23).

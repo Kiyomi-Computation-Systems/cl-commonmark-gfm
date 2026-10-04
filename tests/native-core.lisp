@@ -1791,3 +1791,17 @@ would otherwise make a bad-input test pass for the wrong reason."
   (dolist (number (list -1 #x100000000))
     (true (version-error-signalled (lambda () (number-version number)))
           "~S should signal" number)))
+
+;;; LINKED-METHOD-P: whether CFFI's method makes an ECL program linked (M4
+;;; design §6.1; ADR-0021). Startup skips its steps 1 to 3, the dynamic-FFI
+;;; check, discovery and loading, for :C/C++ alone. Every other method,
+;;; ECL's :DFFI and :DLOPEN, and NIL, as FFI-METHOD returns on SBCL and CCL,
+;;; runs all of startup's steps. The smoke program (tests/static/) covers
+;;; the linked startup itself.
+
+(define-test linked-method-p-is-true-for-c/c++-alone
+  (true (cl-commonmark-gfm.native-core:linked-method-p :c/c++)
+        ":C/C++ compiles each cmark call as a direct C call, bound at link time")
+  (dolist (method '(:dffi :dlopen nil :linked))
+    (false (cl-commonmark-gfm.native-core:linked-method-p method)
+           "~S runs startup's steps 1 to 3" method)))

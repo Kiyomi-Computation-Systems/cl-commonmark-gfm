@@ -146,7 +146,9 @@ since cmark never reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
 (*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails.
+library directories), and can signal a NATIVE-ERROR when that fails. In an
+ECL program with cmark-gfm linked in, it loads nothing and reads neither
+override, but checks the linked cmark-gfm the same way (M4 design §6.1).
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -211,7 +213,9 @@ since cmark never reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
 (*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails.
+library directories), and can signal a NATIVE-ERROR when that fails. In an
+ECL program with cmark-gfm linked in, it loads nothing and reads neither
+override, but checks the linked cmark-gfm the same way (M4 design §6.1).
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -274,7 +278,9 @@ since cmark never reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
 (*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails.
+library directories), and can signal a NATIVE-ERROR when that fails. In an
+ECL program with cmark-gfm linked in, it loads nothing and reads neither
+override, but checks the linked cmark-gfm the same way (M4 design §6.1).
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."
@@ -335,7 +341,9 @@ since cmark never reaches the faulty code path.
 
 The first call in a process loads the pinned cmark-gfm, by absolute path
 (*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of the system's
-library directories), and can signal a NATIVE-ERROR when that fails.
+library directories), and can signal a NATIVE-ERROR when that fails. In an
+ECL program with cmark-gfm linked in, it loads nothing and reads neither
+override, but checks the linked cmark-gfm the same way (M4 design §6.1).
 
 The remaining risk: on a machine already short of memory, cmark's
 allocator can still abort the process. No Lisp handler can catch that."

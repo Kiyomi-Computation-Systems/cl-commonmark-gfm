@@ -27,7 +27,9 @@
 CFFI:LOAD-FOREIGN-LIBRARY returned, the two PATHS they were loaded from,
 the VERSION cmark reported, the EXTENSIONS, an alist from each of
 *EXTENSION-KEYWORDS* to cmark's pointer for that syntax extension, and
-FREE, the default allocator's free."
+FREE, the default allocator's free. In a linked program, which loads
+nothing, the two library objects are NIL and PATHS is :LINKED (M4 design
+§6.1)."
   core-library
   extensions-library
   paths
