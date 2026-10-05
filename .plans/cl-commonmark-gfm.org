@@ -780,8 +780,10 @@ value wins, as with =&key=, but every value must be valid, so
   =data-footnote-backref= print with no value when it is =""=.  Every other
   attribute prints as ~name="value"~, so the checkbox keeps ~checked=""~ and
   ~disabled=""~.
-- *Void elements:* =br=, =hr=, =img= and =input= print as =<br />=,
-  ~<img src="…" alt="…" />~ and so on.
+- *Void elements:* HTML's 13, =area=, =base=, =br=, =col=, =embed=, =hr=,
+  =img=, =input=, =link=, =meta=, =source=, =track= and =wbr=, print as
+  =<br />=, ~<img src="…" alt="…" />~ and so on (ADR-0022).  cmark writes
+  only =br=, =hr=, =img= and =input=.
 - *Comments:* =(:*comment* nil "text")= prints as =<!--text-->=, its text
   escaped like any other text.
 - Names print lowercase, and are classified by that lowercased string, so
@@ -1005,8 +1007,9 @@ Lisp code runs, so the Makefile starts CCL, for both suites and for
 =make info=, through a watchdog that kills and restarts a run that hasn't
 started; =make check-watchdog= tests it against a fake CCL (ADR-0013).
 =make test= is =check-watchdog=, =check-preflight=, =check-purity=,
-=check-fixtures= and =check-native=.  Every check is seen to fail under a
-targeted change.
+=check-fixtures= and =check-native=, then the documentation's three checks,
+on SBCL: =check-site=, =check-reference= and =check-docs= (ADR-0022).
+Every check is seen to fail under a targeted change.
 The rules: [[file:2026-09-30-m2-native-layer-design.md][M2 design]] §8.
 
 The five properties draw their cases from a seeded generator of our own,
@@ -1189,8 +1192,44 @@ or else in =main='s first run after the merge.
 Document installation, library lookup, ECL deployment, security options, version
 compatibility, and support matrix.
 
+A comment sweep for the first release came first, with three fixes it
+found.  The documentation follows: one design, in two slices, each with its
+own plan, branch and PR
+([[file:2026-10-04-m5-documentation-design.md][M5 documentation design]]):
+
+1. *M5a, the documentation machinery*
+   ([[file:2026-10-04-m5a-docs-machinery-implementation.md][M5a plan]]).
+   A generator in =site/= renders =docs/= into a site through the
+   library's public API alone, and =pages.yml= deploys it, from release
+   tags only.  =make test= runs three checks: =check-site=,
+   =check-reference= and =check-docs=, which runs every Lisp example.
+   =docs/reference.md= is generated from the docstrings, and
+   =html-tree->string= writes HTML's 13 void elements as void (ADR-0022).
+2. *M5b, the pages,* on their own branch once M5a has merged: the home
+   page, installing, usage, options, the AST, the HTML tree, safety,
+   errors, ECL and support, and a Documentation section in =README.org=.
+
+The release itself is a later M5 step: its CHANGELOG entry, version and
+tag, the repository made public, publishing to ocicl, and the manual
+macOS run.  Before the tag is pushed, the site needs two manual steps:
+Settings → Pages → Source: GitHub Actions, and a deployment rule in the
+=github-pages= environment that allows =v*= tags (ADR-0022).
+
 Exit: a clean-machine install either works or reports a clear project condition,
-never an invalid-free crash or unexplained unresolved symbol.
+never an invalid-free crash or unexplained unresolved symbol.  For each slice:
+- *M5a:* =html-tree->string= writes HTML's 13 void elements as void;
+  =make site= renders =docs/= into =build/site/= through the public API
+  alone; =make check-site=, =make check-reference= and =make check-docs=
+  pass in =make test=, on every pull request, and each has been seen to
+  fail; =docs/reference.md= is generated for every export; =pages.yml= is
+  in place, its first run at the first release; and =make test= and
+  =main='s CI steps pass in the Guix container and in a local
+  =debian:trixie= run.
+- *M5b:* =docs/= holds the home page and the ten pages, each following the
+  writing rules, every Lisp example run by =make check-docs=.
+  =installing.md='s Debian steps, followed in a fresh =debian:trixie=
+  container, give a working install, or a condition the page explains.
+  The release's manual macOS run checks the macOS steps.
 
 * Risk register
 
@@ -1298,6 +1337,17 @@ never an invalid-free crash or unexplained unresolved symbol.
     dynamic FFI, runs =make check-ecl-nodffi= locally.  Amends 10, 15, 19
     and 23 (ADR-0021; ADR-0004, ADR-0009, ADR-0013 and ADR-0017,
     amended).
+29. The library renders its own documentation: a generator in =site/=,
+    outside the library's system, takes each page of =docs/= through the
+    public API alone, and gives headings the ids GitHub gives them.
+    =make test= runs three checks on SBCL: =check-site= on the site's pages
+    and links, =check-reference= on =docs/reference.md=, which is generated
+    from the docstrings, and =check-docs=, which runs every Lisp example.
+    =pages.yml=, in CI's container, runs them again, and deploys the site
+    from release tags only, the first when the repository goes public.
+    =html-tree->string= writes HTML's 13 void elements as void, and
+    =:document-wrapper= refuses them.  Amends 16, 19 and 20 (ADR-0022;
+    ADR-0010, ADR-0013 and ADR-0014, amended).
 
 Full records live in =.plans/decisions/=.
 

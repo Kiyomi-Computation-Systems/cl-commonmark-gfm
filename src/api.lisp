@@ -116,10 +116,10 @@ value must be valid.
 - :FOOTNOTES: T or NIL. Defaults to T under :GFM, and to NIL under
   :COMMONMARK.
 - :SMART: NIL, the default, or T for curly quotes, dashes and ellipses.
-- :SOURCEPOS: T, the default, gives each node its position,
-  ((START-LINE . START-COLUMN) . (END-LINE . END-COLUMN)), with columns
-  counted in UTF-8 octets, as cmark reports it. A node cmark has no
-  position for, such as a softbreak, gets NIL. With NIL, every node gets
+- :SOURCEPOS: T, the default, gives each node its position: a cons of its
+  start and its end, each a cons of a line and a column, with columns
+  counted in UTF-8 octets, as cmark-gfm reports them. A node cmark-gfm has
+  no position for, such as a softbreak, gets NIL. With NIL, every node gets
   NIL.
 
 The document node's attributes record the profile, the extensions
@@ -127,34 +127,12 @@ attached and the options on. A NUL character, and a lone surrogate, reach
 the AST as U+FFFD.
 
 Signals a TYPE-ERROR when MARKDOWN isn't a string, and
-INVALID-PARSE-OPTION for any bad option, before any call to cmark.
+INVALID-PARSE-OPTION for any bad option, before cmark-gfm runs.
 
-The limits keep cmark's buffers under the size at which it aborts the
-process, and bound its memory. Each is checked before cmark does the work
-it guards, and signals RESOURCE-LIMIT-EXCEEDED:
-- *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever
-  it is bound to: MARKDOWN's UTF-8 length, before parsing;
-- *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
-  table cells cmark would build; then the nodes of the AST, the document
-  included, while copying.
-Bind them to parse larger documents. Each of the three limit variables,
-*MAX-OUTPUT-OCTETS* included, bound to anything but a non-negative integer
-signals a TYPE-ERROR, before any call to cmark.
-
-While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
-entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
-UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
-reaches the faulty code path.
-
-The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
-of directories), and can signal a NATIVE-ERROR when that fails. In an
-ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way.
-
-The remaining risk: on a machine already short of memory, cmark's
-allocator can still abort the process. No Lisp handler can catch that."
+Signals RESOURCE-LIMIT-EXCEEDED for input past *MAX-INPUT-OCTETS* or
+*MAX-NODES*, UNSUPPORTED-INPUT for input cmark-gfm can't parse safely, and
+a NATIVE-ERROR when cmark-gfm fails to load or to run.
+*CMARK-GFM-LIBRARIES* says where it is loaded from."
   (check-type markdown string)
   (let ((checked-options (check-options :parse 'parse options)))
     (check-input markdown checked-options 'parse)
@@ -186,44 +164,20 @@ value must be valid.
 - :UNSAFE-HTML: NIL, the default, writes a comment in place of raw HTML
   (\"<!-- raw HTML omitted -->\") and blanks dangerous URLs; T keeps both,
   as cmark-gfm's own CMARK_OPT_UNSAFE does, though :TAGFILTER, when
-  attached (the :GFM default), still escapes a few tags, such as <script>.
+  attached (the :GFM default), still escapes a few tags, such as
+  \"<script>\".
 
 Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for
 a bad :PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART or :SOURCEPOS value; and
 INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
-unknown key, or a bad :SOFTBREAK or :UNSAFE-HTML value -- before any native
-call.
+unknown key, or a bad :SOFTBREAK or :UNSAFE-HTML value -- before cmark-gfm
+runs.
 
-The limits keep cmark's buffers under the size at which it aborts the
-process, and bound its memory. Each is checked before cmark does the work
-it guards, and signals RESOURCE-LIMIT-EXCEEDED:
-- *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
-  is bound to: MARKDOWN's UTF-8 length, before parsing;
-- *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
-  table cells cmark would build;
-- *MAX-OUTPUT-OCTETS*, 64 MiB by default, and never above 512 MiB whatever
-  it is bound to: after parsing and before rendering, an upper bound on the
-  HTML cmark would write. It takes the worst case, such as every octet of
-  text escaped as &quot;, so a document can be rejected whose HTML would
-  have fit.
-Bind them to render larger documents. Each of the three limit variables
-bound to anything but a non-negative integer signals a TYPE-ERROR, before
-any call to cmark.
-
-While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
-entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
-UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
-reaches the faulty code path.
-
-The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
-of directories), and can signal a NATIVE-ERROR when that fails. In an
-ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way.
-
-The remaining risk: on a machine already short of memory, cmark's
-allocator can still abort the process. No Lisp handler can catch that."
+Signals RESOURCE-LIMIT-EXCEEDED for input past *MAX-INPUT-OCTETS* or
+*MAX-NODES*, or output that could pass *MAX-OUTPUT-OCTETS*;
+UNSUPPORTED-INPUT for input cmark-gfm can't parse safely; and a
+NATIVE-ERROR when cmark-gfm fails to load or to run. *CMARK-GFM-LIBRARIES*
+says where it is loaded from."
   (check-type markdown string)
   (let ((checked-options (check-options :html 'markdown->html options)))
     (check-input markdown checked-options 'markdown->html)
@@ -258,38 +212,13 @@ its options.
 Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for
 a bad :PROFILE, :EXTENSIONS, :FOOTNOTES or :SMART value; and
 INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
-unknown key, or a bad :SOFTBREAK or :WIDTH value -- before any native call.
+unknown key, or a bad :SOFTBREAK or :WIDTH value -- before cmark-gfm runs.
 
-The limits keep cmark's buffers under the size at which it aborts the
-process, and bound its memory. Each is checked before cmark does the work
-it guards, and signals RESOURCE-LIMIT-EXCEEDED:
-- *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
-  is bound to: MARKDOWN's UTF-8 length, before parsing;
-- *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
-  table cells cmark would build;
-- *MAX-OUTPUT-OCTETS*, 64 MiB by default, and never above 512 MiB whatever
-  it is bound to: after parsing and before rendering, an upper bound on the
-  text cmark would write, nested list items' indentation on every line
-  included. It takes the worst case, so a document can be rejected whose
-  text would have fit.
-Bind them to render larger documents. Each of the three limit variables
-bound to anything but a non-negative integer signals a TYPE-ERROR, before
-any call to cmark.
-
-While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
-entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
-UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
-reaches the faulty code path.
-
-The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
-of directories), and can signal a NATIVE-ERROR when that fails. In an
-ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way.
-
-The remaining risk: on a machine already short of memory, cmark's
-allocator can still abort the process. No Lisp handler can catch that."
+Signals RESOURCE-LIMIT-EXCEEDED for input past *MAX-INPUT-OCTETS* or
+*MAX-NODES*, or output that could pass *MAX-OUTPUT-OCTETS*;
+UNSUPPORTED-INPUT for input cmark-gfm can't parse safely; and a
+NATIVE-ERROR when cmark-gfm fails to load or to run. *CMARK-GFM-LIBRARIES*
+says where it is loaded from."
   (check-type markdown string)
   (let ((checked-options (check-options :plaintext 'markdown->plaintext options)))
     (check-input markdown checked-options 'markdown->plaintext)
@@ -316,7 +245,7 @@ value must be valid.
 - :LINK-POLICY: :SAFE, the default, blanks dangerous URLs, as
   MARKDOWN->HTML does by default; :UNSAFE keeps them.
 - :DOCUMENT-WRAPPER: NIL, the default, or a keyword naming a non-void
-  element, to wrap the whole tree in.
+  element (see HTML-TREE->STRING), to wrap the whole tree in.
 The last four, the tree options, are AST->HTML-TREE's own.
 
 This entry point parses without source positions: :SOURCEPOS isn't one of
@@ -326,36 +255,12 @@ Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for
 a bad :PROFILE, :EXTENSIONS, :FOOTNOTES or :SMART value; and
 INVALID-RENDER-OPTION for everything else -- an odd-length option list, an
 unknown key, or a bad :SOFTBREAK, :RAW-HTML, :LINK-POLICY or
-:DOCUMENT-WRAPPER value. Every option is checked before any native call --
-the tree ones by AST->HTML-TREE's own checker -- so a bad option of any
-kind creates no parser.
+:DOCUMENT-WRAPPER value -- before cmark-gfm runs.
 
-The limits keep cmark's buffers under the size at which it aborts the
-process, and bound its memory. Each is checked before cmark does the work
-it guards, and signals RESOURCE-LIMIT-EXCEEDED:
-- *MAX-INPUT-OCTETS*, 1 MiB by default, and never above 256 MiB whatever it
-  is bound to: MARKDOWN's UTF-8 length, before parsing;
-- *MAX-NODES*, 1,000,000 by default: before parsing, an upper bound on the
-  table cells cmark would build; then the nodes of the detached AST, the
-  document included, while copying.
-Bind them to render larger documents. Each of the three limit variables,
-*MAX-OUTPUT-OCTETS* included, bound to anything but a non-negative integer
-signals a TYPE-ERROR, before any call to cmark.
-
-While :FOOTNOTES is on (the :GFM default), a [ immediately followed by an
-entity that decodes to ^ -- &#94;, &#x5e; and the like -- signals
-UNSUPPORTED-INPUT before parsing: cmark-gfm 0.29.0.gfm.13 misreads that
-shape. With :FOOTNOTES NIL this check doesn't run, since cmark never
-reaches the faulty code path.
-
-The first call in a process loads the pinned cmark-gfm, by absolute path
-(*CMARK-GFM-LIBRARIES*, CL_COMMONMARK_GFM_LIBS, or a search of a fixed list
-of directories), and can signal a NATIVE-ERROR when that fails. In an
-ECL program with cmark-gfm linked in, it loads nothing and reads neither
-override, but checks the linked cmark-gfm the same way.
-
-The remaining risk: on a machine already short of memory, cmark's
-allocator can still abort the process. No Lisp handler can catch that."
+Signals RESOURCE-LIMIT-EXCEEDED for input past *MAX-INPUT-OCTETS* or
+*MAX-NODES*, UNSUPPORTED-INPUT for input cmark-gfm can't parse safely, and
+a NATIVE-ERROR when cmark-gfm fails to load or to run.
+*CMARK-GFM-LIBRARIES* says where it is loaded from."
   (check-type markdown string)
   (let* ((checked-options (check-options :html-tree 'markdown->html-tree options))
          (tree-options (checked-tree-options checked-options)))

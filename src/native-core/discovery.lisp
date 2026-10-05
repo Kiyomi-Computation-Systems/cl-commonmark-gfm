@@ -10,22 +10,26 @@
 (defvar *cmark-gfm-libraries* nil
   "Where to load cmark-gfm from: NIL, the default, to search a fixed list of
 directories, never the loader's own search path; or a list of two absolute
-paths, strings or pathnames, (CORE EXTENSIONS), naming the pinned
-libcmark-gfm and libcmark-gfm-extensions directly. The search tries, in
-order, /usr/lib/<multiarch> (x86_64-linux-gnu or aarch64-linux-gnu),
-/usr/lib64, /usr/lib and /usr/local/lib on Linux, or /opt/homebrew/lib and
-/usr/local/lib on macOS, and takes the first that holds both libraries
-under their versioned names, such as libcmark-gfm.so.0.29.0.gfm.13. Read
-when cmark-gfm starts, at the first call that needs it. Takes priority
-over the CL_COMMONMARK_GFM_LIBS environment variable, which names the same
-two paths as \"core:extensions\". Either override is used as given, with
-no fallback to the other or to the search: one that isn't two absolute
-paths, or names something that isn't a regular file, signals
-NATIVE-LIBRARY-NOT-FOUND, whose report names that override. On CCL, which
-can't unload a library, the first pair a process loads stays its pair,
-even if starting cmark-gfm then fails: naming another pair after that
-signals NATIVE-INITIALIZATION-ERROR, and only a new process can load it.
-An ECL program with cmark-gfm linked in loads nothing, and ignores both.")
+paths, strings or pathnames, naming the pinned libcmark-gfm, then
+libcmark-gfm-extensions. Read when cmark-gfm starts, at the first call that
+needs it.
+
+The search tries, in order, /usr/lib/<multiarch> (x86_64-linux-gnu or
+aarch64-linux-gnu), /usr/lib64, /usr/lib and /usr/local/lib on Linux, or
+/opt/homebrew/lib and /usr/local/lib on macOS, and takes the first that
+holds both libraries under their versioned names, such as
+libcmark-gfm.so.0.29.0.gfm.13.
+
+Takes priority over the CL_COMMONMARK_GFM_LIBS environment variable, which
+names the same two paths, separated by a colon. Either override is used as
+given, with no fallback to the other or to the search: one that isn't two
+absolute paths, or names something that isn't a regular file, signals
+NATIVE-LIBRARY-NOT-FOUND, whose report names that override.
+
+On CCL, which can't unload a library, the first pair a process loads stays
+its pair, even if starting cmark-gfm then fails: naming another pair after
+that signals NATIVE-INITIALIZATION-ERROR, and only a new process can load
+it. An ECL program with cmark-gfm linked in loads nothing, and ignores both.")
 
 ;;; Signalling
 

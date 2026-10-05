@@ -767,28 +767,29 @@ output."
 (defun ast->html-tree (node &rest options)
   "Convert the AST NODE into an HTML tree, as cmark-gfm's HTML renderer
 would render it. Returns a list of top-level items, strings and elements,
-whose strings carry the newlines cmark writes; or, with :DOCUMENT-WRAPPER,
-one element of that tag holding them. A NODE that isn't a :DOCUMENT
-converts as a document's only child.
+whose strings carry the newlines cmark-gfm writes; or, with
+:DOCUMENT-WRAPPER, one element of that tag holding them. A NODE that isn't
+a :DOCUMENT converts as a document's only child.
 
 OPTIONS is a plist. When a key repeats, the leftmost value wins, but every
 value must be valid.
-- :RAW-HTML: :OMIT, the default, turns raw HTML into cmark's comment,
+- :RAW-HTML: :OMIT, the default, turns raw HTML into cmark-gfm's comment,
   (:*COMMENT* NIL \" raw HTML omitted \"); :TEXT keeps its markup as text.
 - :SOFTBREAK: :NEWLINE, the default, turns a soft break into a newline;
   :SPACE, into a space; :BR, into (:BR NIL) and a newline.
 - :LINK-POLICY: :SAFE, the default, blanks a link or image URL that starts,
-  in any case, with javascript:, vbscript:, file: or data:, but not
-  data:image/png, gif, jpeg or webp, as cmark-gfm does; :UNSAFE keeps every
-  URL.
+  in any case, with \"javascript:\", \"vbscript:\", \"file:\" or \"data:\",
+  but not \"data:image/png\", \"data:image/gif\", \"data:image/jpeg\" or
+  \"data:image/webp\", as cmark-gfm does; :UNSAFE keeps every URL.
 - :DOCUMENT-WRAPPER: NIL, the default, or a keyword naming a non-void
-  element, which wraps the result in one element of that tag.
+  element (see HTML-TREE->STRING), which wraps the result in one element
+  of that tag.
 
 Signals INVALID-RENDER-OPTION for a malformed option list, an unknown key or
 a bad value, before converting anything; and UNSUPPORTED-EXTENSION-NODE,
 naming the first :EXTENSION node depth-first, when the tree holds one.
-It loops over WALK-AST's events, so the Lisp stack doesn't bound a tree's
-depth. Returns a fresh tree, and leaves NODE as it was."
+Memory, not the Lisp call stack, bounds NODE's depth. Returns a fresh tree,
+and leaves NODE as it was."
   (check-tree-options options 'ast->html-tree)
   (let* ((document (as-document node))
          (renderer (make-renderer :raw-html (option-value options :raw-html)

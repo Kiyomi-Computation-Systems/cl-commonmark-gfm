@@ -44,6 +44,18 @@
                                              (list :checked "")
                                              (list :disabled ""))))))
 
+;;; All 13 of HTML's void elements print void with one attribute, and
+;;; reject a child with INVALID-HTML-TREE.
+
+(define-test html-tree->string-all-void-elements-print-void-and-reject-children
+  (dolist (tag '(:area :base :br :col :embed :hr :img :input :link :meta :source :track :wbr))
+    (let ((name (string-downcase (symbol-name tag))))
+      (is string= (format nil "<~A attr=\"v\" />" name)
+          (html-tree->string (list tag (list (list :attr "v"))))
+          "~A should serialize as a void element" name)
+      (fail (html-tree->string (list tag nil "x")) 'invalid-html-tree
+            "~A should signal INVALID-HTML-TREE given a child" name))))
+
 ;;; Void elements, and repeated/bare/escaped attribute names, are classified
 ;;; by lowercased name, not by keyword identity: :|br| and
 ;;; (INTERN "br" :KEYWORD) are not EQL to :BR, but must still be void.

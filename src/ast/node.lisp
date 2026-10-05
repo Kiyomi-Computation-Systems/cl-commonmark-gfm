@@ -8,8 +8,8 @@
              (:constructor %make-node)
              (:copier nil)
              (:conc-name %node-))
-  "An immutable CommonMark/GFM AST node. Built and validated only through
-MAKE-NODE and COPY-NODE: never call %MAKE-NODE directly."
+  "An immutable CommonMark/GFM AST node. Build one with MAKE-NODE or
+COPY-NODE, which validate it."
   (kind nil :read-only t)
   (attributes nil :read-only t)
   (children nil :read-only t)
@@ -197,8 +197,8 @@ is not in the schema."
 schema does not require takes its default when ATTRIBUTES omits it. CHILDREN
 is a list of nodes, and must be empty when KIND is a leaf kind; MAKE-NODE
 stores a copy of it, so mutating the list you passed afterwards does not
-change the node. SOURCEPOS is NIL or a source range. Signals INVALID-AST-NODE
-for any schema violation."
+change the node. SOURCEPOS is NIL or a source position, as PARSE gives them.
+Signals INVALID-AST-NODE for any schema violation."
   (let* ((kind-spec (require-kind-spec kind 'make-node))
          (pairs (plist-pairs attributes 'make-node)))
     (check-known-attributes pairs kind-spec kind 'make-node)
@@ -266,12 +266,11 @@ except children, which NODE= walks separately."
 (defun node= (a b &key (sourcepos t))
   "True when nodes A and B have the same kind, attributes and children, and,
 unless SOURCEPOS is NIL, the same source position at every depth. Signals a
-TYPE-ERROR, via CHECK-TYPE, when A or B is not a NODE -- A is checked first,
-so its datum is the one named when both are bad.
+TYPE-ERROR when A or B is not a NODE -- A is checked first, so its datum is
+the one named when both are bad.
 
-Loops over an explicit stack of (A . B) node pairs instead of recursing into
-children, so depth is bounded by memory rather than by the Lisp call stack.
-A pair of EQL nodes is equal without being descended into."
+Memory, not the Lisp call stack, bounds the depth it compares. Two EQL nodes
+are equal without being descended into."
   (check-type a node)
   (check-type b node)
   (let ((stack (list (cons a b))))

@@ -509,7 +509,7 @@ signals, or NIL."
       (is eql 'ast->html-tree (and condition (condition-operation condition))))))
 
 (define-test ast->html-tree-rejects-a-bad-document-wrapper
-  (dolist (wrapper (list "div" 'div 42 t :br :hr :img :input :*comment* :|a b| :|1div|))
+  (dolist (wrapper (list "div" 'div 42 t :br :hr :img :input :meta :*comment* :|a b| :|1div|))
     (let ((condition (render-option-error (doc) (list :document-wrapper wrapper))))
       (true condition "wrapper ~S should be rejected" wrapper)
       (is eql 'ast->html-tree (and condition (condition-operation condition))))))

@@ -1,9 +1,10 @@
 #!/bin/sh
 # Tests the Makefile's fail-fast tool checks (scripts/require-tools, wired
-# into deps, check-vocabulary, check-fixtures, fixtures-html, run-suite and
-# check-ecl-static), check-ecl-static's search for cmark-gfm's static
-# archives, check-ecl-nodffi-inside's hint on a Guix host, and the native
-# runners' own library check (tests/run-native.lisp,
+# into deps, check-vocabulary, check-fixtures, fixtures-html, run-suite,
+# check-ecl-static, and the site's check-site, site, reference,
+# check-reference and check-docs), check-ecl-static's search for
+# cmark-gfm's static archives, check-ecl-nodffi-inside's hint on a Guix
+# host, and the native runners' own library check (tests/run-native.lisp,
 # tests/run-native-fuzz.lisp). `make check-preflight` runs this; it is
 # mostly shell and fast, but case (h) below runs one real Lisp. Checks name
 # themselves, and the exit status is non-zero if any failed.
@@ -328,6 +329,46 @@ run_make check-ecl-nodffi-inside
 check "p check-ecl-nodffi-inside, nested: no hint" lacks "run 'make check-ecl-nodffi'"
 check "p check-ecl-nodffi-inside: the guard ran ecl" only_started ecl
 guix_environment=
+
+# (q) make check-site, no sbcl on PATH: fails, naming sbcl, before the
+# recipe goes on. Exit status 2, not the shell's 127 for a missing sbcl,
+# shows require-tools ran: no stub runs before sbcl in any of the five
+# recipes, so a stub's marker couldn't show that require-tools ran, and no
+# "nothing started" check is made of it.
+fresh_case
+guix_environment=
+run_make check-site
+check "q check-site, no sbcl: its recipe exits 2" recipe_failed_with check-site 2
+check "q check-site: names sbcl" has "sbcl not found"
+
+# (r) make site, no sbcl on PATH: the same, for the renderer.
+fresh_case
+guix_environment=
+run_make site
+check "r site, no sbcl: its recipe exits 2" recipe_failed_with site 2
+check "r site: names sbcl" has "sbcl not found"
+
+# (s) make reference, no sbcl on PATH: the same, for the reference writer.
+fresh_case
+guix_environment=
+run_make reference
+check "s reference, no sbcl: its recipe exits 2" recipe_failed_with reference 2
+check "s reference: names sbcl" has "sbcl not found"
+
+# (t) make check-reference, no sbcl on PATH: the same, for the reference
+# check.
+fresh_case
+guix_environment=
+run_make check-reference
+check "t check-reference, no sbcl: its recipe exits 2" recipe_failed_with check-reference 2
+check "t check-reference: names sbcl" has "sbcl not found"
+
+# (u) make check-docs, no sbcl on PATH: the same, for the examples check.
+fresh_case
+guix_environment=
+run_make check-docs
+check "u check-docs, no sbcl: its recipe exits 2" recipe_failed_with check-docs 2
+check "u check-docs: names sbcl" has "sbcl not found"
 
 # (h) the native library check: only with a real sbcl and ocicl/'s
 # dependencies in place, since it runs make for real, on the real PATH,

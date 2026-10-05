@@ -1,0 +1,110 @@
+name: Pages
+
+# Renders docs/ into a static site (make site) and publishes it to GitHub
+# Pages. Runs only on a release tag push or a manual run, never on an
+# ordinary push or pull request, so it adds nothing to their cost. A
+# manual run on a branch builds, checks and uploads the site, but deploys
+# nothing: only a v* tag's run publishes it.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# contents: read is enough for the build job's checkout. The deploy job
+# can't inherit it: a job's own permissions block replaces the top-level
+# one entirely rather than adding to it, so pages: write and id-token:
+# write are declared there instead, where deploy-pages actually uses them.
+permissions:
+  contents: read    # actions/checkout
+
+concurrency:
+  # One Pages deployment at a time. cancel-in-progress stays false: a
+  # deploy already running finishes and publishes rather than being torn
+  # out partway through for a newer one, so a second tag pushed while one
+  # is running queues behind it instead of racing it.
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 30
+    steps:
+      # actions/checkout needs git and HTTPS certs already in the container:
+      # without git, a checkout with submodules: true FAILS outright (it
+      # cannot fall back to the REST API download for submodules) (ADR-0013).
+      # ci/install-toolchain.sh runs later, after checkout, and installs the
+      # rest of the toolchain (it re-installs these two harmlessly).
+      - name: Install git for checkout
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      # The container runs as root, and git (>= 2.35.2) refuses to operate
+      # on a repository it doesn't own unless told to trust it. make
+      # check-site and make site both ask git which files the repository
+      # holds, with git ls-files, so this step is needed here too, not
+      # just kept for consistency with ci.yml's checkout.
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/cmark-gfm"
+
+      - name: Install toolchain
+        run: sh ci/install-toolchain.sh
+
+      - name: make deps
+        run: make deps
+
+      # Gates the render below: a page missing from the sidebar, a broken
+      # link or anchor, raw HTML, or a heading rule violation (check-site),
+      # a docs/reference.md out of date with the docstrings
+      # (check-reference), or a Lisp example whose shown result no longer
+      # matches (check-docs) each fail here, not after the site is built.
+      # A pushed tag can name a commit the pull-request checks never ran
+      # against, so all three run again here.
+      - name: make check-site
+        run: make check-site
+
+      - name: make check-reference
+        run: make check-reference
+
+      - name: make check-docs
+        run: make check-docs
+
+      # SITE_REF names the pushed tag on a tag push, or the ref a manual
+      # dispatch was started on, so the site's links to repository files
+      # point at that ref instead of main.
+      - name: make site
+        run: make site SITE_REF="${GITHUB_REF_NAME}"
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/site
+
+  # Deploys only when a release tag was pushed. A manual dispatch on a
+  # branch still runs the build job above, so the site is rendered and
+  # checked, but this job is skipped: a dry run of the workflow before a
+  # tag exists.
+  deploy:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      pages: write      # deploy-pages publishes the uploaded artifact with this
+      id-token: write   # deploy-pages signs its deployment with this
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

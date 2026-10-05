@@ -19,14 +19,22 @@
   CCL's and ECL's native suites, a step installs `libcmark-gfm-dev` and
   `libcmark-gfm-extensions-dev`, and the next runs `make
   check-ecl-static`; the packages come after the native suites, so
-  discovery only ever sees the runtime packages
+  discovery only ever sees the runtime packages; amended 2026-10-04, in
+  M5a, by ADR-0022 and the
+  [M5 spec](../2026-10-04-m5-documentation-design.md) D6, D9 and §8:
+  `make -k test` adds `check-site`, `check-reference` and `check-docs`, on
+  SBCL; and a second workflow, `.github/workflows/pages.yml`, runs on
+  `v*` tags and by hand only. It reuses CI's container and toolchain
+  script to check and build the documentation site, and deploys it from a
+  `v*` tag alone. CI itself stays one file and one job
 - **Date:** 2026-09-27
 - **Scope:** CI workflow, CI toolchain, native memory checks, the CCL
   start watchdog
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §5
 - **Related:** ADR-0001 (Linux-only CI), ADR-0002 (the pin), ADR-0004
   (the Guix container stays local), ADR-0009 (discovery), ADR-0011
-  (the oracle and `check-pins`), ADR-0021 (linked ECL programs)
+  (the oracle and `check-pins`), ADR-0021 (linked ECL programs), ADR-0022
+  (the documentation site, whose `pages.yml` reuses CI's container)
 
 ## Context
 
@@ -109,6 +117,7 @@ Each step comes into use as its milestone arrives.
 | `make check-pins`, `make check-notice` | now |
 | `make deps`, then `make -k test`, both `if: ${{ !cancelled() }}`: `check-purity` (the pure suite on each Lisp; fails if a `CFFI` package is loaded) and `check-fixtures` | M1 |
 | `make -k test` adds `check-native`, the native suite on SBCL, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
+| `make -k test` adds `check-site`, `check-reference` and `check-docs`, on SBCL: the site generator's tests and `docs/`, the generated reference, and the examples in `docs/` (ADR-0022) | M5a |
 | `make check-native NATIVE_LISPS="ccl ecl"`, the native suite on CCL and ECL, with no override set, on a push to `main` or a dispatch only | M4a |
 | After the CCL and ECL step, on a push to `main` or a dispatch only: install `libcmark-gfm-dev` and `libcmark-gfm-extensions-dev`, then `make check-ecl-static`, which builds a linked ECL program with Debian's ECL and runs it (ADR-0021) | M4b |
 | The corpus oracles, over the whole corpus (ADR-0011, ADR-0018), in the native suite | M2 |
