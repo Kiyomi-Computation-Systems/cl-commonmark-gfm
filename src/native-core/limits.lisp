@@ -17,10 +17,7 @@ sees it. Bind it higher for larger documents, up to a hard cap of
 268,435,456 (256 MiB): a higher binding is held to the cap. The limit
 guards cmark-gfm's parse buffers, which can reach three times the input's
 octets (a NUL or a smart quote becomes three bytes). Bound to anything but
-a non-negative integer, it makes every entry point signal a TYPE-ERROR.
-
-The remaining risk: on a machine already short of memory, cmark-gfm's
-allocator can still abort the process.")
+a non-negative integer, it makes every entry point signal a TYPE-ERROR.")
 
 (defconstant +max-input-octets-hard-cap+ 268435456
   "The hard cap on *MAX-INPUT-OCTETS*, 268,435,456 (256 MiB): no binding
@@ -37,25 +34,19 @@ A breach of either signals RESOURCE-LIMIT-EXCEEDED. The limit guards
 cmark-gfm's own memory -- padded table cells can multiply nodes well past
 the input's size -- and the Lisp heap that holds the AST. No hard cap:
 raise it as far as the machine's memory allows. Bound to anything but a
-non-negative integer, it makes every entry point signal a TYPE-ERROR.
-
-The remaining risk: on a machine already short of memory, cmark-gfm's
-allocator can still abort the process.")
+non-negative integer, it makes every entry point signal a TYPE-ERROR.")
 
 (defvar *max-output-octets* 67108864
   "The most UTF-8 octets MARKDOWN->HTML and MARKDOWN->PLAINTEXT may produce.
 Default 67,108,864 (64 MiB). After parsing and before rendering, each works
 out an upper bound on its output, and signals RESOURCE-LIMIT-EXCEEDED when
-that is above the limit. The bound takes the worst case, so a document can
-be rejected whose output would have fit. Bind it higher for larger
-documents, up to a hard cap of 536,870,912 (512 MiB), half the
-1,073,741,823 bytes past which a buffer aborts the process (cmark-gfm's
-cmark_strbuf_grow); a higher binding is held to the cap. Bound to anything
-but a non-negative integer, it makes every entry point signal a
-TYPE-ERROR, PARSE and MARKDOWN->HTML-TREE included.
-
-The remaining risk: on a machine already short of memory, cmark-gfm's
-allocator can still abort the process.")
+that is above the limit. The bound takes the worst case, such as every
+octet of text escaped as &quot; in HTML, so a document can be rejected
+whose output would have fit. Bind it higher for larger documents, up to a
+hard cap of 536,870,912 (512 MiB), half the 1,073,741,823 bytes past which
+a cmark-gfm buffer aborts the process; a higher binding is held to the cap.
+Bound to anything but a non-negative integer, it makes every entry point
+signal a TYPE-ERROR, PARSE and MARKDOWN->HTML-TREE included.")
 
 (defconstant +max-output-octets-hard-cap+ 536870912
   "The hard cap on *MAX-OUTPUT-OCTETS*, 536,870,912 (512 MiB), half cmark's

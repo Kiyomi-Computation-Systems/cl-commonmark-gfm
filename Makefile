@@ -49,7 +49,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-site site reference check-reference check-docs check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
 
 # The name column is as wide as the longest target's name.
 help: ## Show this help message
@@ -58,7 +58,7 @@ help: ## Show this help message
 	  END { format = "  \033[36m%-" width "s\033[0m %s\n"; \
 	        for (i = 1; i <= n; i++) printf format, name[i], text[i] }' $(MAKEFILE_LIST)
 
-check-help: ## Fail if any .PHONY target is undocumented in `make help`
+check-help: ## Fail if a target is in .PHONY without a `## ` line, or has one without being in .PHONY
 	@missing=0; \
 	targets=$$(awk '/^\.PHONY:/ { $$1 = ""; print }' Makefile); \
 	for t in $$targets; do \
@@ -66,6 +66,14 @@ check-help: ## Fail if any .PHONY target is undocumented in `make help`
 	    echo "check-help: target '$$t' has no '## ' description on its own line" >&2; \
 	    missing=1; \
 	  }; \
+	done; \
+	documented=$$(grep -oE '^[a-zA-Z0-9_.-]+:.*## ' Makefile | sed -E 's/:.*//'); \
+	for t in $$documented; do \
+	  case " $$targets " in \
+	    *" $$t "*) ;; \
+	    *) echo "check-help: target '$$t' has a '## ' description but is not in .PHONY" >&2; \
+	       missing=1 ;; \
+	  esac; \
 	done; \
 	exit $$missing
 
@@ -317,7 +325,7 @@ check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
 check-preflight: ## Test that make fails fast, with a hint, when its tools are missing
 	@sh tests/make-preflight.sh
 
-test: check-watchdog check-preflight check-purity check-fixtures check-native ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
+test: check-watchdog check-preflight check-purity check-fixtures check-native check-site check-reference check-docs ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
 
 # The property tests' own CI case counts (ADR-0020) give `make test` about
 # 30 s in the container. `make fuzz` replaces every property's own count
@@ -345,6 +353,78 @@ fuzz: ## Run the property tests, more cases (FUZZ_CASES); replay with FUZZ_SEED 
 	  echo "fuzz: failed" >&2; \
 	  exit 1; \
 	fi
+
+# The documentation site's targets run on SBCL alone. Their
+# CL_SOURCE_REGISTRY is TEST_SOURCE_REGISTRY plus site/, non-recursively,
+# where ASDF finds cl-commonmark-gfm-site.asd: the generator's systems stay
+# out of cl-commonmark-gfm.asd, so they never ship with the library.
+# check-site and site parse Markdown, so they need cmark-gfm, as
+# check-native does; both also run git, to check that each repository
+# link names a real file or directory.
+SITE_SOURCE_REGISTRY := $(TEST_SOURCE_REGISTRY):$(CURDIR)/site/
+
+check-site: ## Test the documentation site's generator, then check docs/ with it, on SBCL
+	@scripts/require-tools "$(GOAL)" $(firstword $(SBCL)) git
+	@CL_SOURCE_REGISTRY="$(SITE_SOURCE_REGISTRY)" $(SBCL) --non-interactive --no-sysinit \
+	  --no-userinit --load site/run-check-site.lisp </dev/null
+
+# SITE_REF names the git ref build/site/'s pages say they were rendered
+# from, and the ref every /blob/ link to the repository uses; main by
+# default. scripts/guix-env's --preserve list carries nothing but TERM,
+# COLORTERM, LANG and GUIX_ENV_MANIFEST into the container, so this must
+# be a make variable passed to the recipe below, as PROPERTY_SEED is
+# passed to run-suite's: `scripts/guix-env make site SITE_REF=v0.1.0`.
+# Quoted as check-ecl-static quotes CMARK_GFM_ARCHIVE_DIR, and read back
+# with $(value ...), not a plain $(SITE_REF): a git ref may hold a $, and
+# $(SITE_REF) would let make expand it again as a second reference,
+# losing whatever followed it. $(value ...) reads the variable's text
+# with no further expansion, so a ', a ", a `, a $ or a space reaches the
+# Lisp process exactly as given, not as the shell or make would otherwise
+# read it.
+SITE_REF ?= main
+
+site: ## Render docs/ into build/site/ through cl-commonmark-gfm-site; SITE_REF sets the ref (main by default)
+	@scripts/require-tools "$(GOAL)" $(firstword $(SBCL)) git
+	@SITE_REF='$(subst ','\'',$(value SITE_REF))' CL_SOURCE_REGISTRY="$(SITE_SOURCE_REGISTRY)" \
+	  $(SBCL) --non-interactive --no-sysinit --no-userinit --load site/run-site.lisp </dev/null
+
+# docs/reference.md is generated from the docstrings of the symbols
+# cl-commonmark-gfm exports, which site/run-reference.lisp reads from an
+# SBCL image. REFERENCE_ACTION tells it to write the page or to check it.
+# Writing parses no Markdown, so `make reference` doesn't need cmark-gfm.
+# check-reference also renders each docstring's Markdown, to check that it
+# renders as its own text, so it needs cmark-gfm, as check-site does.
+reference: ## Write docs/reference.md from the exported symbols' docstrings, on SBCL
+	@scripts/require-tools "$(GOAL)" $(firstword $(SBCL))
+	@REFERENCE_ACTION=write CL_SOURCE_REGISTRY="$(SITE_SOURCE_REGISTRY)" $(SBCL) --non-interactive \
+	  --no-sysinit --no-userinit --load site/run-reference.lisp </dev/null
+
+check-reference: ## Fail if docs/reference.md is out of date, or a docstring is missing or doesn't render as its text
+	@scripts/require-tools "$(GOAL)" $(firstword $(SBCL))
+	@REFERENCE_ACTION=check CL_SOURCE_REGISTRY="$(SITE_SOURCE_REGISTRY)" $(SBCL) --non-interactive \
+	  --no-sysinit --no-userinit --load site/run-reference.lisp </dev/null
+
+# check-docs runs the forms of every ```lisp block in docs/, each page in a
+# fresh package, and checks each form's ;; => value or ;; signals
+# condition (site/examples.lisp). The examples call the library, so it
+# needs cmark-gfm, as check-native does. An example can end the process
+# itself, with UIOP:QUIT say, with status 0 and before the later pages
+# run, so the recipe requires the runner's summary line, with at least one
+# example, as well as exit status 0.
+check-docs: ## Run the Lisp examples in docs/ and check each one's result, on SBCL
+	@scripts/require-tools "$(GOAL)" $(firstword $(SBCL))
+	@log=build/check-docs.log; \
+	mkdir -p build || exit 1; \
+	CL_SOURCE_REGISTRY="$(SITE_SOURCE_REGISTRY)" $(SBCL) --non-interactive --no-sysinit \
+	  --no-userinit --load site/run-check-docs.lisp </dev/null >"$$log" 2>&1; \
+	status=$$?; \
+	cat "$$log"; \
+	[ "$$status" -eq 0 ] || exit "$$status"; \
+	grep -qE '^check-docs: [1-9][0-9]* examples? on [1-9][0-9]* pages?$$' "$$log" || { \
+	  echo "make $(GOAL): the examples' run exited 0, but printed no" \
+	    "'check-docs: <e> examples on <p> pages', e above 0" >&2; \
+	  exit 1; \
+	}
 
 check-guix: ## Test scripts/guix-env on the host, then run the checks inside the container
 	@sh tests/guix-env-launcher.sh

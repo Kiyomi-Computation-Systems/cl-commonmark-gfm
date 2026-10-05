@@ -19,9 +19,11 @@ classify a tag or attribute name (compared with STRING= against the tables
 below) and to print it, so classification and printing can never disagree."
   (string-downcase (symbol-name keyword)))
 
-(defparameter *void-element-names* '("br" "hr" "img" "input")
+(defparameter *void-element-names*
+  '("area" "base" "br" "col" "embed" "hr" "img" "input" "link" "meta" "source"
+    "track" "wbr")
   "Lowercased element names that print with no children and no end tag, as
-\"<tag />\": the void elements cmark-gfm writes.")
+\"<tag />\": HTML's void elements.")
 
 (defparameter *bare-attribute-names* '("data-footnotes" "data-footnote-ref" "data-footnote-backref")
   "Lowercased attribute names that print with no value, as just \" name\",
@@ -41,10 +43,9 @@ ALT, ...) leaves ' raw, as houdini_escape_html0 does.")
   (and (member name-string *void-element-names* :test #'string=) t))
 
 (defun void-element-p (keyword)
-  "True when KEYWORD is a void element tag: :BR, :HR, :IMG or :INPUT, in any
-keyword case or interning, classified by its LOWERCASE-NAME-STRING rather
-than by keyword identity. A void element with children signals
-INVALID-HTML-TREE."
+  "True when KEYWORD is one of HTML's void element tags, in any keyword case
+or interning, classified by its LOWERCASE-NAME-STRING rather than by
+keyword identity. A void element with children signals INVALID-HTML-TREE."
   (and (keywordp keyword) (void-element-name-p (lowercase-name-string keyword))))
 
 ;;; VALID-HTML-NAME-P
@@ -368,6 +369,9 @@ list whose first item is a keyword; or a list of strings and elements (NIL
 is the empty list, so it serializes as \"\"). Adds no newlines or
 indentation of its own: the output is TREE's plain concatenation. Signals
 INVALID-HTML-TREE for a malformed TREE, naming the offending node or value.
+The void elements, :AREA, :BASE, :BR, :COL, :EMBED, :HR, :IMG, :INPUT,
+:LINK, :META, :SOURCE, :TRACK and :WBR, print with no end tag, as
+\"<tag />\", and signal INVALID-HTML-TREE if they have children.
 
 Text and attribute values are entity-escaped, but URLs aren't checked: the
 link policy applies only in AST->HTML-TREE. Memory, not the Lisp call

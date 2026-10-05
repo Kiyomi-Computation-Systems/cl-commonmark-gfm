@@ -11,15 +11,14 @@
 
 (defun walk-ast (function node)
   "Visit NODE and its descendants depth-first, children in order, calling
-(FUNCALL FUNCTION :ENTER N) before each node N's children and
-(FUNCALL FUNCTION :EXIT N) after them; a leaf gets both calls. When an
-:ENTER call returns :SKIP, that node's children and its :EXIT call are
-skipped; every other returned value is ignored. Returns NIL.
+FUNCTION with :ENTER and each node before its children, and with :EXIT and
+the node after them; a leaf gets both calls. When an :ENTER call returns
+:SKIP, that node's children and its :EXIT call are skipped; every other
+returned value is ignored. Returns NIL.
 
-Loops over an explicit stack instead of recursing, so depth is bounded by
-memory rather than by the Lisp call stack, and, unlike NODE-CHILDREN,
-reads each node's children without copying them. Signals a TYPE-ERROR,
-via CHECK-TYPE, when NODE is not a NODE, before FUNCTION is ever called.
+Memory, not the Lisp call stack, bounds NODE's depth, and, unlike
+NODE-CHILDREN, it reads each node's children without copying them. Signals
+a TYPE-ERROR when NODE is not a NODE, before FUNCTION is ever called.
 Whatever FUNCTION signals propagates out of WALK-AST, abandoning the walk."
   (check-type node node)
   ;; FOLD-AST, MAP-AST, TRANSFORM-AST and AST->HTML-TREE's walks are all
@@ -43,12 +42,12 @@ Whatever FUNCTION signals propagates out of WALK-AST, abandoning the walk."
 
 (defun fold-ast (function initial-value node)
   "Fold FUNCTION over NODE and its descendants, depth-first and parent
-before children: ACCUMULATOR starts at INITIAL-VALUE, and each call,
-(FUNCALL FUNCTION N ACCUMULATOR) for a node N, returns the next
-ACCUMULATOR. Returns the final accumulator.
+before children: FUNCTION is called with each node and the accumulator,
+which starts as INITIAL-VALUE, and returns the next accumulator. Returns
+the final accumulator.
 
-Acts on WALK-AST's :ENTER events, so it doesn't recurse over NODE's depth,
-and signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE."
+Memory, not the Lisp call stack, bounds NODE's depth. Signals a TYPE-ERROR
+when NODE is not a NODE."
   (let ((accumulator initial-value))
     (walk-ast (lambda (event n)
                 (when (eql event :enter)
@@ -57,12 +56,11 @@ and signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE."
     accumulator))
 
 (defun map-ast (function node)
-  "Return the list of (FUNCALL FUNCTION N) for NODE and each descendant,
-visited depth-first, parent before children, in that order.
+  "Return a list of FUNCTION's results on NODE and each descendant,
+depth-first, parent before children, in that order.
 
-Acts on WALK-AST's :ENTER events, so it doesn't recurse over NODE's depth,
-and signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE.
-Linear in the number of nodes."
+Memory, not the Lisp call stack, bounds NODE's depth. Signals a TYPE-ERROR
+when NODE is not a NODE. Linear in the number of nodes."
   (let ((results '()))
     (walk-ast (lambda (event n)
                 (when (eql event :enter)
@@ -115,8 +113,8 @@ anything else, or when the root doesn't come back as exactly one node, bare
 or alone in a list; its datum is then what FUNCTION returned. When no child
 of a node changed, FUNCTION is called on that same node object, not a copy.
 
-Acts on WALK-AST's events, so it doesn't recurse over NODE's depth, and
-signals a TYPE-ERROR, as WALK-AST does, when NODE is not a NODE."
+Memory, not the Lisp call stack, bounds NODE's depth. Signals a TYPE-ERROR
+when NODE is not a NODE."
   ;; A node's frame is pushed when WALK-AST enters it, and finished when
   ;; WALK-AST leaves it: the result goes into the parent's frame, now on
   ;; top, or, for the root, becomes ROOT-RESULT.

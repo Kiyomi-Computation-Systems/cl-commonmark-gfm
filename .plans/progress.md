@@ -65,11 +65,21 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   runs (ADR-0021).
 - TDD. A test is done when it has been seen to fail.
 - Mutation runs delete the project's fasls before every run, the restoring
-  run included: its `src` and `tests` trees under the fasl caches, which in
-  the Guix containers are `.guix-env/cache*/common-lisp/`. ASDF compares
+  run included: its `src`, `tests` and `site` trees under the fasl caches,
+  which in the Guix containers are `.guix-env/cache*/common-lisp/`. The
+  documentation site's generator compiles under `site`. ASDF compares
   file dates to the second, so a source mutated and restored within one
   second keeps its mutated fasl. Deleting those trees is enough, since
   mutations never touch the dependencies.
+- A probe copy of the tree, for a review or a mutation run, needs the
+  repository's `.git` copied in before `make check-site` or `make site`
+  runs in it. Both targets ask git which files the repository holds
+  (ADR-0022). In a copy nested in the repository without its own `.git`,
+  git answers for the enclosing repository, which ignores `.guix-env/`,
+  so every repository link "names no file in the repository". A `git
+  init` won't do: it lists the cmark-gfm submodule's files as untracked,
+  so links into the submodule pass there, though the real checkout
+  refuses them.
 - No fasls are shared between ECLs built differently, or with a linked
   build (M4 finding 9). The container whose ECL has no dynamic FFI has its
   own fasl cache, and a linked build compiles into `build/ecl-static/`,
@@ -90,8 +100,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M1 pure core | closed 2026-09-28; GitHub CI proven 2026-10-02 |
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
-| M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b in PR #10 |
-| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`) and the override's name in reports (PR #13, `e933679`), all merged 2026-10-04; a plain UNWIND-PROTECT on CCL on branch `m5-ccl-plain-unwind-protect` |
+| M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b merged 2026-10-04 (PR #10, `06d3b7f`) |
+| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), ready for its PR, on branch `m5a-docs-machinery`, with its close-out |
 
 ### M0 checklist
 
@@ -238,8 +248,13 @@ Plans: [M4a implementation](2026-10-03-m4a-ccl-ecl-dynamic-ffi-implementation.md
 
 ### M5 checklist
 
-No spec yet. At the maintainer's request, the comment sweep comes first,
-before the documentation.
+At the maintainer's request, the comment sweep and three fixes from its
+"for later" list came first. The documentation follows, in two slices,
+each with its own plan, branch and PR: M5a, the machinery, and M5b, the
+pages.
+
+Spec: [M5 documentation design](2026-10-04-m5-documentation-design.md) ·
+Plan: [M5a implementation](2026-10-04-m5a-docs-machinery-implementation.md)
 
 **The comment sweep** (branch `m5-comment-sweep`):
 
@@ -283,6 +298,64 @@ the sweep's "for later" item 5:
 - [x] The suites on all three Lisps; `main`'s CI steps in a local
   `debian:trixie` run; close-out
 
+**The documentation machinery, M5a** (branch `m5a-docs-machinery`):
+
+- [x] The serializer's void elements: `*void-element-names*` holds HTML's
+  13, so `:document-wrapper` refuses the nine new names too. Red first:
+  the nine failed both their assertions, 18 failures, and the old four
+  passed. Dropping `meta` failed its 2 assertions and the wrapper test's
+  2, which now names `:meta`; skipping the children check failed 16. The
+  pure suite passes on all three Lisps, 584 tests, and the native suite
+  on SBCL is unchanged, 199 tests (Task 1)
+- [x] The site's pure core in `site/`: heading ids, links, the template
+  and `render-site`, through the public API alone. It also reports two
+  headings that share an id (M5 finding 19), and counts the links it
+  checks. `make check-site` runs its 39 tests, 73 assertions. Every check
+  was red before the implementation, none passed against stubs, and 25
+  mutations each failed their assertions (Task 2)
+- [x] The shell, `site/build.lisp`: `make site`, with `SITE_REF`, writes
+  `build/site/`, with the doctype, the void `<meta>`, `style.css` and
+  `theme.js`; `make check-site` checks `docs/` too; a placeholder
+  `docs/README.md`. Six cases each failed `make check-site`, naming the
+  page and the problem: a page missing from `*pages*`, a link to a
+  missing id, raw HTML, a `##` first heading, a shared id, and the `.md`
+  rewrite disabled (Task 3)
+- [x] The reference: `make reference` writes `docs/reference.md` from the
+  49 exports' docstrings, and `make check-reference` keeps it current.
+  `make check-site` passes over its links and ids: `node`, then `node=`
+  as `node-1`. Red first, then 40 mutation runs, each failing. Among
+  them, a docstring edited in `src/` without `make reference` is named,
+  and so is a docstring removed, which `make reference` refuses to write
+  (Task 4)
+- [x] `make check-docs` runs every Lisp block in `docs/`: for now, 1
+  example on 1 page, in `docs/README.md`. A malformed expectation, or a
+  marker without exactly two semicolons, fails it (M5 findings 25 and
+  26). Red first; against stubs, 4 negative halves passed, and each
+  failed later under a mutation. The plan's four mutations each failed
+  with a named report, and so did 15 more, one per rule. `make
+  check-site` now runs 93 tests, 163 assertions (Task 5)
+- [x] CI: `make test` runs the three checks after `check-native`, adding
+  about 1 s warm and 2 s cold, in the container: from 127 s to 128 s warm,
+  and from 157 s to 159 s cold. The preflight has 5 new cases, 63 checks
+  in all, each new case red when its target loses its `require-tools`
+  line. `pages.yml` deploys only from a `v*` tag, with
+  upload-pages-artifact v5 and deploy-pages v5, read from their releases
+  (Task 6)
+- [x] Documents, part 1: ADR-0022; ADR-0010 and ADR-0014 amended;
+  AGENTS.md's writing rules; the plan's void elements; this file's M4 and
+  M5 rows (Task 7)
+- [x] Documents, part 2: this checklist, the plan's M5 and decision 29,
+  and AGENTS.md's rules for examples (Task 7)
+- [x] Four review rounds, two Opus reviewers each, with fixes after each
+  and a narrow fifth look; `main`'s CI steps and `pages.yml`'s build
+  steps in five local `debian:trixie` runs, all green; close-out (Task 8)
+
+**For the release,** a later M5 step:
+
+- [ ] Check what the release's ocicl step packages. If ocicl packages the
+  whole repository, `site/cl-commonmark-gfm-site.asd` ships in it, and a
+  recursive source registry would find it (M5a's first review)
+
 ### October: CI follow-up
 
 GitHub Actions minutes ran out before the first run (2026-09-27; the job was
@@ -324,6 +397,131 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-05 — M5a: the documentation machinery (branch `m5a-docs-machinery`)
+
+- **Built** (M5 spec §4 to §8; ADR-0022; ADRs 0010, 0013 and 0014
+  amended):
+  - **the serializer** writes HTML's 13 void elements as void, and
+    `:document-wrapper` refuses the nine new names;
+  - **the site generator, in `site/`,** on the library's public API
+    alone. A test refuses an internal import, and a source scan refuses
+    `::`, or `:` into a sub-package.
+    - **The pure core:** `ids.lisp`, `links.lisp`, `template.lisp` and
+      `render.lisp`, whose `render-site` returns five values;
+      `checks.lisp`, the shell's decisions; `reference.lisp`, the
+      generator and its render check; and `examples.lisp`, behind
+      `check-docs`.
+    - **The shell:** `build.lisp`, with four runners.
+    - **The theme:** chez's `style.css`, byte for byte, and its theme
+      script as `theme.js`;
+  - **the make targets:**
+    - `make site`, with `SITE_REF`, quoted and checked;
+    - `make check-site`: the site's tests, then checks 1 to 7 over
+      `docs/`, with the repository links checked through `git ls-files`;
+    - `make reference`, and `make check-reference`, which runs the render
+      check;
+    - `make check-docs`, which needs its summary line.
+
+    `make test` runs the three checks after `check-native`, and
+    `check-help` checks both directions;
+  - **`docs/`:** a placeholder `README.md` with one example, and the
+    generated `reference.md`, 49 symbols in 448 lines;
+  - **`pages.yml`:** on `v*` tags and by hand, in CI's `debian:trixie`
+    container, with CI's first four steps. It runs the three checks, then
+    `make site`, and uploads the site with upload-pages-artifact v5.
+    deploy-pages v5 deploys on `v*` tags only, so a manual run on a branch
+    is a dry run. The deploy job alone has the Pages permissions, and the
+    build job a 30-minute timeout;
+  - **the preflight:** 5 new cases, 63 checks in all;
+  - **the exported docstrings,** rewritten for users: each fact in one
+    home, readers named, no developer detail, and what users type shown as
+    code. A form check, seen to fail, shows that only docstrings changed,
+    apart from the void-element list;
+  - **the documents:** ADR-0022; ADR-0010, ADR-0013 and ADR-0014 amended;
+    AGENTS.md's writing rules for `/docs`; the project plan's M5 section,
+    Tests line, release list, void-element line and decision 29; two new
+    global constraints, on `site` fasls and a probe copy's own `.git`.
+- **Seen to fail:** every task was red first, and each new check failed
+  under mutation:
+  - Task 1: 2 mutations, and the wrapper test;
+  - Task 2: 25 mutations;
+  - Task 3: six cases;
+  - Task 4: 40 mutation runs;
+  - Task 5: 4 planned mutations, and 15 more.
+
+  Every fix was red first, or its mutation was its red, and each was seen
+  to fail by mutation.
+- **Reviews,** four rounds, two Opus reviewers each, split by area:
+  - **Round 1:** reviewer A found 1 must-fix, 7 should-fixes and 11 nits;
+    reviewer B 2 must-fixes, 8 should-fixes and 11 nits. Three decisions
+    went to the maintainer:
+    - the reference escapes only Markdown's and GFM's syntax characters,
+      by position, with a render check;
+    - every docstring the reviews found is fixed in M5a;
+    - repository links are checked.
+  - **Round 2:** reviewer A found 1 should-fix, the shell's checks
+    untested, and 4 nits. Reviewer B found 3 should-fixes, and nits:
+    repository links that GitHub doesn't serve, a `$` lost from
+    `SITE_REF`, and ADR-0022 lagging the decisions.
+  - **Round 3:** 4 should-fixes: the guard's pattern crashing the site, an
+    untested render comparison, a wrong ref message, and the submodule
+    link.
+  - **Round 4:** reviewer A was clean. Reviewer B found 1 should-fix, a
+    regression from round 4's own gitlink fix (B44). It is fixed, and a
+    narrow fifth look verified it: `../vendor/` passes, every path into
+    the submodule is refused, and round 4's cases still behave.
+- **Found:** M5 findings 16 to 32, in the spec.
+- **Tests:** the final `make test` in the Guix container passed cold, in
+  165 s:
+  - the pure suite: 584 tests on each Lisp, with 1,805 assertions on SBCL
+    and ECL, and 1,804 on CCL;
+  - the native suite: 199 tests and 1,534 assertions on SBCL;
+  - `check-site`: 168 tests and 318 assertions, then 2 pages, 16 links, no
+    problems;
+  - `check-reference`: 49 symbols; `check-docs`: 1 example on 1 page;
+  - the watchdog's 37 checks, and the preflight's 63.
+
+  The final Docker run added the native suites on CCL, 209 tests, and on
+  ECL, 190; `make check-ecl-static`'s 65 checks; and the launcher's 54.
+- **Time:** `make test` gained about 1 s warm and 2 s cold, by Task 6's
+  measurement before the fix rounds: 127 to 128 s warm, and 157 to 159 s
+  cold. After all the fix rounds, the three site checks take 1.5 s
+  together, warm, inside one container call.
+- **`main`'s CI steps and `pages.yml`'s build steps in `debian:trixie`,**
+  against the working tree, five times, all green. The test steps took
+  668 s, 738 s, 679 s and 673 s, then 666 s in the final run, after the
+  last fix. `make site SITE_REF=v0.0.0-proof` wrote both pages, with the
+  doctype, the void `<meta>`, the ref, `style.css` and `theme.js`.
+- **`main`'s run after the CCL change** (37237875852, on `650855c`) passed
+  in 17 min 3 s.
+- **For M5b:**
+  - **the pages,** spec §5;
+  - **the rules the checks now hold pages to:**
+    - ASCII-only headings, with no image or footnote reference in a
+      heading (finding 29);
+    - no relative images (finding 18); if a page needs one, the shell must
+      learn to copy it;
+    - examples bind library variables with `let`, use no `#+` or `#-`, and
+      show a type error through a library call;
+    - the footnote guard's pattern written as finding 32 says;
+  - **the last reviews' nits:**
+    - the advice for the guard's pattern in a Lisp code block: build the
+      string from two pieces, as in `(concatenate 'string "[" "&#94;")`
+      (A31, B47);
+    - move `*reference-page*` into `pages.lisp` (A32);
+    - a tab in a file name (A33);
+    - a symbol split across a comment (A34);
+    - no preflight case covers a missing git (B45);
+    - the ref messages could name the offending character or segment
+      (B46);
+    - typed text still plain in docstrings: library file names, multiarch
+      names, `data-sourcepos`;
+    - `docs/README.md` says "walk and change" (B19), though nodes are
+      immutable;
+  - **the release's hand-offs,** listed already in the project plan's M5
+    and under "For the release" above: the two manual Pages steps, the
+    ocicl packaging check, and the macOS run.
 
 ### 2026-10-04 — A plain UNWIND-PROTECT on CCL (branch `m5-ccl-plain-unwind-protect`)
 

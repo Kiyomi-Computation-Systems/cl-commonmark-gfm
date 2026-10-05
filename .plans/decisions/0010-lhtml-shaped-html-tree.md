@@ -1,6 +1,17 @@
 # ADR-0010: An LHTML-shaped HTML tree, not SXML; public `html-tree->string`
 
-- **Status:** Accepted; amended by ADR-0014 (2026-09-27)
+- **Status:** Accepted; amended by ADR-0014 (2026-09-27); amended
+  2026-10-04, in M5a, by ADR-0022 and the
+  [M5 spec](../2026-10-04-m5-documentation-design.md) D7 and §4: the
+  serializer writes HTML's 13 void elements as void, where it wrote only
+  the four cmark writes, `br`, `hr`, `img` and `input`. The nine new ones
+  are `area`, `base`, `col`, `embed`, `link`, `meta`, `source`, `track`
+  and `wbr`. Each of the 13 prints as `<tag ... />`, and signals
+  `invalid-html-tree` when it has children. Trees from `ast->html-tree`
+  don't change, since cmark writes only the four. `:document-wrapper`
+  takes only a non-void element, so the nine new names are refused there
+  too, with `invalid-render-option`. Before, they were accepted, and the
+  wrapper printed with an end tag
 - **Date:** 2026-09-27
 - **Scope:** HTML tree format, serializer, `cl-commonmark-gfm/html-tree`
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §4.1, §4.2,

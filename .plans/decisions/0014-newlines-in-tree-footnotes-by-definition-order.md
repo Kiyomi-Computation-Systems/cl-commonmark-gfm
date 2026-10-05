@@ -6,7 +6,13 @@
   ASTs) are settled in M2b; amended 2026-10-02 by M3 finding 9
   ([M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md)
   §3): three more divergence shapes, with the same two causes, and repeat
-  references can differ with no body reference
+  references can differ with no body reference; amended by ADR-0022
+  (2026-10-04): the serializer's rule on void elements covers HTML's 13,
+  not only the four cmark writes. The nine new ones are `area`, `base`,
+  `col`, `embed`, `link`, `meta`, `source`, `track` and `wbr`. Each of the
+  13 prints as `<tag ... />`, and signals `invalid-html-tree` when it has
+  children. A `:document-wrapper` must name a non-void element, so the
+  nine are refused there too, with `invalid-render-option`
 - **Date:** 2026-09-27
 - **Scope:** HTML tree layout and footnotes, serializer rules, M1's tree
   tests, `ast->html-tree`'s options

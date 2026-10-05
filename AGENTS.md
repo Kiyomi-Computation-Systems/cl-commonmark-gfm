@@ -41,8 +41,34 @@
   constraints that bind every task brief, manual macOS runs, and close-outs.
   Read it before starting slice work; record close-outs there.
 * Add entries to `CHANGELOG.md` for each release
-* `/docs` is for user facing documentation only.
-* Documentation should be very concise, focused, to the point, ELI5 style.
+* `/docs` is the user documentation, and the project's site is rendered
+  from it (ADR-0022). Its rules:
+  * Very concise, focused and plain, ELI5 style: short sentences, one idea
+    each, plain words; what to do first, then why. Most pages stay under
+    about 150 lines.
+  * For users only: no ADRs, findings, milestones or project history.
+  * Each fact on one page; other pages link to it.
+  * Symbols in lower case, as users type them: `markdown->html`,
+    `*max-nodes*`.
+  * Every Lisp example runs, in `make check-docs`: `;; =>` gives a form's
+    result and `;; signals` the error it signals, each with exactly two
+    semicolons. A prose comment below a `;; =>` needs a blank line first.
+    Fence a block that can't run here as `lisp no-run`; the check refuses
+    any other Lisp fence, such as `cl`.
+  * An example shows what a reader such as `node-kind` returns, never a
+    whole node. It binds a library variable with `let`, never `setf`.
+    `make check-docs` refuses `#+` and `#-`.
+  * The footnote guard's pattern, a `[` before an entity for `^`, makes
+    `parse` refuse its whole input, code included. In a page, write its
+    `&` as `&amp;` outside code; as code, split it into two spans with a
+    word between, as in "a `[` then `&#94;`". In an exported docstring,
+    write it plainly, outside double quotes, and the generator escapes
+    it; as code, write two quoted strings, as `unsupported-input`'s
+    docstring does.
+  * Markdown only: no raw HTML, which the site would omit. `make
+    check-site` rejects it.
+  * `docs/reference.md` is generated. After changing an export or its
+    docstring, run `make reference`.
 * `Makefile` should have a `help` command which lists all of its commands
 
 ### Testing & mutation discipline
