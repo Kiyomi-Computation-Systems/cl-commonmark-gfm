@@ -1,6 +1,8 @@
 # ADR-0022: Documentation rendered by the library
 
-- **Status:** Accepted 2026-10-04
+- **Status:** Accepted 2026-10-04; amended 2026-10-05, in M5b, by the
+  [M5 spec](../2026-10-04-m5-documentation-design.md) D13: backquoted text
+  in an exported docstring shows as code in the reference
 - **Date:** 2026-10-04
 - **Scope:** the user documentation: `docs/` and its writing rules; the
   site, its generator in `site/` and its deployment; the generated
@@ -8,7 +10,7 @@
   `make check-reference` and `make check-docs`; the serializer's void
   elements
 - **Spec:** [M5 design](../2026-10-04-m5-documentation-design.md) §1, §2
-  (D1 to D9), §3 (findings 1 to 5, 10 to 14, 16, 18, 19, 23 and 25 to
+  (D1 to D9, and D13), §3 (findings 1 to 5, 10 to 14, 16, 18, 19, 23 and 25 to
   32), §4 to §8, §11
 - **Amends:** ADR-0010 and ADR-0014 (the serializer writes HTML's 13 void
   elements as void, and `:document-wrapper` refuses all 13), ADR-0013
@@ -131,7 +133,8 @@ reads and writes no file; `make site`, the shell, writes `build/site/`.
   elements, saying what to quote (M5 finding 23). What users type
   shows as code, its case kept: a double-quoted string, an upper-case
   name holding an underscore, such as an environment variable, and an
-  absolute path.
+  absolute path. Since M5b, so does what a docstring puts in backquotes,
+  such as a file name, as written, the backquotes dropped (D13).
 - **Every exported docstring the reviews found reading wrongly was
   rewritten for users,** in M5a (M5 design §11).
 - **A link to a repository file must name one that GitHub's `/blob/` URL
@@ -193,8 +196,10 @@ reads and writes no file; `make site`, the shell, writes `build/site/`.
   `parse` refuse its whole input, code spans included, so the site reports
   it as that page's or entry's problem. A page writes the pattern's `&` as
   `&amp;` outside code, and splits it into two code spans with a word
-  between. A docstring writes it plainly, outside double quotes, which the
-  generator escapes, or as two quoted strings for code (M5 finding 32).
+  between; a Lisp example builds the string from two pieces, as
+  `(concatenate 'string "[" "&#94;")`. A docstring writes it plainly,
+  outside double quotes and backquotes, which the generator escapes, or as
+  two quoted strings for code (M5 finding 32, D13).
 - **Two changes reach users of the HTML tree:** a hand-built tree holding
   one of the nine new void names prints it void, or signals if it has
   children; and `:document-wrapper` refuses those names (M5 design §4).

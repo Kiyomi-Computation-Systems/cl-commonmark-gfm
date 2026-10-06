@@ -14,11 +14,11 @@ paths, strings or pathnames, naming the pinned libcmark-gfm, then
 libcmark-gfm-extensions. Read when cmark-gfm starts, at the first call that
 needs it.
 
-The search tries, in order, /usr/lib/<multiarch> (x86_64-linux-gnu or
-aarch64-linux-gnu), /usr/lib64, /usr/lib and /usr/local/lib on Linux, or
+The search tries, in order, /usr/lib/<multiarch> (`x86_64-linux-gnu` or
+`aarch64-linux-gnu`), /usr/lib64, /usr/lib and /usr/local/lib on Linux, or
 /opt/homebrew/lib and /usr/local/lib on macOS, and takes the first that
 holds both libraries under their versioned names, such as
-libcmark-gfm.so.0.29.0.gfm.13.
+`libcmark-gfm.so.0.29.0.gfm.13`.
 
 Takes priority over the CL_COMMONMARK_GFM_LIBS environment variable, which
 names the same two paths, separated by a colon. Either override is used as

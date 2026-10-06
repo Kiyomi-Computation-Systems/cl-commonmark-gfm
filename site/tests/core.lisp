@@ -553,8 +553,11 @@ only a broken one shows that RENDER-SITE runs the scan on every page."
         (is equal '("index.html" "usage.html") names)
         (is equal '(("README.md" "home") ("guard.md") ("usage.md" "usage")) ids)
         (is equal (list "README.md: link guard.md#guard names no id on guard.md"
-                        (format nil "guard.md: can't be parsed: unsupported-input: ~A; write its & ~
-                                     as &amp; outside code, or split it into two code spans"
+                        (format nil "guard.md: can't be parsed: unsupported-input: ~A; write ~
+                                     its & as &amp; outside code; as code, split it into two ~
+                                     code spans with a word between; in a Lisp example, build ~
+                                     the string from two pieces, as (concatenate 'string \"[\" ~
+                                     \"&#94;\")"
                                 (parse-report guard)))
             problems)))))
 

@@ -8,8 +8,11 @@
              (:constructor %make-node)
              (:copier nil)
              (:conc-name %node-))
-  "An immutable CommonMark/GFM AST node. Build one with MAKE-NODE or
-COPY-NODE, which validate it."
+  "A CommonMark/GFM AST node, with no setters. Build one with MAKE-NODE or
+COPY-NODE, which validate it. A node keeps the position and attribute
+values it is built with. NODE-SOURCEPOS and NODE-ATTRIBUTE return them as
+they are, and NODE-ATTRIBUTES puts them in a new plist: don't modify them,
+or the node changes too."
   (kind nil :read-only t)
   (attributes nil :read-only t)
   (children nil :read-only t)
@@ -25,7 +28,8 @@ COPY-NODE, which validate it."
   (%node-kind node))
 
 (defun node-attributes (node)
-  "Return a fresh copy of NODE's canonical attribute plist."
+  "Return a fresh copy of NODE's canonical attribute plist. The plist is
+new, but its values are the node's own: don't modify them."
   (copy-list (%node-attributes node)))
 
 (defun node-children (node)

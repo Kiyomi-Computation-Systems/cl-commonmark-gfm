@@ -21,7 +21,16 @@
   second review: §6.3's links checked through git; §7.3's warnings; §8's
   permissions; §9's new rows. Amended by the third review: §6.3's ref
   segments; §6.5's git; §7.1's check 3 and §7.2's render check in
-  `check-reference`; finding 32, with §5's rule
+  `check-reference`; finding 32, with §5's rule. Amended 2026-10-05 by the
+  probes before M5b's plan and the maintainer's decisions on them:
+  findings 33 to 39; D10 to D13; §1's exit test; §5's `installing.md`
+  and its rule for the guard's pattern in an example; §7.2's backquotes;
+  §9's new rows; §10's probes; §11's ADR-0022 and AGENTS.md. Amended
+  during M5b: §7.2's rule for what counts as a backquoted run; findings
+  40 to 47, and D14 to D16. Amended by M5b's reviews: §5's rules for an
+  example's line breaks and package, and the pilot's conventions; §5's
+  `ecl.md` row; §11's AGENTS.md line; D13's list; D16's lengths; findings
+  43 and 44
 - **Milestone:** M5, the release candidate: its documentation, in two
   slices, each with its own plan, branch and PR. M5a builds the machinery
   (§4, §6 to §8), and M5b writes the pages (§5). The release itself is a
@@ -64,7 +73,9 @@ first release on.
   writing rules, every Lisp example run by `make check-docs`.
 - The plan's M5 exit test, for the docs: `installing.md`'s Debian steps,
   followed in a fresh `debian:trixie` container, give a working install,
-  or a condition the page explains. The release's manual macOS run checks
+  or a condition the page explains. Until the release puts the library on
+  ocicl, one step has a stand-in (D10). Its source build does the same in
+  a fresh `ubuntu:24.04` (D11). The release's manual macOS run checks
   the macOS steps (finding 7).
 
 ## 2. Decisions made while brainstorming
@@ -87,6 +98,41 @@ first release on.
   is opened, and the site renders it as `index.html`.
 - **D9. `pages.yml` reuses CI's container and toolchain script,** so the
   site is built with the SBCL and cmark-gfm that CI tests.
+
+Decided by the maintainer after the probes before M5b's plan (findings 33
+to 39):
+- **D10. The exit test stands in for one step until the release.**
+  ocicl can't install the library before it is published (finding 36). So
+  in place of `ocicl install cl-commonmark-gfm`, the test puts the
+  repository's tracked files where ocicl puts a system, with the
+  `ocicl.csv` row ocicl writes, and follows every other step as the page
+  gives it. The release reruns it with the real step.
+- **D11. `installing.md` covers building cmark-gfm from source,** for
+  systems whose packages are older, such as Debian 12 and Ubuntu 24.04 LTS
+  (findings 33 and 34). The exit test runs that build in a fresh
+  `ubuntu:24.04`.
+- **D12. A pilot page first.** `usage.md` is written, and the maintainer
+  approves its voice and shape, before the other pages are written in
+  parallel after it.
+- **D13. Backquotes mark code in an exported docstring.** The generator
+  renders a backquoted run as a code span, as written; a lone backquote
+  stays escaped. The docstrings mark typed text that names no symbol
+  and that no other rule makes code: file names, multiarch names,
+  `data-sourcepos` and the entity `&quot;` (§7.2).
+
+Decided by the maintainer while M5b's pages were written:
+- **D14. Readers' shared data is documented, not copied.** `node`'s
+  docstring and `ast.md` say not to modify a position or an attribute's
+  value a reader returns, as CL says of `symbol-name` (finding 42).
+- **D15. A short "Saved images" section in `usage.md`.**
+  `native-state-held` stays internal; exporting it is for later
+  (finding 45).
+- **D16. Pages past "about 150 lines" stay as they are:** at the
+  decision, `installing.md` 201, `ast.md` 188, `safety.md` 179 and
+  `ecl.md` 155 lines. Each covers its whole row of §5. After the review's
+  fixes and `usage.md`'s "Saved images" (D15), half the ten written pages
+  are past it: `installing.md` 205, `ast.md` 192, `safety.md` 180,
+  `usage.md` 163 and `ecl.md` 155.
 
 ## 3. Findings
 
@@ -259,6 +305,115 @@ Found during M5a:
     split it into two quoted strings, as `unsupported-input`'s docstring
     does (§5).
 
+Probes before M5b's plan (§10), in fresh containers on 2026-10-05, found
+the rest:
+
+33. **Which systems ship the pin.** Debian 13 (trixie) and Debian testing
+    ship cmark-gfm 0.29.0.gfm.13, as `libcmark-gfm0.29.0.gfm.13` and
+    `libcmark-gfm-extensions0.29.0.gfm.13`; so do Ubuntu 25.04, 25.10 and
+    26.04 LTS. The extensions package depends on the core one, so
+    installing it alone brings both. Debian 12 and Ubuntu 24.04 LTS ship
+    gfm.6, and Ubuntu 22.04 gfm.3: there the search finds nothing (finding
+    37). Their SBCLs: 2.2.9 on Ubuntu 24.04 and 25.04, 2.5.2 on Debian 13
+    and Ubuntu 25.10, 2.6.0 on Ubuntu 26.04, 2.6.4 on Debian testing.
+34. **A source build reaches the search.** CMake builds the tag and
+    installs both libraries into `/usr/local/lib` under their versioned
+    names, with the static archives beside them. The search covers that
+    directory, so nothing else is needed. CMake 3.28, on Ubuntu 24.04,
+    warns that the project's minimum is deprecated; CMake 4.3, on Debian
+    testing, refuses the project unless given
+    `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`, then builds it. On Ubuntu 24.04,
+    with its SBCL 2.2.9, the library then loaded and rendered.
+35. **ocicl as a user meets it.** Its README installs it on Debian and
+    Ubuntu from ocicl's own signed apt repository: 2.20.0, where CI pins
+    2.9.0.
+    - `ocicl setup` prints Lisp, its comments included, so `ocicl setup >>
+      ~/.sbclrc` installs it.
+    - That code registers only the directory Lisp starts in, so Lisp must
+      start in the project's directory, beside its `ocicl.csv`.
+    - `ocicl install cffi` fetched cffi alone under 2.20.0, and its
+      dependencies too under 2.9.0. Either way, ocicl's runtime fetched
+      what was missing at the first `asdf:load-system`, in 10 to 12 s.
+    - Every run of the `ocicl` binary warns that MPFR wasn't loaded, on a
+      system without libmpfr. It changes nothing here.
+36. **ocicl can't install the library before the release.** For
+    `cl-commonmark-gfm`, ocicl 2.20.0 reports HTTP 401 and exits 1; 2.9.0,
+    without `-v`, prints nothing and exits 0. Either way nothing is
+    installed, and the runtime then fails for want of an `ocicl.csv`. So:
+    D10. With the stand-in, the library loaded, and ocicl fetched its
+    dependencies.
+37. **A missing library, as a user meets it.** Without cmark-gfm, the
+    library loads, and its first call signals `native-library-not-found`,
+    reporting `no searched directory holds both pinned libraries; set
+    *CMARK-GFM-LIBRARIES* or CL_COMMONMARK_GFM_LIBS to override`, then the
+    four directories. Each call searches again until cmark-gfm
+    starts: with an override naming missing files, then fixed, the next
+    call in the same process rendered, on SBCL, CCL and ECL.
+38. **Homebrew's formula** is 0.29.0.gfm.13, with bottles for arm64 and
+    x86_64 macOS, and not keg-only, so it installs into Homebrew's own
+    `lib/`: `/opt/homebrew/lib` on Apple silicon and `/usr/local/lib` on
+    Intel, both searched (formulae.brew.sh).
+39. **Guix's cmark-gfm is 0.29.0.gfm.13** (`guix show`). Its libraries sit
+    in the profile's `lib/` under their versioned names, which the search
+    doesn't cover, so a Guix user names them with
+    `CL_COMMONMARK_GFM_LIBS`, as the development container does from its
+    own profile.
+
+Found while M5b's pages were written:
+
+40. **A Lisp string has no `\n` escape.** `(parse "# Title\n\nHello")`
+    reads `# TitlennHello`, so an example written that way checks the
+    wrong input, and its `;; =>`, copied from a run, still passes. The
+    `\n` in printed results invites the mistake. Examples write
+    multi-line Markdown with real line breaks in the string.
+41. **A package an example defines outlives its page** in `make
+    check-docs`, and a later page's different `defpackage` of the same
+    name fails it, with `sb-int:package-at-variance`. So only `usage.md`
+    defines a package.
+42. **A reader returns its node's own data.** `node-sourcepos` returns
+    the node's position conses, and `node-attribute` its strings and
+    lists; `make-node` keeps the values it is given. Destroying one
+    changes the node, though `node`'s docstring called it immutable.
+    `node-attributes` and `node-children` copy only the list itself. So:
+    D14.
+43. **cmark-gfm's positions are wrong in more places than ADR-0005 and
+    the project plan list,** each matching the pinned CLI's XML:
+    - after a backslash line break, the rest of the paragraph is a line
+      early, and the next line's text is in the wrong columns too:
+      `handle_backslash` (`vendor/cmark-gfm/src/inlines.c`) doesn't
+      advance the line, or reset the column offset, as `handle_newline`
+      does;
+    - an email autolink, and the text after it, have no position, and
+      the text before it keeps the end of the whole original run;
+    - a bare `https://` link's start column is an offset into its chunk,
+      a `www.` link starts one column early, and the text before either
+      keeps its old end (`vendor/cmark-gfm/extensions/autolink.c`);
+    - when a table follows a paragraph's lines, the table's start and its
+      header row are wrong too, not only the rebuilt paragraph's inline
+      positions (M3 finding 7): `"a\nb\n|-"` gives the table `((1 . 1) 3
+      . 2)` and the header `((1 . 1) 1 . 3)`.
+
+    `ast.md` tells users when not to trust a position.
+44. **`:sourcepos` marks block elements only.** cmark-gfm's HTML renderer
+    gives `data-sourcepos` to block elements, a table's included, and
+    never to inline ones such as `em`, `a` or `code`
+    (`vendor/cmark-gfm/src/html.c`). `markdown->html`'s docstring said
+    "each element"; it now says "most block elements": footnote
+    definitions, `thead` and `tbody` get none either.
+45. **Saved images were on no page.** The save hooks close cmark-gfm, and
+    the saved image starts it again at its first call. A save while a
+    call holds the state is refused with `native-state-held`, which is
+    internal and unexported, and no `commonmark-gfm-error`. So: D15.
+46. **ocicl's runtime looks in parent directories too,** its README says,
+    so Lisp may start in the project's directory or below it (finding
+    35's "must start in the project's directory" is the safe reading;
+    subdirectories weren't probed).
+47. **Two macOS paths can't be tried here** and go to the release's
+    macOS run: an Intel Homebrew under Rosetta, for CCL on Apple silicon
+    (Homebrew has moved Intel Macs to its third tier); and Homebrew's
+    ECL, 26.5.5 where CI runs 24.5.10, whose `:dffi` and the linked
+    recipe are unknown.
+
 ## 4. The serializer's void elements (M5a)
 
 - `*void-element-names*` becomes HTML's list: `area`, `base`, `br`, `col`,
@@ -284,14 +439,14 @@ Found during M5a:
 | Page | Covers |
 |---|---|
 | `README.md` (home) | What the library does, in two sentences. A taste: `markdown->html`, an HTML tree and `parse`, one short example each. Safe by default. A link to every page. |
-| `installing.md` | cmark-gfm 0.29.0.gfm.13: exactly that version, and why. Packages for Debian and Ubuntu, macOS (Homebrew) and Guix. The library through ocicl. Which directories are searched, and why both libraries must come from one of them. The two overrides; the Lisp variable wins. Each condition startup can signal, with its fix. Loading cmark-gfm's library files yourself beside this library is unsupported. |
+| `installing.md` | cmark-gfm 0.29.0.gfm.13: exactly that version, and why. Packages for Debian and Ubuntu, macOS (Homebrew) and Guix, and a build from source where the packages are older (D11). The library through ocicl. Which directories are searched, and why both libraries must come from one of them. The two overrides; the Lisp variable wins. Each condition startup can signal, with its fix. Loading cmark-gfm's library files yourself beside this library is unsupported. |
 | `usage.md` | The four entry points, one example each. Options as keyword arguments; the `:gfm` and `:commonmark` profiles. Binding the limits for large documents, linking to `safety.md`. |
 | `options.md` | One table: each option, its values, its default, the entry points that take it, and what it does. |
 | `ast.md` | What `parse` returns: each node's kind, attributes, children and position. A table of kinds and their attributes. Reading nodes; building and copying them, checked. The four walks, and when to use each; no depth limit. Positions are cmark's own, counted in UTF-8 bytes, and a few are wrong or negative. |
 | `html-tree.md` | The tree's shape, with an example. The tree options. `html-tree->string` escapes, adds no layout, and doesn't check URLs added to the tree afterwards. Writing a whole page. The rare footnote inputs whose numbering differs from cmark's HTML. |
 | `safety.md` | Safe by default: raw HTML becomes a comment, dangerous URLs are blanked; how to opt out, and why not to with untrusted input. The three size limits: what each guards, its default and cap, binding it. The footnote guard: `unsupported-input`, and how to avoid it. What remains: a machine short of memory can still make cmark abort, and cmark has other parser bugs. Threads: parallel parses are safe; another cmark-gfm user in the same process can race. Timeouts are coarse, and on ECL interrupting a call isn't safe. A CCL process keeps the first library pair it loads. |
 | `errors.md` | Every condition: when it is signalled, and what to do. The readers. One `handler-case` example. |
-| `ecl.md` | ECL with dynamic FFI works like SBCL. Without it: `dynamic-ffi-unavailable`. A linked program's recipe; Debian's ECL loads its own ASDF as the program starts; on macOS, `CMARK_GFM_ARCHIVE_DIR`, and the static check hasn't run there. A link to the interrupt warning. |
+| `ecl.md` | ECL with dynamic FFI works like SBCL. Without it: `dynamic-ffi-unavailable`. A linked program's recipe; Debian's ECL loads its own ASDF as the program starts; on macOS, naming the archives' directory in the build, which hasn't been tried there. A link to the interrupt warning. |
 | `support.md` | The support matrix, and how each cell is verified: CI on Linux amd64; macOS by hand before each release. CCL is amd64 only; arm64 Linux is unverified; Windows is unsupported. The Lisp versions tested. |
 | `reference.md` | Generated (§7.2). |
 
@@ -305,12 +460,19 @@ Found during M5a:
 - **Every Lisp example runs** (§7.3), its results shown with `;; =>`. An
   example shows what a reader returns, never a whole node (finding 13).
   It binds a library variable with `let`, never `setf`, and uses no `#+`
-  or `#-` (findings 27 and 28).
+  or `#-` (findings 27 and 28). It writes multi-line Markdown with real
+  line breaks, since a Lisp string has no `\n` escape, and only `usage.md`
+  defines a package (findings 40 and 41).
+- **The pilot's conventions** (D12): how a section opens, how long an
+  example runs, how symbols and sections are linked, "function" for an
+  entry point, headings without code, and where `;; =>` is explained;
+  AGENTS.md holds them.
 - **The footnote guard's pattern,** a `[` before an entity for `^`, is
   never written whole in a page: outside code its `&` is written `&amp;`,
-  and as code it is split into two spans. In a docstring it is written
-  plainly, which the generator escapes, or as two quoted strings for code
-  (finding 32).
+  and as code it is split into two spans. A Lisp example builds the string
+  from two pieces, as `(concatenate 'string "[" "&#94;")`. In a docstring
+  it is written plainly, which the generator escapes, or as two quoted
+  strings for code (finding 32).
 - **Markdown only:** no raw HTML (§7.1).
 
 M5a writes `docs/README.md` as a short placeholder, so the site and its
@@ -460,6 +622,15 @@ entry fails the render check below.
     double-quoted string, quotes included; an upper-case name holding an
     underscore, such as an environment variable or a C macro; and an
     absolute path;
+  - a backquoted run, such as `` `libcmark-gfm.a` ``, becomes a code span
+    holding what lies between the backquotes, as written, the backquotes
+    dropped (D13). A backquote's partner is the next backquote on its
+    line. The pair is a run when it holds at least one character, has no
+    whitespace just inside either backquote, and neither backquote touches
+    another. Any other pair stays escaped, both backquotes, and its
+    partner opens nothing; so does a backquote with no partner. Read left
+    to right, whichever opens first, a backquote, a code form or a double
+    quote, holds what follows to its end;
   - only the characters Markdown and GFM give meaning to are escaped:
     ``\ ` * _ [ ] < & | ~`` anywhere, and at the start of a paragraph or
     list item `# > + - =` and the `.` or `)` after a leading number. The
@@ -556,6 +727,9 @@ deployment rule allowing `v*` tags (finding 16).
 | §7.2 | a docstring edited without `make reference`; a docstring removed |
 | §7.3 | a wrong `;; =>` result; a `;; signals` form that returns |
 | the generator's own tests | each rule of §6.3 and finding 4, broken in turn |
+| §7.2's backquotes (D13) | backquoted runs escaped as before; a lone backquote made a code span |
+| each page's examples (M5b) | one `;; =>` per page made wrong: `make check-docs` names that page |
+| the exit test (§1, D10, D11) | cmark-gfm's packages left out: the first call signals `native-library-not-found`, which `installing.md` explains; a misspelled package name in a copy of the page fails its step |
 
 ## 10. Slices, and probes before each plan
 
@@ -575,6 +749,17 @@ Probes before its plan, all run (findings 11 to 15):
 
 **M5b, the pages,** on its own branch once M5a has merged: §5's pages,
 README.org's Documentation section, and the fresh-container check of §1.
+Probes before its plan, all run (findings 33 to 39):
+- which Debian and Ubuntu images ship the pin, read from each image's
+  `apt-cache`;
+- `installing.md`'s path as a user would follow it, in fresh containers:
+  SBCL, cmark-gfm's packages and ocicl, as its README installs it on
+  Debian, then the library, its first call without cmark-gfm and with it;
+  with ocicl 2.9.0 and 2.20.0;
+- a source build of the tag, on Ubuntu 24.04 with CMake 3.28 and on
+  Debian testing with CMake 4.3;
+- a failed start, then a fixed one, in one process, on all three Lisps;
+- Homebrew's formula, and Guix's package.
 
 ## 11. Documents
 
@@ -586,7 +771,13 @@ README.org's Documentation section, and the fresh-container check of §1.
 - **ADR-0010's and ADR-0014's status:** amended by D7. ADR-0014 holds the
   serializer's rules, and the project plan's line on void elements
   follows.
-- **AGENTS.md:** §5's writing rules, under `/docs`.
+- **AGENTS.md:** §5's writing rules, under `/docs`. In M5b: the guard's
+  pattern in a Lisp example; backquotes for typed text in an exported
+  docstring (D13); real line breaks in an example's Markdown, and only
+  `usage.md` defining a package (findings 40 and 41); and the pilot's
+  conventions (D12).
+- **ADR-0022's status,** in M5b: amended by D13, since it lists what the
+  reference shows as code.
 - **README.org,** in M5b: a Documentation section linking `docs/`, and the
   site once it is live.
 - **progress.md:** M5's checklist, and each slice's close-out.

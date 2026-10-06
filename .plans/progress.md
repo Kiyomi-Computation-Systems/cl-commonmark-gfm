@@ -101,7 +101,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b merged 2026-10-04 (PR #10, `06d3b7f`) |
-| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), ready for its PR, on branch `m5a-docs-machinery`, with its close-out |
+| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), merged 2026-10-05 (PR #15, `e124fc4`); M5b, the pages, ready for its PR, on branch `m5b-pages`, with its close-out |
 
 ### M0 checklist
 
@@ -254,7 +254,8 @@ each with its own plan, branch and PR: M5a, the machinery, and M5b, the
 pages.
 
 Spec: [M5 documentation design](2026-10-04-m5-documentation-design.md) ·
-Plan: [M5a implementation](2026-10-04-m5a-docs-machinery-implementation.md)
+Plans: [M5a implementation](2026-10-04-m5a-docs-machinery-implementation.md),
+[M5b implementation](2026-10-05-m5b-pages-implementation.md)
 
 **The comment sweep** (branch `m5-comment-sweep`):
 
@@ -350,11 +351,69 @@ the sweep's "for later" item 5:
   and a narrow fifth look; `main`'s CI steps and `pages.yml`'s build
   steps in five local `debian:trixie` runs, all green; close-out (Task 8)
 
+**The pages, M5b** (branch `m5b-pages`):
+
+- [x] M5a's review nits, A31 to A34 and B45 to B47 (Task 1). Both
+  reports for a page the guard refuses say how to write the pattern in a
+  code block; a tab in a file name survives; a refused `SITE_REF` names
+  its character or segment; a preflight case covers a missing git, 69
+  checks in all; `*reference-page*` lives in `pages.lisp`. Red first, and
+  each fix reverted failed its tests. `make check-site` runs 171 tests,
+  322 assertions
+- [x] Backquotes for typed text in the exported docstrings (Task 2). A
+  backquoted run becomes a code span, as written; a pair CommonMark would
+  read otherwise, and a lone backquote, stay escaped. Four docstrings
+  mark file names, multiarch names, `data-sourcepos` and `&quot;`, and a
+  form check shows only docstrings changed. The render check's advice
+  suggests backquotes, and quotes a docstring's text without the
+  generator's escapes. Red first; 17 mutations each failed. `make
+  check-site` runs 182 tests, 351 assertions
+- [x] Page stubs, and the sidebar's pages (Task 3): nine stubs, each
+  with its fixed headings; `make check-site` passes over 11 pages
+- [x] The pilot, `usage.md`, approved by the maintainer (Task 4): 140
+  lines, 12 examples, its conventions passed to the other writers
+- [x] The other pages: installing, support, options, the HTML tree, the
+  AST, safety, errors, ECL, and the home page (Task 5). Six writers in
+  parallel, after the pilot; then `usage.md`'s "Saved images" (D15). 77
+  examples on 8 pages, and each page's examples seen to fail once.
+  `installing.md`'s steps passed the exit test in both modes, and
+  `ecl.md`'s recipe was built and run by hand in three places. Each
+  writer listed every claim no example shows, with its source
+- [x] The exit test, `tests/install-docs.sh`: the Debian steps in a fresh
+  `debian:trixie`, and the source build in a fresh `ubuntu:24.04`
+  (Task 6). On the final page, both modes passed: the first call gave
+  the page's value, on SBCL 2.5.2 and 2.2.9, with ocicl 2.20.0 from its
+  apt repository. Seen to fail: with cmark-gfm's steps skipped, the
+  first call signalled `native-library-not-found`, which the page
+  explains; a misspelled package failed its step; and with `git` gone
+  from the page's build tools, the source build failed, since the test
+  installs no git of its own
+- [x] Documents, part 1: AGENTS.md's rules for the guard's pattern in a
+  Lisp example and for backquotes in docstrings, then for an example's
+  line breaks and package, and the pilot's conventions; ADR-0022 amended
+  by D13; the project plan's M5 (Task 7)
+- [x] Documents, part 2: README.org's Documentation section, this file
+  (Task 7)
+- [x] Two reviews, fixes, and a second review scoped to them, then a
+  narrow re-check, clean; `main`'s CI steps and `pages.yml`'s build steps
+  in local `debian:trixie` runs, green; close-out (Task 8)
+
 **For the release,** a later M5 step:
 
 - [ ] Check what the release's ocicl step packages. If ocicl packages the
   whole repository, `site/cl-commonmark-gfm-site.asd` ships in it, and a
   recursive source registry would find it (M5a's first review)
+- [ ] Rerun M5b's exit test with the real `ocicl install
+  cl-commonmark-gfm`, in both modes: `STAND_IN=0 tests/install-docs.sh
+  debian`, then `source` (M5 design D10)
+- [ ] In the manual macOS run, try the two paths `docs/` gives but no one
+  has run (M5 finding 47), and update `installing.md` and `ecl.md`:
+  - CCL on Apple silicon, with an Intel Homebrew's cmark-gfm under
+    Rosetta, named with `CL_COMMONMARK_GFM_LIBS`;
+  - Homebrew's ECL (26.5.5): `(find :dffi *features*)`, and `ecl.md`'s
+    linked recipe
+- [ ] Link the site from README.org's Documentation section once it is
+  live
 
 ### October: CI follow-up
 
@@ -397,6 +456,112 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-05 — M5b: the pages (branch `m5b-pages`)
+
+- **Built** (M5 spec §5; D10 to D16):
+  - **the pages:** the home page and nine pages, 77 examples on 8 of them,
+    every one run by `make check-docs`:
+    - `README.md`, the home page, 42 lines;
+    - `installing.md`, 205: the packages for Debian 13 and Ubuntu 26.04
+      LTS, Homebrew and Guix; a source build for older systems (D11);
+      ocicl; the search; the overrides; and the startup conditions;
+    - `usage.md`, 163: the four functions, options, profiles, large
+      documents, and saved images (D15);
+    - `options.md` 122, `ast.md` 192, `html-tree.md` 137, `safety.md` 180,
+      `errors.md` 117, `ecl.md` 155 and `support.md` 32;
+  - **the exit test,** `tests/install-docs.sh`. It runs `installing.md`'s
+    shell steps as the page gives them: in a fresh `debian:trixie`, and,
+    for the source build, in a fresh `ubuntu:24.04`. Until the release it
+    stands in for `ocicl install cl-commonmark-gfm` with the working
+    tree's tracked files, passed in on stdin (D10);
+  - **backquotes in docstrings** (D13). A backquoted run becomes code, as
+    written. The render check refuses a run that would be code without
+    its backquotes, and its advice quotes a docstring's own text;
+  - **M5a's nits,** A31 to A34 and B45 to B47, and the review's code
+    nits, among them SHA-256 object names in `git ls-files` entries;
+  - **docstrings:**
+    - typed text in backquotes;
+    - `:sourcepos` marks most block elements;
+    - "function" for "entry point";
+    - `node` and `node-attributes` say a reader's values are the node's
+      own (D14).
+
+    A form check shows only docstrings changed in `src/`;
+  - **documents:**
+    - AGENTS.md's rules for the guard's pattern in an example,
+      backquotes, an example's line breaks and package, and the pilot's
+      conventions;
+    - ADR-0022 amended by D13, and ADR-0005's item 3 by finding 43;
+    - the spec's findings 33 to 47, and D10 to D16;
+    - the plan; README.org's Documentation section; the project plan's
+      M5 and Source positions.
+- **How:**
+  - probes before the plan (findings 33 to 39), then four decisions (D10
+    to D13);
+  - the pilot, `usage.md`, approved by the maintainer (D12);
+  - six writers in parallel. Each listed every claim no example shows,
+    with its source, for the first reviewer;
+  - three more decisions while the pages were written (D14 to D16).
+- **Seen to fail:**
+  - **each page's examples:** one `;; =>` made wrong, named by `make
+    check-docs`;
+  - **the exit test:**
+    - cmark-gfm's steps skipped: the first call signals
+      `native-library-not-found`, which the page explains;
+    - a misspelled package;
+    - `git` gone from the source build's tools, since the test installs
+      none of its own;
+  - **the code:** every fix was red first, or its mutation was its red.
+    Task 1's reverts and Task 2's 20 mutations each failed their tests.
+- **Reviews:** two Opus reviewers, then a second review scoped to the
+  fixes, and a narrow re-check:
+  - **A, the facts:** no false statement; 2 should-fixes (a reader's
+    shared values, an email autolink's positions) and 8 nits;
+  - **B, the writing, the code and the documents:** 7 should-fixes, among
+    them SHA-256 entries, the exit test passing without git, and the
+    pilot's conventions written down nowhere lasting; and nits;
+  - **the second review:** 2 should-fixes, both text: a soft-break
+    detail lost in a rewrite, and AGENTS.md's conventions stated as
+    harder rules than the pages keep; 5 nits;
+  - **the re-check:** clean, with 4 nits, all fixed.
+- **Found:** M5 findings 33 to 47, in the spec.
+- **Tests:**
+  - **the final `make test`** in the Guix container passed cold, in
+    167 s:
+    - the pure suite, 584 tests on each Lisp;
+    - the native suite, 199 tests on SBCL;
+    - `check-site`, 185 tests and 354 assertions, then 11 pages and 180
+      links with no problems;
+    - `check-reference`, 49 symbols, current;
+    - `check-docs`, 77 examples on 8 pages;
+    - the watchdog's 37 checks and the preflight's 69;
+  - **`main`'s CI steps and `pages.yml`'s build steps** in `debian:trixie`,
+    against the working tree, three times, all green: before the
+    review's fixes, after them, and after the second review's. Their test
+    steps took 668 s, 706 s and 671 s. They covered CCL's 209 and ECL's
+    190 native tests and `make check-ecl-static`'s 65 checks, and
+    `check-docs` ran all 77 examples on Debian's SBCL 2.5.2. Only records
+    and the exit test, which CI doesn't run, changed after the last;
+  - **the exit test** on the final page, both modes green: SBCL 2.5.2 in
+    Debian 13 and 2.2.9 in Ubuntu 24.04, with ocicl 2.20.0 from its apt
+    repository.
+- **For the release** (also under "For the release" above):
+  - rerun the exit test with the real `ocicl install`, in both modes;
+  - in the manual macOS run, try CCL on Apple silicon with an Intel
+    Homebrew's cmark-gfm, and Homebrew's ECL (finding 47);
+  - link the site from README.org once it is live;
+  - `ecl.md`'s recipe is checked only by hand: rerun
+    `.guix-env/tmp/m5b-ecl/run.sh` and `run-debian.sh`, which are kept
+    out of git.
+- **For later:**
+  - export `native-state-held`, or make it a `commonmark-gfm-error`
+    (D15);
+  - concurrent `make check-docs` runs share `build/check-docs.log`;
+  - the render check refuses a backquoted run only when the whole run is
+    one name or one form; `` `:SOFTBREAK :BR` `` passes, in upper case.
+    No docstring holds such a run;
+  - five of the ten written pages run past "about 150 lines" (D16).
 
 ### 2026-10-05 — M5a: the documentation machinery (branch `m5a-docs-machinery`)
 

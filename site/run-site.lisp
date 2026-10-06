@@ -20,9 +20,9 @@
     (uiop:quit 2)))
 
 ;; SITE_REF, unset, is MAKE's own default, main; set but unfit to use
-;; (make site SITE_REF=, or one holding a character or a segment REF-
-;; PROBLEM refuses) is refused here, with the rule it breaks, rather than
-;; written into a broken link or an empty one.
+;; (make site SITE_REF=, or one holding a character or a segment
+;; REF-PROBLEM refuses) is refused here, with the rule it breaks, rather
+;; than written into a broken link or an empty one.
 (let* ((ref (or (uiop:getenv "SITE_REF") cl-commonmark-gfm.site::*default-ref*))
        (ref-problem (cl-commonmark-gfm.site::ref-problem ref)))
   (when ref-problem

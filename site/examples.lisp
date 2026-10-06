@@ -696,10 +696,16 @@ parsing MARKDOWN signals instead, such as a limit's."
 (defun check-page-blocks (name markdown package)
   "Check the Lisp blocks of the page NAME, whose text is MARKDOWN, in
 order, running their examples in PACKAGE, as CHECK-PAGE-EXAMPLES says. A
-page that can't be parsed is one problem, which names the error."
+page that can't be parsed is one problem, which names the error, and, for
+UNSUPPORTED-INPUT, *UNSUPPORTED-INPUT-FIX*, how to change the page so it
+parses."
   (multiple-value-bind (blocks condition) (parse-lisp-blocks markdown)
     (if condition
-        (values (list (format nil "~A: can't be parsed: ~A" name (signalled condition package))) 0)
+        (values (list (format nil "~A: can't be parsed: ~A~@[; ~A~]"
+                             name
+                             (signalled condition package)
+                             (and (typep condition 'unsupported-input) *unsupported-input-fix*)))
+                0)
         (loop for (info . code) in blocks
               for block from 1
               for (block-problems found) = (multiple-value-list

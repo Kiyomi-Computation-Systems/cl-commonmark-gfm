@@ -370,6 +370,25 @@ run_make check-docs
 check "u check-docs, no sbcl: its recipe exits 2" recipe_failed_with check-docs 2
 check "u check-docs: names sbcl" has "sbcl not found"
 
+# (v) make check-site and make site, a stub sbcl, no git: both need git as
+# well as sbcl, so with sbcl present, only git's absence stops them, before
+# either goes on to run it.
+fresh_case
+stub sbcl
+guix_environment=
+run_make check-site
+check "v check-site, no git: its recipe exits 2" recipe_failed_with check-site 2
+check "v check-site: names git" has "git not found"
+check "v check-site: nothing started" nothing_started
+
+fresh_case
+stub sbcl
+guix_environment=
+run_make site
+check "v site, no git: its recipe exits 2" recipe_failed_with site 2
+check "v site: names git" has "git not found"
+check "v site: nothing started" nothing_started
+
 # (h) the native library check: only with a real sbcl and ocicl/'s
 # dependencies in place, since it runs make for real, on the real PATH,
 # with CL_COMMONMARK_GFM_LIBS pointing at two files that don't exist.
