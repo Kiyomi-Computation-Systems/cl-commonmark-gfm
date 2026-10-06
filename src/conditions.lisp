@@ -232,7 +232,7 @@ at run time. Starting cmark-gfm signals it first, before looking for or
 loading anything. CONDITION-DATUM is :DFFI, and CONDITION-REASON says how
 to link cmark-gfm into a program instead: compile with
 CFFI-SYS:*CFFI-ECL-METHOD* set to :C/C++, and link
-libcmark-gfm-extensions.a and libcmark-gfm.a. A program with cmark-gfm
+`libcmark-gfm-extensions.a` and `libcmark-gfm.a`. A program with cmark-gfm
 linked in never signals it."))
 
 (define-condition native-initialization-error (native-error) ()

@@ -8,6 +8,11 @@ GitHub Flavored Markdown for Common Lisp (via =cmark-gfm=)
 ✨ *AI Disclosure:* LLMs are used extensively in the planning and development of this project.
 #+end_quote
 
+* Documentation
+
+Start at [[file:docs/README.md][docs/]]: installing, usage, the options, the AST, the HTML
+tree, safety, errors, ECL, support, and the API reference.
+
 * License
 
 © [[https://kiyomicomputation.systems/][Kiyomi Computation Systems LLC]]. Licensed under BSD 3-Clause — see

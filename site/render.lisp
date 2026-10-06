@@ -33,12 +33,16 @@ the page then has no AST, headings or ids."
                      ast)))
 
 (defparameter *unsupported-input-fix*
-  "write its & as &amp; outside code, or split it into two code spans"
+  (concatenate 'string
+               "write its & as &amp; outside code; as code, split it into two code "
+               "spans with a word between; in a Lisp example, build the string from "
+               "two pieces, as (concatenate 'string \"[\" \"&#94;\")")
   "How to write a page that the footnote guard refuses, so it parses. PARSE
-refuses a [ followed by an entity that decodes to ^ anywhere, a code span
+refuses a [ followed by an entity that decodes to ^ anywhere, a code block
 included. Outside code, &amp; shows the & as written; inside a code span
-it shows as &amp;, so there the pattern is split into two spans, with a
-word between them.")
+the pattern is split into two code spans, with a word between them; inside
+a Lisp example, the two pieces are written as separate strings and joined
+at run time, so the example's own source never holds the pattern whole.")
 
 (defparameter *generated-page-fix*
   (concatenate 'string "the page is generated: fix the docstring that make check-reference "
@@ -49,10 +53,7 @@ comes from one of them, which make check-reference names: an edit to the
 page itself would be lost when it is written again.")
 
 (defun reference-page-p (name)
-  "True when NAME is the API reference's, *REFERENCE-PAGE*. That variable
-is reference.lisp's, which loads after this file, so it is declared
-special here, where it is read."
-  (declare (special *reference-page*))
+  "True when NAME is the API reference's, *REFERENCE-PAGE*."
   (string= name *reference-page*))
 
 (defun parse-problem (name condition)

@@ -26,14 +26,29 @@
   (true (not (ref-ok-p ""))))
 
 (define-test ref-problem-names-a-character-a-urls-path-cant-carry
+  (is string= "holds a space, which a URL's path can't carry as it is" (ref-problem "a b"))
+  (is string= "holds the character #, which a URL's path can't carry as it is" (ref-problem "a#b"))
+  (is string= "holds the character ?, which a URL's path can't carry as it is" (ref-problem "a?b"))
+  (is string= "holds the character %, which a URL's path can't carry as it is" (ref-problem "a%b"))
+  (is string= "holds the control character U+0001, which a URL's path can't carry as it is"
+      (ref-problem (format nil "a~Cb" (code-char 1))))
+  (is string= "holds the control character U+007F, which a URL's path can't carry as it is"
+      (ref-problem (format nil "a~Cb" (code-char #x7F))))
   (dolist (bad (list "a b" "a#b" "a?b" "a%b"
                      (format nil "a~Cb" (code-char 1)) (format nil "a~Cb" (code-char #x7F))))
-    (is string= "holds a character a URL's path can't carry as it is" (ref-problem bad))
     (true (not (ref-ok-p bad)))))
 
-(define-test ref-problem-names-a-segment-that-would-leave-blob
+(define-test ref-problem-names-a-segment-a-blob-link-cant-carry
+  (is string= "holds a . segment, which a /blob/ link can't carry as it is" (ref-problem "."))
+  (is string= "holds a . segment, which a /blob/ link can't carry as it is" (ref-problem "a/./b"))
+  (is string= "holds a .. segment, which a /blob/ link can't carry as it is" (ref-problem ".."))
+  (is string= "holds a .. segment, which a /blob/ link can't carry as it is" (ref-problem "a/../b"))
+  (is string= "holds a .. segment, which a /blob/ link can't carry as it is"
+      (ref-problem "../../x"))
+  (is string= "holds a leading /, which a /blob/ link can't carry as it is" (ref-problem "/a"))
+  (is string= "holds a trailing /, which a /blob/ link can't carry as it is" (ref-problem "a/"))
+  (is string= "holds a doubled /, which a /blob/ link can't carry as it is" (ref-problem "a//b"))
   (dolist (bad (list "." ".." "a/./b" "a/../b" "../../x" "/a" "a/" "a//b"))
-    (is string= "holds a segment that would leave /blob/" (ref-problem bad))
     (true (not (ref-ok-p bad)))))
 
 ;;; Check 1
@@ -103,10 +118,12 @@ src/, that is a directory only because others sit under it.")
 ;;; git's raw output
 
 (defun ls-files-entry (mode path)
-  "A 'git ls-files -s -z ...' entry naming PATH, its mode MODE and some
-object and stage before the tab, as a tracked entry's looks; or, MODE
-NIL, PATH alone, as an --others entry's does."
-  (if mode (format nil "~A c0ffee 0~C~A" mode #\Tab path) path))
+  "A 'git ls-files -s -z ...' entry naming PATH, its mode MODE and a
+40-character object name and stage before the tab, as a tracked entry's
+looks; or, MODE NIL, PATH alone, as an --others entry's does."
+  (if mode
+      (format nil "~A c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0de 0~C~A" mode #\Tab path)
+      path))
 
 (define-test split-nul-terminated-splits-and-drops-the-final-empty-entry
   (is equal '("a" "b")
@@ -121,6 +138,33 @@ NIL, PATH alone, as an --others entry's does."
       (cl-commonmark-gfm.site::ls-files-entry-path (ls-files-entry "160000" "vendor/cmark-gfm")))
   (is string= "docs/README.md"
       (cl-commonmark-gfm.site::ls-files-entry-path (ls-files-entry nil "docs/README.md"))))
+
+;;; A SHA-256 repository's object names are 64 hex digits, and any 40 of
+;;; them are hex digits too, so the 40-digit length must not be accepted
+;;; just because it reads as hex: only the length a space actually
+;;; follows is the object's own.
+
+(define-test ls-files-entry-path-strips-a-64-character-object-name
+  (is string= "docs/usage.md"
+      (cl-commonmark-gfm.site::ls-files-entry-path
+       (format nil "100644 ~A 0~Cdocs/usage.md" (make-string 64 :initial-element #\b) #\Tab))))
+
+;;; A tracked entry's path may itself hold a tab, so only the prefix's
+;;; own tab -- after the mode, object and stage -- ends it; an untracked
+;;; entry has no such prefix, so it is never cut at all.
+
+(define-test ls-files-entry-path-keeps-a-tab-inside-a-tracked-path
+  (is string= (format nil "tab~Cname.txt" #\Tab)
+      (cl-commonmark-gfm.site::ls-files-entry-path
+       (ls-files-entry "100644" (format nil "tab~Cname.txt" #\Tab)))))
+
+(define-test ls-files-entry-path-keeps-a-tab-inside-an-untracked-path
+  (is string= (format nil "a~Cb.txt" #\Tab)
+      (cl-commonmark-gfm.site::ls-files-entry-path
+       (ls-files-entry nil (format nil "a~Cb.txt" #\Tab)))))
+
+(define-test gitlink-entry-p-refuses-an-untracked-path-shaped-like-one
+  (true (not (cl-commonmark-gfm.site::gitlink-entry-p (format nil "160000x~Cy" #\Tab)))))
 
 (define-test gitlink-entry-p-finds-mode-160000-alone
   (true (cl-commonmark-gfm.site::gitlink-entry-p (ls-files-entry "160000" "vendor/cmark-gfm")))
@@ -143,10 +187,10 @@ NIL, PATH alone, as an --others entry's does."
   (is equal '("a" "b")
       (cl-commonmark-gfm.site::tracked-files-minus-deleted '("a" "b") '())))
 
-;;; B44: when the only entry under vendor/ is the submodule's own
-;;; gitlink, vendor/ still passes, as a directory GitHub serves a
-;;; listing for, but the gitlink's own path, and anything below it,
-;;; doesn't: GitHub's /blob/ and /tree/ serve no page for either.
+;;; When the only entry under vendor/ is the submodule's own gitlink,
+;;; vendor/ still passes, as a directory GitHub serves a listing for,
+;;; but the gitlink's own path, and anything below it, doesn't: GitHub's
+;;; /blob/ and /tree/ serve no page for either.
 
 (defun vendor-paths (&optional (mode "160000"))
   "LS-FILES-ENTRIES-TO-PATHS over one entry, vendor/cmark-gfm with MODE:

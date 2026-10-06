@@ -8,9 +8,9 @@
 ;;; Check 1: *PAGES* against docs/*.md
 
 (defun missing-page-hint (name)
-  "A hint for NAME, a *PAGES* entry missing from docs/, or NIL: reference.md
-is generated, so its hint is to run make reference."
-  (when (string= name "reference.md")
+  "A hint for NAME, a *PAGES* entry missing from docs/, or NIL:
+*REFERENCE-PAGE* is generated, so its hint is to run make reference."
+  (when (string= name *reference-page*)
     "run 'make reference'"))
 
 (defun unlisted-page-problems (sidebar-names docs-names)
@@ -62,19 +62,58 @@ dropped."
         collect (subseq string start nul)
         do (setf start (1+ nul))))
 
+(defun ls-files-digit-run-p (entry start end radix)
+  "True when END is within ENTRY and ENTRY's characters from START to
+END, exclusive, are all digits in RADIX -- 8 for a tracked entry's mode,
+16 for its object name."
+  (and (<= end (length entry))
+       (every (lambda (char) (digit-char-p char radix)) (subseq entry start end))))
+
+(defun ls-files-object-end (entry start)
+  "The position in ENTRY just after the run of 40 or 64 hex digits that
+starts at START and that a space follows -- a tracked entry's object
+name. Checking the digits alone isn't enough: any 40 of a 64-digit
+SHA-256 name are hex digits too, so the 40-digit length would always
+match first; the space after it is what tells the two apart. NIL when
+neither length fits."
+  (loop for object-length in '(40 64)
+        for end = (+ start object-length)
+        when (and (ls-files-digit-run-p entry start end 16)
+                  (< end (length entry))
+                  (char= (char entry end) #\Space))
+          return end))
+
+(defun tracked-entry-path-start (entry)
+  "The position in ENTRY just after its tracked-entry prefix -- six octal
+digits, a space, 40 or 64 hex digits, a space, one stage digit, then a
+tab -- when ENTRY starts with one; or NIL, an untracked entry, whose own
+path may hold a tab of its own."
+  (when (and (>= (length entry) 7)
+             (ls-files-digit-run-p entry 0 6 8)
+             (char= (char entry 6) #\Space))
+    (let ((object-end (ls-files-object-end entry 7)))
+      (when (and object-end
+                 (< (+ 2 object-end) (length entry))
+                 (digit-char-p (char entry (1+ object-end)))
+                 (char= (char entry (+ 2 object-end)) #\Tab))
+        (+ 3 object-end)))))
+
 (defun ls-files-entry-path (entry)
-  "ENTRY, one line of 'git ls-files -s -z ...', as the path it names: the
-part after ENTRY's last tab, when it has one -- a tracked entry, shown
-with its mode, object and stage before the tab -- or ENTRY whole, an
-untracked one."
-  (let ((tab (position #\Tab entry :from-end t)))
-    (if tab (subseq entry (1+ tab)) entry)))
+  "ENTRY, one line of 'git ls-files -s -z ...', as the path it names:
+when ENTRY starts with a tracked entry's mode, object name and stage
+before a tab, as TRACKED-ENTRY-PATH-START finds it, everything from
+there on; otherwise, an untracked entry, ENTRY whole, any tab of its own
+included."
+  (let ((start (tracked-entry-path-start entry)))
+    (if start (subseq entry start) entry)))
 
 (defun gitlink-entry-p (entry)
   "True when ENTRY, one line of 'git ls-files -s -z ...', names a
-gitlink, mode 160000: a submodule's own directory."
-  (and (position #\Tab entry)
-       (>= (length entry) 6)
+gitlink, mode 160000: a submodule's own directory. Reads ENTRY's prefix
+as TRACKED-ENTRY-PATH-START does, so an untracked path that merely looks
+like one -- a 160000 of its own, a tab of its own, or both -- can't be
+taken for a gitlink."
+  (and (tracked-entry-path-start entry)
        (string= entry "160000" :end1 6)))
 
 (defun ls-files-entries-to-paths (entries)
@@ -160,19 +199,54 @@ empty, which a leading, trailing or doubled / makes."
       (string= segment ".")
       (string= segment "..")))
 
+(defun unsafe-character-name (char)
+  "CHAR, one of URL-PATH-UNSAFE-CHARACTER-P's characters, named as
+REF-PROBLEM's message gives it: a space, by name; an ASCII control
+character, below U+0020 or U+007F, by its code point; otherwise the
+character itself."
+  (cond ((char= char #\Space) "a space")
+        ((or (< (char-code char) #x20) (= (char-code char) #x7F))
+         (format nil "the control character U+~4,'0X" (char-code char)))
+        (t (format nil "the character ~C" char))))
+
+(defun unsafe-segment-reason (segment position last-position)
+  "SEGMENT, one of UNSAFE-REF-SEGMENT-P's segments, found at POSITION
+among a ref's segments whose last is at LAST-POSITION, named as
+REF-PROBLEM's message gives it: a . or a .. segment; otherwise, from
+where its emptiness comes, a leading, a trailing or a doubled /."
+  (cond ((string= segment ".") "a . segment")
+        ((string= segment "..") "a .. segment")
+        ((zerop position) "a leading /")
+        ((= position last-position) "a trailing /")
+        (t "a doubled /")))
+
+(defun ref-character-problem (ref)
+  "The problem with REF from the first character
+URL-PATH-UNSAFE-CHARACTER-P refuses, named by UNSAFE-CHARACTER-NAME; or
+NIL when REF holds none."
+  (let ((char (find-if #'url-path-unsafe-character-p ref)))
+    (when char
+      (format nil "holds ~A, which a URL's path can't carry as it is"
+              (unsafe-character-name char)))))
+
+(defun ref-segment-problem (ref)
+  "The problem with REF from the first /-separated segment
+UNSAFE-REF-SEGMENT-P refuses, named by UNSAFE-SEGMENT-REASON; or NIL
+when none of REF's segments is unsafe."
+  (let* ((segments (path-segments ref))
+         (position (position-if #'unsafe-ref-segment-p segments)))
+    (when position
+      (format nil "holds ~A, which a /blob/ link can't carry as it is"
+              (unsafe-segment-reason (nth position segments) position (1- (length segments)))))))
+
 (defun ref-problem (ref)
   "Why REF isn't fit to use as the git ref in a /blob/ URL and the site's
 closing line, or NIL when it is: empty; holding a character a URL's path
-can't carry, found by URL-PATH-UNSAFE-CHARACTER-P; or holding a
-/-separated segment that would leave /blob/, found by
-UNSAFE-REF-SEGMENT-P -- a ., a .., or one a leading, trailing or doubled /
-makes empty."
-  (cond ((zerop (length ref)) "is empty")
-        ((some #'url-path-unsafe-character-p ref)
-         "holds a character a URL's path can't carry as it is")
-        ((some #'unsafe-ref-segment-p (path-segments ref))
-         "holds a segment that would leave /blob/")
-        (t nil)))
+can't carry, named by REF-CHARACTER-PROBLEM; or holding a /-separated
+segment a /blob/ link can't carry, named by REF-SEGMENT-PROBLEM."
+  (if (zerop (length ref))
+      "is empty"
+      (or (ref-character-problem ref) (ref-segment-problem ref))))
 
 (defun valid-ref-p (ref)
   "True when REF is fit to use as the git ref in a /blob/ URL and the

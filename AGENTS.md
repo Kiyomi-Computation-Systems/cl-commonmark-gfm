@@ -48,6 +48,21 @@
     about 150 lines.
   * For users only: no ADRs, findings, milestones or project history.
   * Each fact on one page; other pages link to it.
+  * A section usually opens with what to do, in one sentence ending in a
+    colon, then its example; a plain statement can open one instead.
+    Usually one to three sentences follow on what it shows, ending with a
+    link to the page that owns the details. An example usually holds one
+    to three short forms, though a program's file can hold more; a form
+    whose value it shows has its `;; =>` or `;; signals` on the next line,
+    and a setup form, such as a `defparameter`, has none.
+  * Link a symbol to its reference entry at its first mention in prose;
+    later mentions are plain code. A link to a page or section uses its
+    heading's words. Say "function", never "entry point". Headings are
+    plain words, with no code.
+  * `usage.md`'s "The package" alone explains `;; =>`, `\n` in results
+    and the package the examples run in; each page with Lisp examples
+    links it once. Only `errors.md` shows how to catch the library's
+    errors with `handler-case`.
   * Symbols in lower case, as users type them: `markdown->html`,
     `*max-nodes*`.
   * Every Lisp example runs, in `make check-docs`: `;; =>` gives a form's
@@ -58,17 +73,24 @@
   * An example shows what a reader such as `node-kind` returns, never a
     whole node. It binds a library variable with `let`, never `setf`.
     `make check-docs` refuses `#+` and `#-`.
+  * A Lisp string has no `\n` escape: write multi-line Markdown in an
+    example with real line breaks. Only `usage.md` defines a package: a
+    package an example defines outlives its page in `make check-docs`.
   * The footnote guard's pattern, a `[` before an entity for `^`, makes
     `parse` refuse its whole input, code included. In a page, write its
     `&` as `&amp;` outside code; as code, split it into two spans with a
-    word between, as in "a `[` then `&#94;`". In an exported docstring,
-    write it plainly, outside double quotes, and the generator escapes
-    it; as code, write two quoted strings, as `unsupported-input`'s
-    docstring does.
+    word between, as in "a `[` then `&#94;`"; in a Lisp example, build
+    the string from two pieces, as `(concatenate 'string "[" "&#94;")`.
+    In an exported docstring, write it plainly, outside double quotes
+    and backquotes, and the generator escapes it; as code, write two
+    quoted strings, as `unsupported-input`'s docstring does.
   * Markdown only: no raw HTML, which the site would omit. `make
     check-site` rejects it.
   * `docs/reference.md` is generated. After changing an export or its
     docstring, run `make reference`.
+  * In an exported docstring, put backquotes around typed text that
+    names no symbol, such as a file name or `data-sourcepos`: the
+    reference shows it as code, as written.
 * `Makefile` should have a `help` command which lists all of its commands
 
 ### Testing & mutation discipline

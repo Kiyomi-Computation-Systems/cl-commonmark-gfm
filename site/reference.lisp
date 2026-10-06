@@ -12,9 +12,6 @@
   "The package the reference documents: each symbol it exports gets an
 entry.")
 
-(defparameter *reference-page* "reference.md"
-  "The reference's file name in docs/.")
-
 (defparameter *reference-title* "API reference"
   "The reference's title, its page's # heading.")
 
@@ -322,6 +319,36 @@ character stays as written."
                  (write-char #\\ out))
                (write-char char out)))))
 
+(defun added-backslash-p (text index)
+  "True when the character at INDEX in TEXT, Markdown that ESCAPE-TEXT
+wrote, is a backslash ESCAPE-TEXT added: one before a character of
+*MARKDOWN-CHARACTERS*; at TEXT's start, one before a character of
+*BLOCK-START-CHARACTERS*; or one before the . or ) after a number TEXT
+starts with."
+  (and (< (1+ index) (length text))
+       (char= (char text index) #\\)
+       (let ((next (char text (1+ index))))
+         (or (find next *markdown-characters*)
+             (and (zerop index) (find next *block-start-characters*))
+             (and (plusp index)
+                  (not (find-if-not #'digit-char-p text :end index))
+                  (find next ".)"))))))
+
+(defun unescape-text (text)
+  "TEXT, Markdown that ESCAPE-TEXT wrote, without the backslashes it adds,
+as ADDED-BACKSLASH-P finds them. Every other backslash stays. A backslash
+of the text ESCAPE-TEXT was given comes out doubled, so it comes back
+single."
+  (with-output-to-string (out)
+    (loop with index = 0
+          while (< index (length text))
+          do (cond ((added-backslash-p text index)
+                    (write-char (char text (1+ index)) out)
+                    (incf index 2))
+                   (t
+                    (write-char (char text index) out)
+                    (incf index))))))
+
 (defun longest-backtick-run (text)
   "The length of TEXT's longest run of backticks."
   (let ((longest 0)
@@ -356,6 +383,38 @@ escapes the character after it."
           do (cond (escaped (setf escaped nil))
                    ((char= char #\\) (setf escaped t))
                    ((char= char #\") (return (1+ index)))))))
+
+(defun backquote-partner (text start)
+  "The index of the partner of the backquote at START in TEXT: the next
+backquote on its line, TEXT's lines being joined by newlines, as JOIN-LINES
+joins them. NIL when there is none."
+  (position #\` text :start (1+ start)
+                     :end (or (position #\Newline text :start start) (length text))))
+
+(defun backquoted-run-p (text start partner)
+  "True when the backquote at START in TEXT and its PARTNER, as
+BACKQUOTE-PARTNER finds it, enclose code: at least one character, no
+whitespace just inside either backquote, and neither backquote beside
+another backquote. Any other pair is text, as written: CommonMark would
+read it otherwise, or it reads more like punctuation than code. CommonMark
+trims a space from each end of a code span that has one at both, and takes
+backquotes side by side as one longer fence."
+  (and (> partner (1+ start))
+       (not (whitespace-character-p (char text (1+ start))))
+       (not (whitespace-character-p (char text (1- partner))))
+       (not (and (plusp start) (char= (char text (1- start)) #\`)))
+       (not (and (< (1+ partner) (length text)) (char= (char text (1+ partner)) #\`)))))
+
+(defun backquoted-code-p (run entry)
+  "True when RUN, the text of a backquoted run in ENTRY's docstring, is code
+without its backquotes, in lower case: a word that names something, as
+CODE-WORD-P says of its WORD-NAME, or a form that CODE-FORM-END says is
+code, whole. The backquotes would keep its case, as no other name or form
+in the reference keeps it."
+  (or (and (= (word-end run 0) (length run))
+           (code-word-p (word-name run) entry))
+      (and (char= (char run 0) #\()
+           (eql (code-form-end run 0 entry) (length run)))))
 
 (defun underscore-name-p (word)
   "True when WORD is an upper-case name holding an underscore, as an
@@ -393,21 +452,42 @@ left out."
               (t (push piece merged)))))))
 
 (defun inline-pieces (text entry)
-  "TEXT, a paragraph or a list item of ENTRY's docstring, in pieces, in
-order, each (:CODE . CODE) or (:TEXT . TEXT):
+  "TEXT, a paragraph or a list item of ENTRY's docstring, its lines joined
+by newlines, in pieces, in order, each (:CODE . CODE), (:RUN . CODE) or
+(:TEXT . TEXT):
+- a backquoted run, a backquote and its partner that BACKQUOTED-RUN-P
+  accepts, is a :RUN piece, code: what lies between them, as written;
 - a parenthesized form that CODE-FORM-END finds is code, whole, in lower
   case but for its strings;
 - a double-quoted string is code as written, quotes included;
 - a word that WORD-CODE makes code is that code, and the punctuation that
   WORD-NAME leaves after it is text;
-- everything else is text, as written."
+- everything else is text, as written: among it, a backquote with no
+  partner, and both backquotes of a pair that isn't a run.
+TEXT is read left to right, so whichever opens first, a backquote, a form
+or a double quote, holds what follows to its end: a backquote inside a
+string is the string's, and a double quote inside a run is the run's. Each
+newline comes out as a space."
   (let ((pieces '())
-        (index 0))
+        (index 0)
+        (text-partner nil))
     (loop while (< index (length text))
           do (let* ((char (char text index))
+                    (partner (and (char= char #\`)
+                                  (not (eql index text-partner))
+                                  (backquote-partner text index)))
                     (form (and (char= char #\() (code-form-end text index entry)))
                     (quoted (and (char= char #\") (string-end text index))))
-               (cond (form
+               (cond ((and partner (backquoted-run-p text index partner))
+                      (push (cons :run (subseq text (1+ index) partner)) pieces)
+                      (setf index (1+ partner)))
+                     (partner
+                      ;; Not a run: the partner is text too, so it can't
+                      ;; open a run of its own.
+                      (push (cons :text (string char)) pieces)
+                      (setf text-partner partner)
+                      (incf index))
+                     (form
                       (push (cons :code (form-code (subseq text index form))) pieces)
                       (setf index form))
                      (quoted
@@ -426,17 +506,18 @@ order, each (:CODE . CODE) or (:TEXT . TEXT):
                      (t
                       (push (cons :text (string char)) pieces)
                       (incf index)))))
-    (merge-text-pieces (nreverse pieces))))
+    (mapcar (lambda (piece) (cons (car piece) (substitute #\Space #\Newline (cdr piece))))
+            (merge-text-pieces (nreverse pieces)))))
 
 (defun pieces-markdown (pieces)
-  "PIECES, a paragraph's or a list item's, as Markdown: each code piece as
-a code span, and each text piece through ESCAPE-TEXT, the first as the
-start of its block."
+  "PIECES, a paragraph's or a list item's, as Markdown: each code piece and
+backquoted run as a code span, and each text piece through ESCAPE-TEXT, the
+first as the start of its block."
   (with-output-to-string (out)
     (loop for (kind . string) in pieces
           for at-start = t then nil
           do (write-string (ecase kind
-                             (:code (code-span string))
+                             ((:code :run) (code-span string))
                              (:text (escape-text string at-start)))
                            out))))
 
@@ -445,9 +526,15 @@ start of its block."
   (format nil "~{~A~}" (mapcar #'cdr pieces)))
 
 (defun pieces-codes (pieces)
-  "The code of PIECES' code pieces, in order."
+  "The code of PIECES' code pieces and backquoted runs, in order."
   (loop for (kind . string) in pieces
-        when (eql kind :code)
+        when (member kind '(:code :run))
+          collect string))
+
+(defun pieces-runs (pieces)
+  "The text of PIECES' backquoted runs, in order."
+  (loop for (kind . string) in pieces
+        when (eql kind :run)
           collect string))
 
 ;;; Docstrings
@@ -472,8 +559,9 @@ start of its block."
   (and (plusp (length line)) (whitespace-character-p (char line 0))))
 
 (defun join-lines (lines)
-  "LINES, each trimmed of whitespace, joined by single spaces."
-  (format nil "~{~A~^ ~}"
+  "LINES, each trimmed of whitespace, joined by newlines, so INLINE-PIECES
+can tell where each line ends."
+  (format nil "~{~A~^~%~}"
           (mapcar (lambda (line) (string-trim '(#\Space #\Tab #\Newline #\Return) line)) lines)))
 
 (defun docstring-blocks (docstring)
@@ -513,13 +601,14 @@ list, and starts or continues a paragraph."
 
 (defun docstring-rendering (entry)
   "ENTRY's docstring as the reference writes it, and what that means, as
-three values. First, its Markdown: the blocks DOCSTRING-BLOCKS reads,
+four values. First, its Markdown: the blocks DOCSTRING-BLOCKS reads,
 separated by blank lines, each list item on a line of its own after
 \"- \". Then the text that Markdown renders to, each paragraph's and list
-item's after a space; and the code it holds, each code span's, in order.
-Each paragraph and list item goes through INLINE-PIECES once, for all
-three, so a test that renders the Markdown can compare the result with
-what was meant. With no docstring, the empty string twice, and NIL."
+item's after a space; the code it holds, each code span's, in order; and
+the text of each backquoted run among that code, in order. Each paragraph
+and list item goes through INLINE-PIECES once, for all four, so a test
+that renders the Markdown can compare the result with what was meant.
+With no docstring, the empty string twice, then NIL twice."
   (let ((blocks (loop for (kind content) in (docstring-blocks (or (entry-docstring entry) ""))
                       collect (cons kind (mapcar (lambda (text) (inline-pieces text entry))
                                                  (if (eql kind :list) content (list content)))))))
@@ -532,7 +621,9 @@ what was meant. With no docstring, the empty string twice, and NIL."
             (format nil "~{~A~^ ~}" (loop for (nil . items) in blocks
                                           append (mapcar #'pieces-text items)))
             (loop for (nil . items) in blocks
-                  append (mapcan #'pieces-codes items)))))
+                  append (mapcan #'pieces-codes items))
+            (loop for (nil . items) in blocks
+                  append (mapcan #'pieces-runs items)))))
 
 (defun docstring-markdown (entry)
   "ENTRY's docstring in Markdown, as DOCSTRING-RENDERING writes it."
@@ -736,28 +827,46 @@ child lists."
 reader sees where it falls."
   (subseq text (max 0 (- start 10)) (min (length text) (+ start 40))))
 
+(defun backquoted-code-problem (name run)
+  "The problem with the docstring of the entry NAME putting RUN in
+backquotes, though BACKQUOTED-CODE-P says it is code without them, and what
+to do: drop the backquotes, which keep its case, so the reference makes it
+code by its other rules."
+  (format nil "~A's docstring puts ~A in backquotes, which keep its case; ~
+               drop them, so the reference makes it code"
+          name run))
+
 (defun stray-element-problem (name tag text)
   "The problem with the docstring of the entry NAME rendering an element
-whose tag, TAG, isn't one of *RENDERED-TAGS*, and which holds TEXT, and
-what to do: write that text in double quotes, so the reference makes it
-code, which renders as nothing else."
-  (if (plusp (length text))
-      (format nil "~A's docstring renders ~A as an <~(~A~)> element; ~
-                   write it in double quotes, ~S, so it becomes code"
-              name text tag text)
-      (format nil "~A's docstring renders an <~(~A~)> element; ~
-                   write what makes it in double quotes, so it becomes code"
-              name tag)))
+whose tag, TAG, isn't one of *RENDERED-TAGS*, from TEXT, as the docstring
+holds it, and what to do: put that text in backquotes, so the reference
+makes it code, as written, which renders as nothing else. A backquoted run
+can't hold a backquote, so for TEXT that holds one, the advice is double
+quotes, which make it code too, quotes included."
+  (cond ((zerop (length text))
+         (format nil "~A's docstring renders an <~(~A~)> element; ~
+                      put what makes it in backquotes, so it becomes code"
+                 name tag))
+        ((find #\` text)
+         (format nil "~A's docstring renders ~A as an <~(~A~)> element; ~
+                      write it in double quotes, ~S, so it becomes code"
+                 name text tag text))
+        (t
+         (format nil "~A's docstring renders ~A as an <~(~A~)> element; ~
+                      put it in backquotes, `~A`, so it becomes code"
+                 name text tag text))))
 
 (defparameter *docstring-unsupported-input-fix*
-  "write the pattern as text, outside double quotes, or split it into two quoted strings"
+  (concatenate 'string "write the pattern as text, outside double quotes and backquotes, "
+               "or split it into two quoted strings")
   "How to write a docstring that the footnote guard refuses, so it parses.
 PARSE refuses a [ followed by an entity that decodes to ^ anywhere, a code
-span included, and a docstring's double-quoted string becomes a code span.
-As text, outside double quotes, the reference escapes the [ and the &, so
-the pattern shows as written. Inside them, it is split into two strings,
-with a word between them, each its own code span. Writing its & as &amp;,
-as a page does, would show &amp;: the reference escapes that & too.")
+span included, and a docstring's double-quoted string or backquoted run
+becomes a code span. As text, outside double quotes and backquotes, the
+reference escapes the [ and the &, so the pattern shows as written. As
+code, it is split into two quoted strings, with a word between them, each
+its own code span. Writing its & as &amp;, as a page does, would show
+&amp;: the reference escapes that & too.")
 
 (defun docstring-parse-problem (name condition)
   "The problem with the docstring of the entry NAME when the library
@@ -786,16 +895,18 @@ DOCSTRING-RENDERING means it to hold. It must hold nothing but
 *RENDERED-TAGS*' elements, its text must be TEXT, whitespace aside, and its
 code elements' must be CODES. Each element of another tag is a problem,
 which STRAY-ELEMENT-PROBLEM words: GFM links an address such as
-www.example.com by itself, and quoting it makes it code. Failing that, a
-difference in the text, or else in the code, is the problem, naming what
-rendered and what was meant."
+www.example.com by itself, and backquotes make it code. GFM takes a link's
+text from the Markdown, escapes included, so the problem gives what the
+element holds through UNESCAPE-TEXT, as the docstring holds it. Failing
+that, a difference in the text, or else in the code, is the problem,
+naming what rendered and what was meant."
   (multiple-value-bind (rendered rendered-codes strays) (rendered-contents tree)
     (let* ((meant (normalize-whitespace text))
            (found (normalize-whitespace rendered))
            (at (mismatch meant found)))
       (cond (strays
              (loop for (tag . held) in strays
-                   collect (stray-element-problem name tag held)))
+                   collect (stray-element-problem name tag (unescape-text held))))
             (at
              (list (format nil "~A's docstring renders ~S where it means ~S"
                            name (excerpt found at) (excerpt meant at))))
@@ -808,14 +919,19 @@ rendered and what was meant."
 (defun entry-rendering-problems (entry)
   "The problems with how the library renders the Markdown the reference
 writes for ENTRY's docstring, each saying what to do; NIL when there are
-none. A docstring the library refuses to parse is the problem
-RENDERED-TREE gives; any other, RENDERING-DIFFERENCES finds."
+none. First, each backquoted run that BACKQUOTED-CODE-P says is code
+without its backquotes, as BACKQUOTED-CODE-PROBLEM words it. Then a
+docstring the library refuses to parse is the problem RENDERED-TREE gives;
+any other, RENDERING-DIFFERENCES finds."
   (let ((name (entry-name entry)))
-    (multiple-value-bind (markdown text codes) (docstring-rendering entry)
-      (multiple-value-bind (tree problem) (rendered-tree name markdown)
-        (if problem
-            (list problem)
-            (rendering-differences name tree text codes))))))
+    (multiple-value-bind (markdown text codes runs) (docstring-rendering entry)
+      (append (loop for run in runs
+                    when (backquoted-code-p run entry)
+                      collect (backquoted-code-problem name run))
+              (multiple-value-bind (tree problem) (rendered-tree name markdown)
+                (if problem
+                    (list problem)
+                    (rendering-differences name tree text codes)))))))
 
 (defun rendering-problems (entries)
   "The problems ENTRY-RENDERING-PROBLEMS finds with ENTRIES' docstrings, in

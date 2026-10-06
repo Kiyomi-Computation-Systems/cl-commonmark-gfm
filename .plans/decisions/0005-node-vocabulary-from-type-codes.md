@@ -9,7 +9,9 @@
   §3), as the user decided: they are the integers cmark reports, negative
   ones included, never repaired. That changed M1's rule of
   non-negative integers: two rejection cases in its test moved to a new
-  acceptance test
+  acceptance test; finding 3 amended 2026-10-05 by M5 finding 43
+  ([M5 spec](../2026-10-04-m5-documentation-design.md) §3): the text after
+  an email autolink has no position, whether empty or not
 - **Date:** 2026-09-27
 - **Scope:** AST vocabulary, node classification
 - **Evidence:** `tests/fixtures/vocabulary.md` and cmark-gfm's XML for it,
@@ -35,8 +37,10 @@ the node kinds. None of this had been checked against a real release.
    `cmark_node_get_literal` returns the label for both footnote kinds. The
    reference's number lives in a private struct field.
 3. **Autolinks are ordinary `link` nodes.** There is no autolink node kind.
-   Email autolinks, and the empty text node after one, carry no source
-   position.
+   Email autolinks, and the text after one, carry no source position
+   (amended 2026-10-05, M5 finding 43: the text after the address has
+   none, whether empty or not, and the text before it keeps the end of
+   the whole original run).
 4. **Task items are `CMARK_NODE_ITEM` owned by the `tasklist` extension.**
    The type string is `"tasklist"`. The checked state comes from
    `cmark_gfm_extensions_get_tasklist_item_checked`.

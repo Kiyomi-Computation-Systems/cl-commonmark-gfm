@@ -157,8 +157,8 @@ value must be valid.
 - :FOOTNOTES: T or NIL. Defaults to T under :GFM, and to NIL under
   :COMMONMARK.
 - :SMART: NIL, the default, or T for curly quotes, dashes and ellipses.
-- :SOURCEPOS: NIL, the default, or T to add each element's position as a
-  data-sourcepos attribute.
+- :SOURCEPOS: NIL, the default, or T to add the position of most block
+  elements, such as a paragraph's, as a `data-sourcepos` attribute.
 - :SOFTBREAK: :NEWLINE, the default, writes a newline; :SPACE writes a
   space; :BR writes \"<br />\" then a newline.
 - :UNSAFE-HTML: NIL, the default, writes a comment in place of raw HTML
@@ -206,7 +206,7 @@ value must be valid.
   2,147,483,647 to wrap text at. It wraps only under :SOFTBREAK :NEWLINE,
   never inside a heading.
 
-This entry point parses without source positions: :SOURCEPOS isn't one of
+This function parses without source positions: :SOURCEPOS isn't one of
 its options.
 
 Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for
@@ -248,7 +248,7 @@ value must be valid.
   element (see HTML-TREE->STRING), to wrap the whole tree in.
 The last four, the tree options, are AST->HTML-TREE's own.
 
-This entry point parses without source positions: :SOURCEPOS isn't one of
+This function parses without source positions: :SOURCEPOS isn't one of
 its options, since the tree carries none.
 
 Signals a TYPE-ERROR when MARKDOWN isn't a string; INVALID-PARSE-OPTION for

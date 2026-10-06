@@ -18,7 +18,7 @@ Render `markdown`, a string, to HTML with cmark-gfm's own HTML renderer, and ret
 - `:extensions`: the syntax extensions to attach, a list of distinct keywords from `:table`, `:strikethrough`, `:autolink`, `:tagfilter` and `:tasklist`, in any order. Defaults to all five under `:gfm`, and to none under `:commonmark`.
 - `:footnotes`: `t` or `nil`. Defaults to `t` under `:gfm`, and to `nil` under `:commonmark`.
 - `:smart`: `nil`, the default, or `t` for curly quotes, dashes and ellipses.
-- `:sourcepos`: `nil`, the default, or `t` to add each element's position as a data-sourcepos attribute.
+- `:sourcepos`: `nil`, the default, or `t` to add the position of most block elements, such as a paragraph's, as a `data-sourcepos` attribute.
 - `:softbreak`: `:newline`, the default, writes a newline; `:space` writes a space; `:br` writes `"<br />"` then a newline.
 - `:unsafe-html`: `nil`, the default, writes a comment in place of raw HTML (`"<!-- raw HTML omitted -->"`) and blanks dangerous URLs; `t` keeps both, as cmark-gfm's own `CMARK_OPT_UNSAFE` does, though `:tagfilter`, when attached (the `:gfm` default), still escapes a few tags, such as `"<script>"`.
 
@@ -44,7 +44,7 @@ Render `markdown`, a string, into an HTML tree: `(ast->html-tree (parse markdown
 
 The last four, the tree options, are `ast->html-tree`'s own.
 
-This entry point parses without source positions: `:sourcepos` isn't one of its options, since the tree carries none.
+This function parses without source positions: `:sourcepos` isn't one of its options, since the tree carries none.
 
 Signals a `type-error` when `markdown` isn't a string; `invalid-parse-option` for a bad `:profile`, `:extensions`, `:footnotes` or `:smart` value; and `invalid-render-option` for everything else -- an odd-length option list, an unknown key, or a bad `:softbreak`, `:raw-html`, `:link-policy` or `:document-wrapper` value -- before cmark-gfm runs.
 
@@ -64,7 +64,7 @@ Render `markdown`, a string, to plain text with cmark-gfm's own plaintext render
 - `:softbreak`: `:newline`, the default, writes a newline in place of a softbreak, but a space inside a heading, or wherever `:width` is above 0, where a line can wrap at it. `:br` writes a newline everywhere, and turns `:width` off for the whole text: nothing wraps. `:space` writes a space, and turns wrapping off too.
 - `:width`: 0, the default, for no wrapping, or a column from 1 to 2,147,483,647 to wrap text at. It wraps only under `:softbreak` `:newline`, never inside a heading.
 
-This entry point parses without source positions: `:sourcepos` isn't one of its options.
+This function parses without source positions: `:sourcepos` isn't one of its options.
 
 Signals a `type-error` when `markdown` isn't a string; `invalid-parse-option` for a bad `:profile`, `:extensions`, `:footnotes` or `:smart` value; and `invalid-render-option` for everything else -- an odd-length option list, an unknown key, or a bad `:softbreak` or `:width` value -- before cmark-gfm runs.
 
@@ -98,7 +98,7 @@ Variable
 
 Where to load cmark-gfm from: `nil`, the default, to search a fixed list of directories, never the loader's own search path; or a list of two absolute paths, strings or pathnames, naming the pinned libcmark-gfm, then libcmark-gfm-extensions. Read when cmark-gfm starts, at the first call that needs it.
 
-The search tries, in order, `/usr/lib/<multiarch>` (x86\_64-linux-gnu or aarch64-linux-gnu), `/usr/lib64`, `/usr/lib` and `/usr/local/lib` on Linux, or `/opt/homebrew/lib` and `/usr/local/lib` on macOS, and takes the first that holds both libraries under their versioned names, such as libcmark-gfm.so.0.29.0.gfm.13.
+The search tries, in order, `/usr/lib/<multiarch>` (`x86_64-linux-gnu` or `aarch64-linux-gnu`), `/usr/lib64`, `/usr/lib` and `/usr/local/lib` on Linux, or `/opt/homebrew/lib` and `/usr/local/lib` on macOS, and takes the first that holds both libraries under their versioned names, such as `libcmark-gfm.so.0.29.0.gfm.13`.
 
 Takes priority over the `CL_COMMONMARK_GFM_LIBS` environment variable, which names the same two paths, separated by a colon. Either override is used as given, with no fallback to the other or to the search: one that isn't two absolute paths, or names something that isn't a regular file, signals `native-library-not-found`, whose report names that override.
 
@@ -108,19 +108,19 @@ On CCL, which can't unload a library, the first pair a process loads stays its p
 
 Variable
 
-The most UTF-8 octets of Markdown that `parse`, `markdown->html`, `markdown->plaintext` and `markdown->html-tree` accept. Default 1,048,576 (1 MiB). Larger input signals `resource-limit-exceeded` before cmark-gfm sees it. Bind it higher for larger documents, up to a hard cap of 268,435,456 (256 MiB): a higher binding is held to the cap. The limit guards cmark-gfm's parse buffers, which can reach three times the input's octets (a NUL or a smart quote becomes three bytes). Bound to anything but a non-negative integer, it makes every entry point signal a `type-error`.
+The most UTF-8 octets of Markdown that `parse`, `markdown->html`, `markdown->plaintext` and `markdown->html-tree` accept. Default 1,048,576 (1 MiB). Larger input signals `resource-limit-exceeded` before cmark-gfm sees it. Bind it higher for larger documents, up to a hard cap of 268,435,456 (256 MiB): a higher binding is held to the cap. The limit guards cmark-gfm's parse buffers, which can reach three times the input's octets (a NUL or a smart quote becomes three bytes). Bound to anything but a non-negative integer, it makes every function that takes Markdown signal a `type-error`.
 
 ### `*max-nodes*`
 
 Variable
 
-The most AST nodes, the document node included, a parse accepts. Default 1,000,000. Every entry point checks it before parsing, against an upper bound on the table cells cmark-gfm would build; `parse` and `markdown->html-tree` also count the nodes of the AST they build against it. A breach of either signals `resource-limit-exceeded`. The limit guards cmark-gfm's own memory -- padded table cells can multiply nodes well past the input's size -- and the Lisp heap that holds the AST. No hard cap: raise it as far as the machine's memory allows. Bound to anything but a non-negative integer, it makes every entry point signal a `type-error`.
+The most AST nodes, the document node included, a parse accepts. Default 1,000,000. Every function that takes Markdown checks it before parsing, against an upper bound on the table cells cmark-gfm would build; `parse` and `markdown->html-tree` also count the nodes of the AST they build against it. A breach of either signals `resource-limit-exceeded`. The limit guards cmark-gfm's own memory -- padded table cells can multiply nodes well past the input's size -- and the Lisp heap that holds the AST. No hard cap: raise it as far as the machine's memory allows. Bound to anything but a non-negative integer, it makes every function that takes Markdown signal a `type-error`.
 
 ### `*max-output-octets*`
 
 Variable
 
-The most UTF-8 octets `markdown->html` and `markdown->plaintext` may produce. Default 67,108,864 (64 MiB). After parsing and before rendering, each works out an upper bound on its output, and signals `resource-limit-exceeded` when that is above the limit. The bound takes the worst case, such as every octet of text escaped as \&quot; in HTML, so a document can be rejected whose output would have fit. Bind it higher for larger documents, up to a hard cap of 536,870,912 (512 MiB), half the 1,073,741,823 bytes past which a cmark-gfm buffer aborts the process; a higher binding is held to the cap. Bound to anything but a non-negative integer, it makes every entry point signal a `type-error`, `parse` and `markdown->html-tree` included.
+The most UTF-8 octets `markdown->html` and `markdown->plaintext` may produce. Default 67,108,864 (64 MiB). After parsing and before rendering, each works out an upper bound on its output, and signals `resource-limit-exceeded` when that is above the limit. The bound takes the worst case, such as every octet of text escaped as `&quot;` in HTML, so a document can be rejected whose output would have fit. Bind it higher for larger documents, up to a hard cap of 536,870,912 (512 MiB), half the 1,073,741,823 bytes past which a cmark-gfm buffer aborts the process; a higher binding is held to the cap. Bound to anything but a non-negative integer, it makes every function that takes Markdown signal a `type-error`, `parse` and `markdown->html-tree` included.
 
 ## The AST
 
@@ -128,7 +128,7 @@ The most UTF-8 octets `markdown->html` and `markdown->plaintext` may produce. De
 
 Structure
 
-An immutable CommonMark/GFM AST node. Build one with `make-node` or `copy-node`, which validate it.
+A CommonMark/GFM AST node, with no setters. Build one with `make-node` or `copy-node`, which validate it. A node keeps the position and attribute values it is built with. `node-sourcepos` and `node-attribute` return them as they are, and `node-attributes` puts them in a new plist: don't modify them, or the node changes too.
 
 ### `copy-node`
 
@@ -180,7 +180,7 @@ Function
 
 `(node-attributes node)`
 
-Return a fresh copy of `node`'s canonical attribute plist.
+Return a fresh copy of `node`'s canonical attribute plist. The plist is new, but its values are the node's own: don't modify them.
 
 ### `node-children`
 
@@ -285,7 +285,7 @@ Base of every condition cl-commonmark-gfm exports. Its readers, `condition-opera
 
 Condition, a subtype of [`native-error`](#native-error)
 
-Signalled on an ECL built without dynamic FFI (no `:dffi` feature) when cmark-gfm isn't linked into the program: such an ECL can't load a library at run time. Starting cmark-gfm signals it first, before looking for or loading anything. `condition-datum` is `:dffi`, and `condition-reason` says how to link cmark-gfm into a program instead: compile with `cffi-sys:*cffi-ecl-method*` set to `:c/c++`, and link libcmark-gfm-extensions.a and libcmark-gfm.a. A program with cmark-gfm linked in never signals it.
+Signalled on an ECL built without dynamic FFI (no `:dffi` feature) when cmark-gfm isn't linked into the program: such an ECL can't load a library at run time. Starting cmark-gfm signals it first, before looking for or loading anything. `condition-datum` is `:dffi`, and `condition-reason` says how to link cmark-gfm into a program instead: compile with `cffi-sys:*cffi-ecl-method*` set to `:c/c++`, and link `libcmark-gfm-extensions.a` and `libcmark-gfm.a`. A program with cmark-gfm linked in never signals it.
 
 ### `invalid-ast-node`
 

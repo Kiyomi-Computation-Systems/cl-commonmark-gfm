@@ -237,12 +237,16 @@ Copy source positions only from a parse with =CMARK_OPT_SOURCEPOS=
 multi-line code span or raw HTML drift, so =:sourcepos nil= gives no
 positions at all (ADR-0018).  Copy them as
 =((start-line . start-column) . (end-line . end-column))=, or =nil= when
-cmark reports none (a start line of 0: softbreaks, linebreaks and email
-autolinks).  They are reported as-is and never repaired: cmark emits
-end-before-start ranges, zero end columns and children that start before
-their parent.  Inside a paragraph the table extension rebuilt, inline
-positions are wrong, and can be negative (M3 finding 7).  =make-node= checks
-only their shape (integers, possibly negative) and accepts inverted ranges.
+cmark reports none (a start line of 0: softbreaks, linebreaks, email
+autolinks and the text after one).  They are reported as-is and never
+repaired: cmark emits end-before-start ranges, zero end columns and
+children that start before their parent.  Inside a paragraph the table
+extension rebuilt, inline positions are wrong, and can be negative (M3
+finding 7); so are that table's start and header row.  After a backslash
+hard break, the rest of the paragraph is a line early, the next line's
+columns are wrong too, and a bare autolink's columns are off (M5 finding
+43).  =make-node= checks only their shape (integers, possibly negative)
+and accepts inverted ranges.
 cmark's columns are bytes; the API must not imply Unicode grapheme-column
 semantics.
 
@@ -1205,15 +1209,21 @@ own plan, branch and PR
    =check-reference= and =check-docs=, which runs every Lisp example.
    =docs/reference.md= is generated from the docstrings, and
    =html-tree->string= writes HTML's 13 void elements as void (ADR-0022).
-2. *M5b, the pages,* on their own branch once M5a has merged: the home
-   page, installing, usage, options, the AST, the HTML tree, safety,
-   errors, ECL and support, and a Documentation section in =README.org=.
+2. *M5b, the pages*
+   ([[file:2026-10-05-m5b-pages-implementation.md][M5b plan]]), on their
+   own branch once M5a has merged: the home page, installing, usage,
+   options, the AST, the HTML tree, safety, errors, ECL and support, and
+   a Documentation section in =README.org=.  The exported docstrings put
+   typed text, such as file names, in backquotes, which the reference
+   shows as code.
 
 The release itself is a later M5 step: its CHANGELOG entry, version and
-tag, the repository made public, publishing to ocicl, and the manual
-macOS run.  Before the tag is pushed, the site needs two manual steps:
-Settings → Pages → Source: GitHub Actions, and a deployment rule in the
-=github-pages= environment that allows =v*= tags (ADR-0022).
+tag, the repository made public, publishing to ocicl, the manual macOS
+run, M5b's exit test rerun with the real =ocicl install=, and
+=README.org='s link to the site.  Before the tag is pushed, the site
+needs two manual steps: Settings → Pages → Source: GitHub Actions, and a
+deployment rule in the =github-pages= environment that allows =v*= tags
+(ADR-0022).
 
 Exit: a clean-machine install either works or reports a clear project condition,
 never an invalid-free crash or unexplained unresolved symbol.  For each slice:
@@ -1229,7 +1239,11 @@ never an invalid-free crash or unexplained unresolved symbol.  For each slice:
   writing rules, every Lisp example run by =make check-docs=.
   =installing.md='s Debian steps, followed in a fresh =debian:trixie=
   container, give a working install, or a condition the page explains.
-  The release's manual macOS run checks the macOS steps.
+  Until the release puts the library on ocicl, the test stands in for
+  =ocicl install cl-commonmark-gfm=; the release reruns it with the real
+  step.  Its build of cmark-gfm from source is followed the same way in a
+  fresh =ubuntu:24.04=.  The release's manual macOS run checks the macOS
+  steps.
 
 * Risk register
 

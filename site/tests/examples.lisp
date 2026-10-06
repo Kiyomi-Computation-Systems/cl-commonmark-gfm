@@ -400,6 +400,20 @@ function with SPEED, whose generic arithmetic SBCL notes."
     (true (eql 0 (search "a.md: can't be parsed: signalled resource-limit-exceeded: "
                          (first problems))))))
 
+(define-test check-examples-advises-the-guards-pattern-in-a-code-block
+  (let ((markdown (example-page (fence "lisp" "\"[&#94;\""))))
+    (destructuring-bind (problems examples pages)
+        (multiple-value-list
+         (cl-commonmark-gfm.site::check-examples (list (cons "a.md" markdown))))
+      (is equal '(1 0 0) (list (length problems) examples pages))
+      (is equal (list (format nil "a.md: can't be parsed: signalled unsupported-input: ~A; ~
+                                   write its & as &amp; outside code; as code, split it ~
+                                   into two code spans with a word between; in a Lisp ~
+                                   example, build the string from two pieces, as ~
+                                   (concatenate 'string \"[\" \"&#94;\")"
+                              (parse-report markdown)))
+          problems))))
+
 (define-test check-page-examples-refuses-an-error-without-signals
   (is equal (list (in-block-1 "(error \"Boom.\"): signalled simple-error: Boom."
                               "(error \"Bang.\"): expected 3, but signalled simple-error: Bang.")

@@ -39,6 +39,15 @@ is LAMBDA-LIST, and among whose words CODE-WORDS name something."
    (entry "f" :main :function :lambda-list lambda-list :docstring docstring
                               :code-words code-words)))
 
+(defun meaning (docstring)
+  "What the reference means the Markdown it writes for DOCSTRING to render
+to, as a list: its text, then the code it holds, as DOCSTRING-RENDERING
+gives them."
+  (multiple-value-bind (markdown text codes)
+      (cl-commonmark-gfm.site::docstring-rendering (entry "f" :main :function :docstring docstring))
+    (declare (ignore markdown))
+    (list text codes)))
+
 (defun page-text (entries)
   "The reference page that documents ENTRIES."
   (cl-commonmark-gfm.site::reference-text (cl-commonmark-gfm.site::reference-parts entries)))
@@ -106,7 +115,7 @@ entity, strikethrough and a backslash's escape within one."
                              ("rule" "---")
                              ("nested-item" "- - A hyphen in an item")
                              ("emphasis" "Stars *a* and underscores _b_")
-                             ("code" "A `backtick` pair")
+                             ("code" "A ` spaced ` pair")
                              ("link" "A [link](target) and [another]")
                              ("raw-html" "A <b>tag</b>")
                              ("entity" "An &amp; entity")
@@ -115,11 +124,20 @@ entity, strikethrough and a backslash's escape within one."
                              ("pipes" "| a | b |"))
         collect (entry name :main :function :docstring text)))
 
-(defun rendering-problems-of (docstring)
+(defun rendering-problems-of (docstring &key lambda-list code-words)
   "The render check's problems with an entry F whose docstring is
-DOCSTRING."
+DOCSTRING, a function whose lambda list is LAMBDA-LIST, and among whose
+words CODE-WORDS name something."
   (cl-commonmark-gfm.site::rendering-problems
-   (list (entry "f" :main :function :docstring docstring))))
+   (list (entry "f" :main :function :lambda-list lambda-list :docstring docstring
+                                    :code-words code-words))))
+
+(defun backquoted-code-advice (run)
+  "What the render check says about an entry F whose docstring puts RUN in
+backquotes, though the reference makes it code without them."
+  (format nil "f's docstring puts ~A in backquotes, which keep its case; ~
+               drop them, so the reference makes it code"
+          run))
 
 (defun call-with-definition (name function thunk)
   "Call THUNK while the generator's function NAME is FUNCTION, as a broken
@@ -176,6 +194,39 @@ its page cuts into, as a list."
   (is string= "Searches `/usr/lib/<multiarch>`, then `/usr/lib`."
       (markdown "Searches /usr/lib/<multiarch>, then /usr/lib.")))
 
+(define-test docstring-markdown-writes-a-backquoted-run-as-code-without-its-backquotes
+  (is string= "Links `libcmark-gfm.a` statically" (markdown "Links `libcmark-gfm.a` statically"))
+  (is equal '("Links libcmark-gfm.a statically" ("libcmark-gfm.a"))
+      (meaning "Links `libcmark-gfm.a` statically")))
+
+(define-test rendering-problems-refuse-a-backquoted-run-that-is-code-without-them
+  (is equal (mapcar #'backquoted-code-advice
+                    '("*MAX-NODES*" ":GFM" "MARKDOWN" "PARSE" "NIL." "(PARSE MARKDOWN)"))
+      (rendering-problems-of (docstring "Names `*MAX-NODES*`, `:GFM`, `MARKDOWN`, `PARSE`, `NIL.`"
+                                        "and `(PARSE MARKDOWN)`.")
+                             :lambda-list '("markdown") :code-words '("PARSE")))
+  (is equal '() (rendering-problems-of "Keeps `UTF-8`, `NO-SUCH-NAME` and `libcmark-gfm.a`.")))
+
+(define-test docstring-markdown-keeps-a-backquoted-run-as-written
+  (is string= "Keeps `UTF-8`, `x86_64-linux-gnu`, `a*b*c` and `<multiarch>` as written"
+      (markdown "Keeps `UTF-8`, `x86_64-linux-gnu`, `a*b*c` and `<multiarch>` as written")))
+
+(define-test docstring-markdown-leaves-a-lone-backquote-escaped
+  (is string= "A lone \\` backquote" (markdown "A lone ` backquote"))
+  (is string= "A lone \\`backquote here" (markdown "A lone `backquote here"))
+  (is string= "Opens \\`here and closes\\` on the next line"
+      (markdown (docstring "Opens `here and" "closes` on the next line"))))
+
+(define-test docstring-markdown-leaves-a-pair-commonmark-reads-otherwise-escaped
+  (is string= "Empty \\`\\` pair" (markdown "Empty `` pair"))
+  (is string= "Spaced \\` a\\` and \\`b \\` pairs" (markdown "Spaced ` a` and `b ` pairs"))
+  (is string= "Doubled \\`a\\`\\`b\\` pairs" (markdown "Doubled `a``b` pairs"))
+  (is string= "Then \\`a \\`b\\` stays text" (markdown "Then `a `b` stays text")))
+
+(define-test docstring-markdown-reads-a-string-or-a-run-whichever-opens-first
+  (is string= "Quotes ``\"a`b\"`` then c\\`d" (markdown "Quotes \"a`b\" then c`d"))
+  (is string= "Runs `a\"b` then `\"c\"`" (markdown "Runs `a\"b` then \"c\"")))
+
 (define-test docstring-markdown-writes-a-form-as-one-code-span
   (is string= "Same as `(ast->html-tree (parse markdown ...) ...)`, but faster"
       (markdown (docstring "Same as (AST->HTML-TREE (PARSE" "MARKDOWN ...) ...), but faster")
@@ -212,6 +263,15 @@ its page cuts into, as a list."
   (is string= "A, b. c: d's (e) $f% ^g@ !h? {i} =j +k -l #m >n 1. o 2) p"
       (markdown "A, b. c: d's (e) $f% ^g@ !h? {i} =j +k -l #m >n 1. o 2) p")))
 
+(define-test unescape-text-takes-out-the-backslashes-escape-text-adds
+  (dolist (text '("# a" "> a" "+ a" "- a" "= a" "1. a" "12) a" "\\- a" "a - b. 3) c"
+                  "a\\b `c` *d* _e_ [f] <g> &h |i| ~j"))
+    (is string= text (cl-commonmark-gfm.site::unescape-text
+                      (cl-commonmark-gfm.site::escape-text text t)))))
+
+(define-test unescape-text-leaves-every-other-backslash
+  (is string= "a \\- b \\. c \\q" (cl-commonmark-gfm.site::unescape-text "a \\- b \\. c \\q")))
+
 (define-test docstring-markdown-escapes-what-would-start-a-block
   (is string= "\\# Not a heading" (markdown "# Not a heading"))
   (is string= "\\> Not a quote" (markdown "> Not a quote"))
@@ -228,14 +288,31 @@ its page cuts into, as a list."
 
 (defparameter *link-advice*
   (concatenate 'string "f's docstring renders www.example.com as an <a> element; "
-               "write it in double quotes, \"www.example.com\", so it becomes code")
+               "put it in backquotes, `www.example.com`, so it becomes code")
   "What the render check says about an entry F whose docstring holds
 www.example.com, which GFM links by itself.")
 
-(define-test rendering-problems-say-to-quote-what-renders-as-a-link
+(define-test rendering-problems-say-to-backquote-what-renders-as-a-link
   (is equal (list *link-advice*)
       (cl-commonmark-gfm.site::rendering-problems
        (list (entry "f" :main :function :docstring "See www.example.com for more.")))))
+
+(define-test rendering-problems-say-to-double-quote-a-link-holding-a-backquote
+  (is equal (list (concatenate 'string "f's docstring renders www.example.com` "
+                               "as an <a> element; write it in double quotes, "
+                               "\"www.example.com`\", so it becomes code"))
+      (rendering-problems-of "See www.example.com` for more.")))
+
+(define-test rendering-problems-give-a-link-as-the-docstring-holds-it
+  (is equal (list (concatenate 'string "f's docstring renders www.example.com/a_b "
+                               "as an <a> element; put it in backquotes, "
+                               "`www.example.com/a_b`, so it becomes code"))
+      (rendering-problems-of "See www.example.com/a_b for more.")))
+
+(define-test stray-element-problem-says-to-backquote-what-makes-an-empty-element
+  (is string= (concatenate 'string "f's docstring renders an <*comment*> element; "
+                           "put what makes it in backquotes, so it becomes code")
+      (cl-commonmark-gfm.site::stray-element-problem "f" :*comment* "")))
 
 (define-test rendering-problems-pass-a-quoted-address
   (is equal '()
@@ -243,12 +320,21 @@ www.example.com, which GFM links by itself.")
        (list (entry "f" :main :function
                         :docstring "See \"https://www.example.com\" for more.")))))
 
+(define-test rendering-problems-pass-backquoted-runs
+  (is equal '()
+      (rendering-problems-of (docstring "Links `libcmark-gfm.a` for `x86_64-linux-gnu`, writes"
+                                        "`<b>*a*_b_</b>`, and reads `https://www.example.com`."))))
+
 (define-test rendering-problems-report-a-docstring-the-footnote-guard-refuses
-  (is equal (list (format nil "f's docstring: can't be parsed: unsupported-input: ~A; ~
-                               write the pattern as text, outside double quotes, ~
-                               or split it into two quoted strings"
-                          (guard-report "Quotes \"[&#94;\" in code.")))
-      (rendering-problems-of "Quotes \"[&#94;\" in code.")))
+  (flet ((guard-problem (docstring)
+           (format nil "f's docstring: can't be parsed: unsupported-input: ~A; ~
+                        write the pattern as text, outside double quotes and backquotes, ~
+                        or split it into two quoted strings"
+                   (guard-report docstring))))
+    (is equal (list (guard-problem "Quotes \"[&#94;\" in code."))
+        (rendering-problems-of "Quotes \"[&#94;\" in code."))
+    (is equal (list (guard-problem "Quotes `[&#94;` in a run."))
+        (rendering-problems-of "Quotes `[&#94;` in a run."))))
 
 (define-test rendering-problems-pass-the-guards-pattern-as-text-or-split
   (is equal '() (rendering-problems-of "Writes [&#94; as text."))
