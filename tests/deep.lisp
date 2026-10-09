@@ -1,20 +1,18 @@
-;;;; Deep and wide tests for every walk (M2 design §4.7): the shared
-;;;; BUILD-CHAIN, REPEAT-STRING and +DEEP+; seven deep AST shapes, §4.7's six
-;;;; plus nested tables, each through WALK-AST, FOLD-AST, MAP-AST,
-;;;; TRANSFORM-AST and NODE= at +DEEP+ levels; wide trees; the serializer on
-;;;; its own; and the converter over every shape.
+;;;; Deep and wide tests for every walk: the shared BUILD-CHAIN,
+;;;; REPEAT-STRING and +DEEP+; seven deep AST shapes, each through WALK-AST,
+;;;; FOLD-AST, MAP-AST, TRANSFORM-AST and NODE= at +DEEP+ levels; wide trees;
+;;;; the serializer on its own; and the converter over every shape.
 
 (in-package #:cl-commonmark-gfm.tests)
 
-;;; Shared constants and builders (M2a implementation plan, "Interfaces the
-;;; tasks share"). BUILD-CHAIN and REPEAT-STRING loop; neither recurses over
-;;; DEPTH or COUNT.
+;;; Shared constants and builders. BUILD-CHAIN and REPEAT-STRING loop;
+;;; neither recurses over DEPTH or COUNT.
 
 (defconstant +deep+ 100000
-  "The depth every deep AST test uses (M2 design §4.7).")
+  "The depth every deep AST test uses.")
 
 (defconstant +wide+ 300000
-  "The width the wide-tree AST tests use (M2 design §4.7).")
+  "The width the wide-tree AST tests use.")
 
 (defun build-chain (depth leaf wrap)
   "Starting from LEAF, a node, apply WRAP -- a function of one node -- DEPTH
@@ -30,10 +28,10 @@ topmost node."
     (dotimes (i count)
       (write-string string out))))
 
-;;; The seven deep AST shapes: M2 design §4.7's six, plus nested tables.
-;;; TEXT is always the literal of the single deepest leaf; every other
-;;; literal these build is fixed, so two trees built with different TEXT
-;;; differ at exactly one node.
+;;; The seven deep AST shapes: block quotes, emphasis, lists, links, an
+;;; image, footnotes and tables. TEXT is always the literal of the single
+;;; deepest leaf; every other literal these build is fixed, so two trees
+;;; built with different TEXT differ at exactly one node.
 
 (defun deep-block-quotes (depth &optional (text "x"))
   "A :DOCUMENT holding DEPTH nested :BLOCK-QUOTEs, the innermost holding a
@@ -142,9 +140,9 @@ FOLD-AST itself."
 ;;; Parachute keeps every assertion's closure until the run ends, and with
 ;;; it whatever the closure captured. So no assertion in this file captures
 ;;; a tree or a large string: helpers build them, check them and return
-;;; numbers and booleans, or the asserted form builds them itself. Captured
-;;; trees and strings once kept 515 MB alive through the run, and SBCL ran
-;;; out of heap at Debian's default of 1 GB.
+;;; numbers and booleans, or the asserted form builds them itself. Captured,
+;;; these trees and strings would keep 515 MB alive through the run, and SBCL
+;;; would run out of heap at Debian's default of 1 GB.
 
 (defun walk-facts (build size)
   "What the walk tests check, for three trees BUILD makes at SIZE: two alike,
@@ -266,21 +264,20 @@ booleans, so no test holds a tree:
     (true (getf facts :same))
     (false (getf facts :different))))
 
-;;; The serializer (M2 design §4.7, Task 3). A deep HTML tree and a deep
-;;; element cycle, both built with a loop -- not BUILD-CHAIN, which builds
-;;; AST nodes, not HTML-tree conses. Deep values never reach a failure
-;;; message: the assertions see strings compared inside the asserted form,
-;;; and DEEP-CYCLE-FACTS's plist.
+;;; The serializer. A deep HTML tree and a deep element cycle, both built
+;;; with a loop -- not BUILD-CHAIN, which builds AST nodes, not HTML-tree
+;;; conses. Deep values never reach a failure message: the assertions see
+;;; strings compared inside the asserted form, and DEEP-CYCLE-FACTS's plist.
 
 (defconstant +cycle-depth+ 50000
   "The depth HTML-TREE->STRING's deep-cycle test uses: an element that
-contains itself this many levels down (M2 design §4.7; M2a implementation
-plan, Task 3). Distinct from +DEEP+, which this test does not use.")
+contains itself this many levels down. Distinct from +DEEP+, which this
+test does not use.")
 
 (defun deep-html-tree (depth &optional (text "x"))
   "An HTML-tree element, (:DIV NIL (:DIV NIL ... TEXT)): DEPTH levels of
 (:DIV NIL ...) nested around one child TEXT string, built with a loop, not
-BUILD-CHAIN, which builds AST nodes (M2 design §4.7)."
+BUILD-CHAIN, which builds AST nodes."
   (let ((tree text))
     (dotimes (i depth tree)
       (setf tree (list :div nil tree)))))
@@ -289,8 +286,8 @@ BUILD-CHAIN, which builds AST nodes (M2 design §4.7)."
   "DEPTH (:DIV NIL) elements chained with a loop, each one's only child the
 next, and the innermost element's only child the first (outermost) element,
 closing a cycle DEPTH conses long: HTML-TREE->STRING's self-containment
-check must still find it, without recursing DEPTH deep to do so (M2 design
-§4.7). Returns the outermost element."
+check must still find it, without recursing DEPTH deep to do so. Returns
+the outermost element."
   (let* ((outermost (list :div nil))
          (innermost outermost))
     (dotimes (i (1- depth))
@@ -324,12 +321,13 @@ outermost element."
     (is string= "element contains itself" (getf facts :reason))
     (true (getf facts :datum-is-root))))
 
-;;; The converter (M2 design §4.7). Each of the seven AST shapes at
-;;; +DEEP+ levels goes through AST->HTML-TREE, then HTML-TREE->STRING, and
-;;; the result is compared with STRING= to a string built by REPEAT-STRING
-;;; and plain loops, never by the code under test. At depths 1, 2 and 3,
-;;; each builder below reproduces M1's HTML for its shape. Deep values never
-;;; reach a failure message: every assertion is TRUE around STRING=.
+;;; The converter. Each of the seven AST shapes at +DEEP+ levels goes
+;;; through AST->HTML-TREE, then HTML-TREE->STRING, and the result is
+;;; compared with STRING= to a string built by REPEAT-STRING and plain
+;;; loops, never by the code under test. At depths 1, 2 and 3, each
+;;; builder's string is short enough to check by eye against the converter's
+;;; HTML for its shape. Deep values never reach a failure message: every
+;;; assertion is TRUE around STRING=.
 
 (defun deep-html (ast)
   "AST converted by AST->HTML-TREE, then serialized by HTML-TREE->STRING."
@@ -404,8 +402,8 @@ item."
   "The HTML of (DEEP-TABLES DEPTH): DEPTH nested tables, each cell holding
 the next level's table on its own line, the innermost cell holding the bare
 text; every table's row opens its own tbody, since each is a distinct
-:TABLE node (M1's output at depths 1-3, confirmed by hand before this was
-written)."
+:TABLE node. At depths 1-3 this HTML is short enough to check by eye
+against the converter's output."
   (concatenate 'string
                (repeat-string (format nil "<table>~%<tbody>~%<tr>~%<td>~%") (1- depth))
                (format nil "<table>~%<tbody>~%<tr>~%<td>x</td>~%</tr>~%</tbody>~%</table>~%")
@@ -432,11 +430,11 @@ written)."
 (define-test deep-tables-converts
   (true (string= (expected-deep-tables +deep+) (deep-html (deep-tables +deep+)))))
 
-;;; The wide shape through the converter: Task 2's WIDE-PARAGRAPH at +WIDE+,
-;;; wrapped in a document, through AST->HTML-TREE then HTML-TREE->STRING.
-;;; The expected string is built by REPEAT-STRING, not by the code under
-;;; test; confirmed against M1's output at width 3 (<p>xxx</p> and a
-;;; newline) before this was written.
+;;; The wide shape through the converter: WIDE-PARAGRAPH at +WIDE+, wrapped
+;;; in a document, through AST->HTML-TREE then HTML-TREE->STRING. The
+;;; expected string is built by REPEAT-STRING, not by the code under test;
+;;; at width 3 it is <p>xxx</p> and a newline, short enough to check by eye
+;;; against the converter's output.
 
 (define-test wide-paragraph-converts
   (true (string= (concatenate 'string "<p>" (repeat-string "x" +wide+) "</p>" (string #\Newline))

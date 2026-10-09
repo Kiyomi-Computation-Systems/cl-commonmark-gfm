@@ -89,8 +89,8 @@ check "T5 subdirectory: runs from the repo root" [ "$(lines 1p)" = "cd $root|" ]
 status=$?
 check "T6 enter on host: exit 2" [ "$status" -eq 2 ]
 
-# T7: scripts/guix-env-enter's library resolution (ADR-0009), called
-# directly (not through the launcher) so each case controls exactly what
+# T7: scripts/guix-env-enter's library resolution, called directly (not
+# through the launcher) so each case controls exactly what
 # $GUIX_ENVIRONMENT/lib holds. A fake GUIX_ENVIRONMENT and a scratch cwd
 # are both needed: the script mkdirs $PWD/.guix-env.
 enter=$root/scripts/guix-env-enter
@@ -142,10 +142,10 @@ core=$enter_env/lib/libcmark-gfm.so.0.29.0.gfm.13
 run_enter
 check "T7c no extensions file: exit 2" [ "$status" -eq 2 ]
 
-# T8: GUIX_ENV_MANIFEST names another manifest (M4 design §6.4): the dry
-# run uses it after -m, in place of manifest.scm, and the --preserve flag
-# lets the variable itself through into the container, so
-# scripts/guix-env-enter can read it too.
+# T8: GUIX_ENV_MANIFEST names another manifest: the dry run uses it after
+# -m, in place of manifest.scm, and the --preserve flag lets the variable
+# itself through into the container, so scripts/guix-env-enter can read it
+# too.
 run GUIX_ENV_MANIFEST=manifest-ecl-nodffi.scm "$launcher" make check-ecl-nodffi-inside
 check "T8 other manifest: exits 0" [ "$status" -eq 0 ]
 check "T8 other manifest: names it after -m" \
@@ -153,10 +153,9 @@ check "T8 other manifest: names it after -m" \
 check "T8 other manifest: preserve flag lets GUIX_ENV_MANIFEST in" \
   has '--preserve=^(TERM|COLORTERM|LANG|GUIX_ENV_MANIFEST)$'
 
-# T8b: set but empty is the same as unset (ADR-0004: "unset or empty,
-# it's manifest.scm"), not an empty -m argument. Catches ":-" weakened to
-# "-", which would leave an empty-but-set value alone instead of
-# defaulting it.
+# T8b: set but empty is the same as unset, not an empty -m argument.
+# Catches ":-" weakened to "-", which would leave an empty-but-set value
+# alone instead of defaulting it.
 run GUIX_ENV_MANIFEST= "$launcher" make info
 check "T8b empty manifest: exits 0" [ "$status" -eq 0 ]
 check "T8b empty manifest: uses manifest.scm" [ "$(lines 9p)" = "manifest.scm|" ]
@@ -169,7 +168,7 @@ check "T9 missing manifest: names it" grep -Fq "manifest-does-not-exist.scm" "$t
 check "T9 missing manifest: prints no command" [ ! -s "$tmp/out" ]
 
 # T9b: a manifest name holding a / is refused outright, whether or not
-# the file exists (ADR-0004: a file name at the repository root, never a
+# the file exists (it must be a file name at the repository root, never a
 # path) -- a subdirectory, a leading ./, and an absolute path. The second
 # and third name a file that really exists (manifest.scm itself, by
 # relative and by absolute path), and every case must be refused for its
@@ -183,10 +182,11 @@ for bad in sub/x.scm ./manifest.scm "$root/manifest.scm"; do
   check "T9b [$bad] prints no command" [ ! -s "$tmp/out" ]
 done
 
-# T10: scripts/guix-env-enter's own fasl cache per manifest (finding 9),
-# called directly as T7 is, so each case controls GUIX_ENV_MANIFEST
-# exactly. Reuses T7's reset_enter_env/enter_env/enter_cwd, with one core
-# and one extensions file so the script reaches its end.
+# T10: scripts/guix-env-enter's own fasl cache per manifest, since ECLs
+# built differently can't share fasls; called directly as T7 is, so each
+# case controls GUIX_ENV_MANIFEST exactly. Reuses T7's
+# reset_enter_env/enter_env/enter_cwd, with one core and one extensions
+# file so the script reaches its end.
 run_enter_cache() {
   status=999
   ( cd "$enter_cwd" && env -i PATH="$PATH" GUIX_ENVIRONMENT="$enter_env" "$@" \
@@ -207,7 +207,7 @@ check "T10a other manifest: exit 0" [ "$status" -eq 0 ]
 check "T10a other manifest: its own cache" \
   [ "$(cat "$tmp/out")" = "$enter_cwd/.guix-env/cache-manifest-ecl-nodffi" ]
 
-# T10b: without it, the shared cache, as before this manifest existed.
+# T10b: without it, the shared cache, manifest.scm's.
 run_enter_cache
 check "T10b no manifest: exit 0" [ "$status" -eq 0 ]
 check "T10b no manifest: the shared cache" \

@@ -1,8 +1,8 @@
-;;;; The cl-commonmark-gfm.native-tests package: the native suite (M2 design
-;;;; §8.4, §8.5). tests/run-native.lisp runs it on each Lisp in
-;;;; NATIVE_LISPS. The native layer's internals are reached through the
-;;;; NATIVE nickname, as native::name. The public API comes from the
-;;;; primary package, cl-commonmark-gfm, as a caller would reach it.
+;;;; The cl-commonmark-gfm.native-tests package: the native suite.
+;;;; tests/run-native.lisp runs it on each Lisp in NATIVE_LISPS. The native
+;;;; layer's internals are reached through the NATIVE nickname, as
+;;;; native::name. The public API comes from the primary package,
+;;;; cl-commonmark-gfm, as a caller would reach it.
 
 (defpackage #:cl-commonmark-gfm.native-tests
   (:use #:cl)
@@ -43,7 +43,7 @@
                 #:corpus-example-html
                 #:corpus-example-options
                 #:*oracle-cases*
-                ;; The property-testing harness (ADR-0020; tests/property-harness.lisp):
+                ;; The property-testing harness (tests/property-harness.lisp):
                 ;; shared by tests/native/properties.lisp and divergences.lisp.
                 #:register-property
                 #:run-case

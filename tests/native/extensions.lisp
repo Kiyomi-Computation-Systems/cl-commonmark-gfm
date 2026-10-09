@@ -1,15 +1,11 @@
-;;;; Unknown extensions (M3 design §4; M3 plan Task 2; M3 findings 3 and 4):
-;;;; nodes cmark's public API can build that no parse under this pin ever
-;;;; produces, exercised through the real copier, the output bounds and
-;;;; AST->HTML-TREE. M3 finding 3's probe first tried these calls; these
-;;;; tests are written fresh, reusing only CALL-WITH-NATIVE-DOCUMENT and
-;;;; NODES-OF-KIND from helpers.lisp.
+;;;; Unknown extensions: nodes cmark's public API can build that no parse
+;;;; under this pin ever produces, exercised through the real copier, the
+;;;; output bounds and AST->HTML-TREE.
 ;;;;
-;;;; The seven test-only bindings below live here, not in /ffi (M3 design
-;;;; §4.2): the library never builds a node of a syntax extension it doesn't
-;;;; attach (the plan, "Non-goals for version 1"), so nothing outside the
-;;;; test suite should call them. Each is named with a %TEST- prefix so it
-;;;; can never clash with an /FFI export.
+;;;; The seven test-only bindings below live here, not in /ffi: the library
+;;;; builds no cmark node itself and binds none of these calls, so nothing
+;;;; outside the test suite should call them. Each is named with a %TEST-
+;;;; prefix so it can never clash with an /FFI export.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -31,9 +27,8 @@ function only when it has one (src/syntax_extension.c)."
 (cffi:defcfun ("cmark_syntax_extension_add_node" %test-syntax-extension-add-node) :int
   "cmark_node_type cmark_syntax_extension_add_node(int is_inline)
 (src/cmark-gfm-extension_api.h): the next free block or inline type number,
-taken from a process-wide counter with no lock (src/syntax_extension.c; M3
-design finding 4). Call at most once per kind, process-wide, and cache the
-result."
+taken from a process-wide counter with no lock (src/syntax_extension.c).
+Call at most once per kind, process-wide, and cache the result."
   (is-inline :int))
 
 (cffi:defcfun ("cmark_node_new" %test-node-new) :pointer
@@ -62,10 +57,10 @@ for NODE, without changing its cmark_node_type."
   (node :pointer)
   (child :pointer))
 
-;;; An extension, made and freed around one call (M3 design §4.2)
+;;; An extension, made and freed around one call
 
 (defun call-with-unknown-extension (function)
-  "Make a syntax extension named \"m3-unknown\" with
+  "Make a syntax extension named \"test-unknown\" with
 CMARK_SYNTAX_EXTENSION_NEW, call FUNCTION with it, and free it afterwards
 with CMARK_SYNTAX_EXTENSION_FREE and the default allocator, in
 UNWIND-PROTECT. Starts cmark up first, since these raw bindings need the
@@ -77,7 +72,7 @@ just required: when FUNCTION returns with any native handle still open
 extension out from under a document that may still be alive."
   (native-state)
   (let ((extension (native::with-interrupts-deferred
-                      (%test-syntax-extension-new "m3-unknown"))))
+                      (%test-syntax-extension-new "test-unknown"))))
     (unwind-protect
          (funcall function extension)
       (unless (open-counts-zero-p)
@@ -86,7 +81,7 @@ extension out from under a document that may still be alive."
       (native::with-interrupts-deferred
         (%test-syntax-extension-free (cmark-get-default-mem-allocator) extension)))))
 
-;;; New node types, taken once per process and cached (M3 finding 4)
+;;; New node types, taken once per process and cached
 
 (defvar *unknown-block-type* nil
   "This process's one new CMARK_NODE_TYPE for a block, taken from
@@ -120,14 +115,14 @@ first time."
 CMARK_NODE_SET_SYNTAX_EXTENSION, and returned. Its CMARK_NODE_TYPE stays
 CMARK_NODE_PARAGRAPH -- CMARK_NODE_SET_SYNTAX_EXTENSION never changes it --
 so CMARK_NODE_GET_TYPE_STRING falls back to \"paragraph\": the extension has
-no get_type_string_func (M3 design finding 3; src/node.c)."
+no get_type_string_func (src/node.c)."
   (let ((paragraph (first (nodes-of-kind document :paragraph))))
     (is = 1 (native::with-interrupts-deferred
               (%test-node-set-syntax-extension paragraph extension))
         "cmark_node_set_syntax_extension")
     paragraph))
 
-;;; 1. An existing node given an unknown extension (M3 design §4.3.1)
+;;; 1. An existing node given an unknown extension
 
 (define-test a-node-given-an-unknown-extension-copies-as-extension
   (call-with-unknown-extension
@@ -144,7 +139,7 @@ no get_type_string_func (M3 design finding 3; src/node.c)."
                "its position: the whole \"a *b* c\" paragraph"))))))
   (true (open-counts-zero-p)))
 
-;;; 2. Nodes of brand new types (M3 design §4.3.2)
+;;; 2. Nodes of brand new types
 
 (define-test a-new-block-type-node-copies-as-extension-named-unknown
   (call-with-unknown-extension
@@ -186,13 +181,13 @@ no get_type_string_func (M3 design finding 3; src/node.c)."
                  (node-attributes (second children)))))))))
   (true (open-counts-zero-p)))
 
-;;; 3. Custom nodes (M3 design §4.3.3)
+;;; 3. Custom nodes
 
 ;;; Each half below gets its own document: NODES-OF-KIND, like every native
-;;; walk, classifies every node it crosses (M2 design §5.1), so a custom
-;;; node already appended to a shared document would make the other half's
-;;; own NODES-OF-KIND call signal UNSUPPORTED-EXTENSION-NODE in turn, before
-;;; it ever reaches the assertion meant to catch it.
+;;; walk, classifies every node it crosses, so a custom node already
+;;; appended to a shared document would make the other half's own
+;;; NODES-OF-KIND call signal UNSUPPORTED-EXTENSION-NODE in turn, before it
+;;; ever reaches the assertion meant to catch it.
 
 (define-test a-custom-block-or-inline-node-makes-the-copier-signal-unsupported-extension-node
   (call-with-native-document "text" '(:profile :gfm :sourcepos t)
@@ -224,7 +219,7 @@ no get_type_string_func (M3 design finding 3; src/node.c)."
             (is = +cmark-node-custom-inline+ (condition-datum condition)))))))
   (true (open-counts-zero-p)))
 
-;;; 4. The output bounds (M3 design §4.3.4)
+;;; 4. The output bounds
 
 (define-test output-bounds-signal-unsupported-extension-node-for-an-extension-node
   (call-with-unknown-extension
@@ -247,7 +242,7 @@ no get_type_string_func (M3 design finding 3; src/node.c)."
              (is string= "paragraph" (condition-datum condition))))))))
   (true (open-counts-zero-p)))
 
-;;; 5. AST->HTML-TREE, on an :EXTENSION copy like test 1's (M3 design §4.3.5)
+;;; 5. AST->HTML-TREE, on an :EXTENSION copy like test 1's
 
 (define-test ast->html-tree-signals-unsupported-extension-node-for-an-extension-node
   (let ((ast (call-with-unknown-extension

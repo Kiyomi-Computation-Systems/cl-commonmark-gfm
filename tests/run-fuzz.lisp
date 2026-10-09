@@ -1,13 +1,13 @@
-;;;; `make fuzz`'s pure half (M3 plan, Task 9): load the pure suite, then run
-;;;; only its property tests (tests/properties.lisp's *PROPERTY-TESTS*), not
-;;;; the whole suite, with CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES
-;;;; read from the environment as tests/run.lisp reads them. Shares its
-;;;; reporting code, tests/runner.lisp.
+;;;; `make fuzz`'s pure half: load the pure suite, then run only its property
+;;;; tests (tests/properties.lisp's *PROPERTY-TESTS*), not the whole suite,
+;;;; with CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES read from the
+;;;; environment as tests/run.lisp reads them. Shares its reporting code,
+;;;; tests/runner.lisp.
 ;;;;
 ;;;; The very first form prints a fixed marker and flushes it, exactly as
 ;;;; tests/run.lisp's does: scripts/lisp-start-watchdog polls for this exact
-;;;; line to tell a started CCL from one hung in its own startup (finding
-;;;; 20, M2 design §8.5; ADR-0013).
+;;;; line to tell a started CCL from one hung in its own startup, before any
+;;;; Lisp code runs.
 
 (format t "~&;; lisp started~%")
 (finish-output)

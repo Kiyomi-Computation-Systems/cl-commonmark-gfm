@@ -26,7 +26,10 @@
   SBCL; and a second workflow, `.github/workflows/pages.yml`, runs on
   `v*` tags and by hand only. It reuses CI's container and toolchain
   script to check and build the documentation site, and deploys it from a
-  `v*` tag alone. CI itself stays one file and one job
+  `v*` tag alone. CI itself stays one file and one job; amended
+  2026-10-09, in M5's citation cleanup: `make -k test` adds
+  `check-citations`, which tests `scripts/check-citations`, then runs it
+  over the repository
 - **Date:** 2026-09-27
 - **Scope:** CI workflow, CI toolchain, native memory checks, the CCL
   start watchdog
@@ -118,6 +121,7 @@ Each step comes into use as its milestone arrives.
 | `make deps`, then `make -k test`, both `if: ${{ !cancelled() }}`: `check-purity` (the pure suite on each Lisp; fails if a `CFFI` package is loaded) and `check-fixtures` | M1 |
 | `make -k test` adds `check-native`, the native suite on SBCL, **with no override set**, so discovery searches `/usr/lib/x86_64-linux-gnu` | M2 |
 | `make -k test` adds `check-site`, `check-reference` and `check-docs`, on SBCL: the site generator's tests and `docs/`, the generated reference, and the examples in `docs/` (ADR-0022) | M5a |
+| `make -k test` adds `check-citations`: its own tests, then a search of the files git tracks or would track, all but the plans, AGENTS.md, CHANGELOG.md and the licenses, for the clearest references to the plans | M5 |
 | `make check-native NATIVE_LISPS="ccl ecl"`, the native suite on CCL and ECL, with no override set, on a push to `main` or a dispatch only | M4a |
 | After the CCL and ECL step, on a push to `main` or a dispatch only: install `libcmark-gfm-dev` and `libcmark-gfm-extensions-dev`, then `make check-ecl-static`, which builds a linked ECL program with Debian's ECL and runs it (ADR-0021) | M4b |
 | The corpus oracles, over the whole corpus (ADR-0011, ADR-0018), in the native suite | M2 |

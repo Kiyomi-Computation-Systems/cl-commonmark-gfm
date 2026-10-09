@@ -1,4 +1,4 @@
-;;;; Tests for HTML-TREE->STRING, VALID-HTML-NAME-P and VOID-ELEMENT-P (M1 design §6).
+;;;; Tests for HTML-TREE->STRING, VALID-HTML-NAME-P and VOID-ELEMENT-P.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -260,10 +260,9 @@
   (fail (html-tree->string (list :a (list (list :href "u") (list :href "v")) "x"))
         'invalid-html-tree))
 
-;;; CHECK-NO-REPEATED-ATTRIBUTE-NAMES compares malformed names safely (a
-;;; pre-existing M1 bug): two distinct cons names, circular or merely deep,
-;;; must not reach EQUAL's unbounded walk. Each hangs or crashes M1's code;
-;;; that was confirmed under a bound, one scenario per process.
+;;; CHECK-NO-REPEATED-ATTRIBUTE-NAMES compares malformed names safely: two
+;;; distinct cons names, circular or merely deep, must not reach EQUAL's
+;;; unbounded walk, which can hang or crash the process.
 
 (define-test html-tree->string-rejects-two-distinct-circular-cons-attribute-names
   (let ((name1 (list 'x))
@@ -274,9 +273,10 @@
           'invalid-html-tree)))
 
 ;;; The reason is checked, not just the condition type: two distinct but
-;;; EQUAL 100,000-deep cons names must not be reported as a repeat (some
-;;; Lisps' EQUAL survives this depth without overflowing, so a type-only
-;;; check would not distinguish the old behaviour from the fixed one here).
+;;; EQUAL 100,000-deep cons names must not be reported as a repeat. Some
+;;; Lisps' EQUAL survives this depth without overflowing, so names compared
+;;; with EQUAL would still signal INVALID-HTML-TREE, as a repeat, and a
+;;; type-only check would pass.
 (define-test html-tree->string-rejects-two-distinct-100000-deep-cons-attribute-names
   (flet ((deep-name ()
            (let ((c nil))
@@ -301,7 +301,7 @@
 
 (define-test html-tree->string-rejects-bad-attribute-name
   ;; The rule this protects: a keyword can never smuggle markup into an
-  ;; attribute name (ADR-0010).
+  ;; attribute name.
   (fail (html-tree->string (list :a (list (list (intern "onclick=\"x\"" :keyword) "y")) "z"))
         'invalid-html-tree))
 
@@ -342,12 +342,11 @@
   (handler-case (progn (html-tree->string 42) (true nil "expected invalid-html-tree"))
     (invalid-html-tree (e) (is eql 'html-tree->string (condition-operation e)))))
 
-;;; Order: the loop over a stack of open elements must still meet each
-;;; element's problem in document order, the same order M1's recursion met
-;;; it in -- a parent's own checks (reached first) before its children's,
-;;; and an earlier sibling's problem (reached first) before a later one's,
-;;; each sibling fully written, errors included, before the next is even
-;;; looked at (M1 design §6; M2 design §4.5).
+;;; Order: the loop over a stack of open elements must meet each element's
+;;; problem in document order, as a recursive walk would -- a parent's own
+;;; checks (reached first) before its children's, and an earlier sibling's
+;;; problem (reached first) before a later one's, each sibling fully
+;;; written, errors included, before the next is even looked at.
 
 (define-test html-tree->string-reports-the-first-malformed-sibling-in-document-order
   (handler-case

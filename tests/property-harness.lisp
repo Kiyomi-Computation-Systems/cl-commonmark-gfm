@@ -1,18 +1,17 @@
-;;;; The property-testing harness (ADR-0020; M3 design §6.1 to §6.3): our own
-;;;; splitmix64 stream, the three generators, the delta-debugging shrinker;
-;;;; RUN-PROPERTY, which runs a property over cases from a seed and shrinks
-;;;; its first failure; what a property test asserts and reports
-;;;; (SUMMARY-PROBLEMS, SUMMARY-REPORT); and the seed and case settings.
+;;;; The property-testing harness: our own splitmix64 stream, the three
+;;;; generators, the delta-debugging shrinker; RUN-PROPERTY, which runs a
+;;;; property over cases from a seed and shrinks its first failure; what a
+;;;; property test asserts and reports (SUMMARY-PROBLEMS, SUMMARY-REPORT);
+;;;; and the seed and case settings.
 ;;;; tests/properties.lisp and tests/native/properties.lisp (bounds and
 ;;;; clean outcomes) and tests/native/divergences.lisp (the oracles) build
 ;;;; the five properties on it. Pure: no CFFI, so this file loads and runs
 ;;;; on SBCL, CCL and ECL.
 ;;;;
-;;;; ADR-0020 adopted this generator and shrinker over check-it, the other
-;;;; contender it compared against: check-it drew from CL:RANDOM, whose
-;;;; states don't replay across Lisps (M3 finding 5), where a splitmix64
-;;;; stream, built from integer arithmetic alone, gives the same cases on
-;;;; SBCL, CCL and ECL from one seed.
+;;;; The cases come from our own stream, not CL:RANDOM, which a library such
+;;;; as check-it draws from: CL:RANDOM's states don't replay across Lisps,
+;;;; where a splitmix64 stream, built from integer arithmetic alone, gives
+;;;; the same cases on SBCL, CCL and ECL from one seed.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -119,9 +118,8 @@ the total weight, so a list and its table give the same values."
                return value
              do (decf pick weight))))))
 
-;;; Generators (M3 design §6.2): syntax soup, corpus splices and octets; the
-;;; option sets each Markdown case draws from; and the bounds every case
-;;; keeps.
+;;; Generators: syntax soup, corpus splices and octets; the option sets each
+;;; Markdown case draws from; and the bounds every case keeps.
 ;;;
 ;;; Every draw comes from a splitmix64 stream, and every character from
 ;;; CODE-CHAR of a code point that is never a surrogate: CCL's CODE-CHAR
@@ -297,7 +295,7 @@ than #\\Newline."
             (weighted-choice stream *splice-character-table*)))
     text))
 
-;;; The option sets: each Markdown case runs under one of the sets M2b's
+;;; The option sets: each Markdown case runs under one of the sets the
 ;;; HTML oracle compares. HTML-ORACLE-MISMATCH-P (tests/native/oracles.lisp)
 ;;; runs each corpus example under its own options, as the corpus reader
 ;;; makes them, with each :SOFTBREAK value of the oracle's
@@ -505,11 +503,11 @@ string, or NIL when they keep them: at most 400 characters of soup, at most
        (options
         "an octet case has options")))))
 
-;;; The shrinker (ADR-0020): delta debugging over a failing input. It
-;;; removes runs of lines, then runs of characters, halving the run size
-;;; each time, and keeps each removal after which the property still fails,
-;;; as its caller decides: SHRINK-FAILURE asks for a failure of the
-;;; original's kind. An octet vector shrinks the same way, octet by octet.
+;;; The shrinker: delta debugging over a failing input. It removes runs of
+;;; lines, then runs of characters, halving the run size each time, and
+;;; keeps each removal after which the property still fails, as its caller
+;;; decides: SHRINK-FAILURE asks for a failure of the original's kind. An
+;;; octet vector shrinks the same way, octet by octet.
 ;;;
 ;;; It draws nothing, so it is deterministic: the same failure shrinks to
 ;;; the same input on every Lisp. And it is bounded, so a property that
@@ -596,15 +594,14 @@ second value counts the calls made."
       (shrink-items (coerce octets 'simple-vector) #'octets-of still-fails-p *shrink-budget*)
     (values (octets-of items) (- *shrink-budget* budget))))
 
-;;; The source and the shrinker a property runs with (ADR-0020's "our own"
-;;; contender; check-it, the rejected contender, is gone). Kept as plain
-;;; functions, not a generic function with one method, now that only one
-;;; way of generating and shrinking cases remains (YAGNI).
+;;; The source and the shrinker a property runs with: plain functions, not a
+;;; generic function with one method, since there is only one way of
+;;; generating and shrinking cases (YAGNI).
 
 (defun generator-source (generator seed)
   "A function of no arguments that yields GENERATOR's next case, drawn from a
 splitmix64 stream seeded with SEED: GENERATE-CASE over it, so one seed gives
-the same cases on every Lisp (M3 finding 5)."
+the same cases on every Lisp."
   (unless (member generator *generators*)
     (error "no generator named ~S, only ~{~S~^, ~}" generator *generators*))
   (let ((stream (make-splitmix64 seed)))
@@ -624,12 +621,13 @@ SHRINK-OCTETS for an octet vector, whichever generator made it."
 
 (defparameter *outcomes* '(:pass :fail :guard :excused-repeat :excused-dropped)
   "What a property returns for a case: :PASS or :FAIL; :GUARD when the input
-guard rejected the input; :EXCUSED-REPEAT or :EXCUSED-DROPPED when spec
-§6.4 excuses a difference.")
+guard rejected the input; :EXCUSED-REPEAT or :EXCUSED-DROPPED when the
+difference is one of the two known footnote divergences, which the
+:HTML-ORACLE property excuses.")
 
 (defparameter *excuses* '(:excused-repeat :excused-dropped)
-  "The outcomes spec §6.4 excuses, each counted under its own kind, in this
-order.")
+  "The outcomes that excuse a known footnote divergence, each counted under
+its own kind, in this order.")
 
 (defstruct (property-entry (:constructor make-property-entry (name function generators))
                            (:copier nil))
@@ -737,9 +735,9 @@ by a note saying so."
 ;;; returned itself. So a shrink can't slip from the property's own failure
 ;;; to an error, or from one condition type to another. Two failures a
 ;;; property reports itself are one kind, though: a detail is free text, and
-;;; no prefix of it names a failure reliably (property 1's "the tree's html
-;;; differs" covers every difference). The report shows the original
-;;; input's detail beside the shrunk one's, so such a slip shows.
+;;; no prefix of it names a failure reliably (the :HTML-ORACLE property's
+;;; "the tree's html differs" covers every difference). The report shows the
+;;; original input's detail beside the shrunk one's, so such a slip shows.
 
 (defun run-case (property input options)
   "PROPERTY's outcome for INPUT and OPTIONS, its detail, and for a :FAIL the
@@ -869,7 +867,7 @@ count."
 
 ;;; Reporting a summary: a property test's one assertion is over
 ;;; SUMMARY-PROBLEMS, and its description is SUMMARY-REPORT, which must
-;;; show all a replay needs (ADR-0020's "The suite").
+;;; show all a replay needs.
 
 (defun escaped-string (string)
   "STRING in double quotes, with every character outside printable ASCII
@@ -945,8 +943,8 @@ the original input: ~A; its detail: ~A"
                   (described-input input) detail (size-text original-length input)
                   original-detail))))))
 
-;;; Settings: CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES (ADR-0020;
-;;; M3 plan, Task 9). A bad value must fail loudly before any property runs.
+;;; Settings: CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES. A bad value
+;;; must fail loudly before any property runs.
 
 (define-condition property-setting-error (error)
   ((setting :reader property-setting-error-setting
@@ -1053,13 +1051,13 @@ when CL_COMMONMARK_GFM_CASES set one."
 
 (defun initialize-property-settings (&optional (stream *standard-output*))
   "Read CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES into
-*PROPERTY-SEED* and *PROPERTY-CASES-OVERRIDE*, before any property test runs
-(M3 plan, Task 9), and print PROPERTY-SETTINGS-LINE to STREAM: every run
-says which seed it used, a picked one included, and whether the case counts
-are the defaults, so it can be replayed. Returns the seed. Signals
+*PROPERTY-SEED* and *PROPERTY-CASES-OVERRIDE*, before any property test
+runs, and print PROPERTY-SETTINGS-LINE to STREAM: every run says which seed
+it used, a picked one included, and whether the case counts are the
+defaults, so it can be replayed. Returns the seed. Signals
 PROPERTY-SETTING-ERROR on a bad value; callers run this wrapped in a
 HANDLER-CASE that exits non-zero, since an uncaught condition doesn't exit
-non-zero on every Lisp (progress.md: ECL's top level can exit 0 after one)."
+non-zero on every Lisp: ECL's top level can exit 0 after one."
   (multiple-value-bind (seed source cases)
       (property-settings (uiop:getenv "CL_COMMONMARK_GFM_SEED")
                          (uiop:getenv "CL_COMMONMARK_GFM_CASES"))

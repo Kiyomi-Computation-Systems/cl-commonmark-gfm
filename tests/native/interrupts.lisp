@@ -1,11 +1,10 @@
-;;;; Interrupts (M2 design §5.4, §8.4; finding 21; M4 design §5.2): a worker
-;;;; rendering in a loop, interrupted again and again with a THROW, as a
-;;;; timeout would unwind it, keeps rendering, and ends with no hold and the
-;;;; open counters at zero. A throw out of cmark's malloc or free would leave
-;;;; a lock of the C heap held, and the worker's next allocation would wait
-;;;; on it forever. So the race runs in a child with a time limit (RUN-CHILD,
-;;;; children.lisp), and a deadlock fails the test instead of hanging the
-;;;; suite.
+;;;; Interrupts: a worker rendering in a loop, interrupted again and again
+;;;; with a THROW, as a timeout would unwind it, keeps rendering, and ends
+;;;; with no hold and the open counters at zero. A throw out of cmark's
+;;;; malloc or free would leave a lock of the C heap held, and the worker's
+;;;; next allocation would wait on it forever. So the race runs in a child
+;;;; with a time limit (RUN-CHILD, children.lisp), and a deadlock fails the
+;;;; test instead of hanging the suite.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -67,11 +66,11 @@ have passed. Return whether it returned true."
 
 (defun interrupt-race (interrupts)
   "In a child: start a worker rendering in a loop, and interrupt it
-INTERRUPTS times with CUT-FUNCTION's throw. The interrupts are paced as
-the probe that found finding 21 paced them: a random number of yields,
-below 2,000, before each, and the next sent only once the last was taken,
-since a flood of pending interrupts overflows SBCL's interrupt nesting.
-The yields are drawn from the property harness's splitmix64 stream
+INTERRUPTS times with CUT-FUNCTION's throw. The interrupts are paced so
+each lands at a random point: a random number of yields, below 2,000,
+before each, and the next sent only once the last was taken, since a flood
+of pending interrupts overflows SBCL's interrupt nesting. The yields are
+drawn from the property harness's splitmix64 stream
 (tests/property-harness.lisp), seeded 1, so every Lisp paces the race the
 same way. Then wait for the worker to render 100 more times, and stop it.
 Return a plist:
@@ -119,18 +118,17 @@ this suite, and return the child's RUN-CHILD plist."
               :race
               (format nil "(cl-commonmark-gfm.native-tests::interrupt-race ~D)" *interrupts*))))
 
-;;; Not on ECL (M4 finding 13): ECL 24.5.10's MP:WITHOUT-INTERRUPTS lets
+;;; Not on ECL: ECL 24.5.10's MP:WITHOUT-INTERRUPTS lets
 ;;; MP:INTERRUPT-PROCESS's interrupts run inside it whenever the region
 ;;; allocates, and every deferred region here allocates. So on ECL the race
-;;; fails with the deferral in place, leaving holds and open parsers,
-;;; roots and buffers: interrupting a thread during a call isn't safe there
-;;; (ADR-0017).
+;;; fails with the deferral in place, leaving holds and open parsers, roots
+;;; and buffers: interrupting a thread during a call isn't safe there.
 #-ecl
 (define-test a-worker-interrupted-again-and-again-keeps-rendering
   ;; Without interrupts deferred around each cmark call, this fails: on
-  ;; SBCL the worker soon stops for good (finding 21), still holding the
-  ;; state; on CCL it keeps rendering, but leaves parsers, roots and
-  ;; buffers open (three runs each without the deferral, 2026-10-03).
+  ;; SBCL the worker soon stops for good, still holding the state, waiting
+  ;; on a C heap lock that a throw left held; on CCL it keeps rendering,
+  ;; but leaves parsers, roots and buffers open.
   (destructuring-bind (&key killed exit-code reports errors &allow-other-keys)
       (interrupt-race-run)
     (false killed "the child reported within ~D seconds" *child-seconds*)

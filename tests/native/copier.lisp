@@ -1,15 +1,14 @@
-;;;; The copier (M2 design §6, §8.3, §8.4; ADR-0018): COPY-NATIVE-TREE,
-;;;; mostly through PARSE. The hand-built fixture ASTs are witness 4; the
-;;;; direct tests cover what no corpus-wide witness sees in the AST itself.
-;;;; Every expected value here was worked out from the Markdown by hand,
-;;;; then confirmed with the pinned CLI: `--sourcepos -t xml` for kinds and
-;;;; positions, and `-t html` for footnote labels, which cmark's XML
-;;;; doesn't print (M2 design finding 13).
+;;;; The copier: COPY-NATIVE-TREE, mostly through PARSE. The hand-built
+;;;; fixture ASTs are witness 4; the direct tests cover what no corpus-wide
+;;;; witness sees in the AST itself. Every expected value here was worked
+;;;; out from the Markdown by hand, then confirmed with the pinned CLI:
+;;;; `--sourcepos -t xml` for kinds and positions, and `-t html` for
+;;;; footnote labels, which cmark's XML doesn't print.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
 ;;; Building Markdown, and reading ASTs. ASTs are walked with WALK-AST, so
-;;; a deep one costs no stack (ADR-0015).
+;;; a deep one costs no stack.
 
 (defun markdown-lines (&rest lines)
   "LINES joined, each ended by a newline. Spares Markdown that holds ~ the
@@ -38,13 +37,13 @@ escaping a FORMAT control string would need."
     (dolist (node (ast-nodes-of-kind ast :text))
       (write-string (node-attribute node :literal) out))))
 
-;;; Witness 4: the fixture ASTs (M2 design §8.3; the M1 hand-off). Each
-;;; case's Markdown, parsed with PARSE's defaults, equals its hand-built AST
-;;; in tests/oracle.lisp. A case's own flags are render flags, so they don't
-;;; change the parse. The hand-built ASTs leave out positions and the
-;;; document's attributes, and cmark splits text nodes where it pleases
-;;; (M2 design §6.1), so both sides are compared with positions aside, the
-;;; document's attributes cleared, and adjacent text merged.
+;;; Witness 4: the fixture ASTs. Each case's Markdown, parsed with PARSE's
+;;; defaults, equals its hand-built AST in tests/oracle.lisp, so the pure
+;;; suite's hand-built ASTs are what the parser builds. A case's own flags
+;;; are render flags, so they don't change the parse. The hand-built ASTs
+;;; leave out positions and the document's attributes, and cmark splits
+;;; text nodes where it pleases, so both sides are compared with positions
+;;; aside, the document's attributes cleared, and adjacent text merged.
 
 (defun merged-text-children (children)
   "CHILDREN with each run of adjacent :TEXT nodes replaced by one :TEXT
@@ -151,11 +150,10 @@ through COPY-NODE: never the level it had."
     (false (comparable= (one-block-document :heading '(:level 1))
                         (one-block-document :heading '(:level 2))))))
 
-;;; Footnote labels (M2 design §6.3, finding 6): after parsing, a
-;;; reference's own literal is its number, and its label is its
-;;; definition's literal, as written. cmark matches labels without regard
-;;; to case, so the pinned CLI's HTML links [^note] and [^NOTE] to
-;;; #fn-Note, and [^Foo] to #fn-foo.
+;;; Footnote labels: after parsing, a reference's own literal is its
+;;; number, and its label is its definition's literal, as written. cmark
+;;; matches labels without regard to case, so the pinned CLI's HTML links
+;;; [^note] and [^NOTE] to #fn-Note, and [^Foo] to #fn-foo.
 
 (defun footnote-labels (ast kind)
   "The :LABEL of each node of KIND in AST, in document order."
@@ -166,10 +164,10 @@ through COPY-NODE: never the level it had."
     (is equal '("Note" "foo" "Note") (footnote-labels ast :footnote-reference))
     (is equal '("Note" "foo") (footnote-labels ast :footnote-definition))))
 
-;;; Alignment (M2 design §6.3, finding 13): cmark keeps it per column, on
-;;; the table, and prints it in its XML on header cells only. Its HTML
-;;; aligns every cell by the cell's index in its row (get_cell_alignment,
-;;; extensions/table.c), and so does the copy, padded cells included.
+;;; Alignment: cmark keeps it per column, on the table, and prints it in
+;;; its XML on header cells only. Its HTML aligns every cell by the cell's
+;;; index in its row (get_cell_alignment, extensions/table.c), and so does
+;;; the copy, padded cells included.
 
 (defun row-alignments (ast)
   "The :ALIGN of each cell of AST's first table, one list per row, header
@@ -190,8 +188,8 @@ row first."
                                              "| 5 |")))))
 
 ;;; The document's attributes come from the parse's options, not from
-;;; cmark (M2 design §6.3): the extensions attached, in canonical order,
-;;; and :OPTIONS listing :FOOTNOTES, then :SMART, when each is on.
+;;; cmark: the extensions attached, in canonical order, and :OPTIONS
+;;; listing :FOOTNOTES, then :SMART, when each is on.
 
 (define-test the-document-carries-the-parse-options
   (flet ((attributes (&rest options)
@@ -218,8 +216,8 @@ row first."
         (attributes :sourcepos nil)
         ":sourcepos is no attribute")))
 
-;;; Positions (M2 design §6.4). Each list below is every node of the parse,
-;;; as (KIND SOURCEPOS), in document order. Columns count octets.
+;;; Positions. Each list below is every node of the parse, as (KIND
+;;; SOURCEPOS), in document order. Columns count octets.
 
 (defun kinds-and-positions (markdown)
   "Every node of MARKDOWN, parsed with PARSE's defaults, as (KIND
@@ -239,9 +237,9 @@ SOURCEPOS), in document order."
 
 (define-test a-multi-line-code-span-leaves-later-positions-right
   ;; Without CMARK_OPT_SOURCEPOS, cmark skips adjust_subj_node_newlines
-  ;; (src/inlines.c), and what follows the span's newline drifts (M2 design
-  ;; finding 7). A code span's position is its content's (handle_backticks):
-  ;; from 1:2, after the opening backtick, to 2:1, before the closing one.
+  ;; (src/inlines.c), and what follows the span's newline drifts. A code
+  ;; span's position is its content's (handle_backticks): from 1:2, after
+  ;; the opening backtick, to 2:1, before the closing one.
   (is equal '((:document ((1 . 1) . (2 . 6)))
               (:paragraph ((1 . 1) . (2 . 6)))
               (:code ((1 . 2) . (2 . 1)))
@@ -259,10 +257,11 @@ SOURCEPOS), in document order."
               (:text ((2 . 1) . (2 . 1))))
       (kinds-and-positions (markdown-lines "a" "b"))))
 
-;;; Positions are copied as cmark reports them, never repaired (ADR-0005
-;;; finding 8). tests/fixtures/vocabulary.xml, the pinned CLI's
-;;; --sourcepos XML for vocabulary.md, prints them for every node it
-;;; holds, in the order PARSE's AST holds them.
+;;; Positions are copied as cmark reports them, never repaired, even where
+;;; they look wrong, such as an end before its start or an end column of 0.
+;;; tests/fixtures/vocabulary.xml, the pinned CLI's --sourcepos XML for
+;;; vocabulary.md, prints them for every node it holds, in the order
+;;; PARSE's AST holds them.
 
 (defun xml-sourcepos (line)
   "The position LINE, one of cmark's XML start tags, gives in its
@@ -313,8 +312,8 @@ XML-ELEMENT-NAMES finds: each starts its own line."
   (is = 71 (positioned-node-count (fixture-string "vocabulary.md"))
       "by default, every position vocabulary.xml prints"))
 
-;;; Text (M2 design §6.5): every string cmark returns is decoded as UTF-8,
-;;; and NUL and a lone surrogate reach the AST as U+FFFD.
+;;; Text: every string cmark returns is decoded as UTF-8, and NUL and a
+;;; lone surrogate reach the AST as U+FFFD.
 
 (define-test non-ascii-text-round-trips
   ;; One string attribute of each kind: heading text, a link's destination,
@@ -352,9 +351,8 @@ XML-ELEMENT-NAMES finds: each starts its own line."
 
 (define-test nul-and-a-lone-surrogate-become-the-replacement-character
   ;; cmark replaces a NUL byte with U+FFFD (S_parser_feed, src/blocks.c).
-  ;; The encoder writes a lone surrogate as U+FFFD before cmark sees it (M2
-  ;; design finding 11). CCL has no lone surrogate: (code-char #xD800) is
-  ;; NIL there.
+  ;; The encoder writes a lone surrogate as U+FFFD before cmark sees it.
+  ;; CCL has no lone surrogate: (code-char #xD800) is NIL there.
   (let ((expected (concatenate 'string "a" (string (code-char #xFFFD)) "b"))
         (surrogate (code-char #xD800)))
     (is string= expected (text-of (parse (format nil "a~Cb" (code-char 0)))) "NUL")
@@ -370,8 +368,8 @@ XML-ELEMENT-NAMES finds: each starts its own line."
   ;; The parse above can't show which guard replaced the surrogate: under
   ;; CMARK_OPT_VALIDATE_UTF8, cmark turns the three octets an encoded
   ;; surrogate would take, ED A0 80, into one U+FFFD too (utf8proc_valid,
-  ;; src/utf8.c). The octets fed to cmark show that cmark never sees one
-  ;; (M2 design §6.5): U+FFFD is EF BF BD.
+  ;; src/utf8.c). The octets fed to cmark show that cmark never sees one:
+  ;; U+FFFD is EF BF BD.
   (is equalp #(97 239 191 189 98) (native::encode-input (format nil "a~Cb" (code-char #xD800)))))
 
 #+ccl
@@ -379,8 +377,8 @@ XML-ELEMENT-NAMES finds: each starts its own line."
   (false (code-char #xD800)))
 
 ;;; Failures that can't happen under the pin, made to happen by redefining
-;;; an accessor (M2 design §8.4). Each signals NATIVE-PARSE-ERROR naming
-;;; PARSE, and frees the document.
+;;; an accessor. Each signals NATIVE-PARSE-ERROR naming PARSE, and frees
+;;; the document.
 
 (define-test a-reference-without-a-definition-signals-native-parse-error
   ;; cmark turns a dangling reference into text (process_footnotes,
@@ -414,8 +412,8 @@ XML-ELEMENT-NAMES finds: each starts its own line."
           (copy-native-tree (released-document-and-root) (check-options :parse 'test '())))
   (true (open-counts-zero-p)))
 
-;;; ASTs outlive their document (the plan's M2 exit): an AST is Lisp data,
-;;; holding nothing of cmark's.
+;;; ASTs outlive their document: an AST is Lisp data, holding nothing of
+;;; cmark's.
 
 (defun ast-outlives-its-document-p ()
   "True when vocabulary.md's AST still equals a fresh parse's, positions
@@ -433,11 +431,11 @@ oracle fixture's Markdown was parsed and its document freed in turn."
   (true (ast-outlives-its-document-p))
   (true (open-counts-zero-p)))
 
-;;; Deep inputs (M2 design §8.4): cmark's own stress inputs
-;;; (test/pathological_tests.py), each within the default limits. The
-;;; copy follows each to its full depth, which no recursive walk would
-;;; reach (ADR-0015). Built and parsed inside helpers that return numbers,
-;;; so no assertion holds a megabyte of Markdown or its AST.
+;;; Deep inputs: cmark's own stress inputs (test/pathological_tests.py),
+;;; each within the default limits. The copy follows each to its full
+;;; depth, which no recursive walk would reach. Built and parsed inside
+;;; helpers that return numbers, so no assertion holds a megabyte of
+;;; Markdown or its AST.
 
 (defun nested-block-quotes ()
   "cmark's \"nested block quotes\": 50,000 block quote markers, then a.

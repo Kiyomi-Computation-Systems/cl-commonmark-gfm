@@ -162,8 +162,8 @@
                 #:false
                 #:fail
                 #:of-type)
-  ;; For the native suite (M2 design §8.2, §8.3; ADR-0018): the corpus
-  ;; reader, and the fixture ASTs of witness 4 (tests/native/copier.lisp).
+  ;; For the native suite: the corpus reader, and the fixture ASTs that
+  ;; tests/native/copier.lisp compares parses against.
   (:export #:corpus-examples
            #:corpus-example
            #:corpus-example-p

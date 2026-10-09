@@ -1,7 +1,7 @@
 ;;;; The reporting code both test runners share: tests/run.lisp runs the pure
-;;;; suite, tests/run-native.lisp the native one (M1 design §7.2; M2 design
-;;;; §8.5). A runner loads its test system through ASDF, then this file, then
-;;;; calls RUN-SUITE and REPORT-SUITE and adds its own exit checks.
+;;;; suite, tests/run-native.lisp the native one. A runner loads its test
+;;;; system through ASDF, then this file, then calls RUN-SUITE and
+;;;; REPORT-SUITE and adds its own exit checks.
 
 (defun failing-leaves (result)
   "Return a fresh list of RESULT's failing leaves, recursing into parent

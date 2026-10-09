@@ -1,7 +1,6 @@
 ;;;; Builds the smoke program, tests/static/, as an ECL program with
-;;;; cmark-gfm linked in (M4 design §6.3; findings 6, 23 and 25):
-;;;; build/ecl-static/cl-commonmark-gfm-static-smoke. `make
-;;;; check-ecl-static` runs it from the repository root, as
+;;;; cmark-gfm linked in: build/ecl-static/cl-commonmark-gfm-static-smoke.
+;;;; `make check-ecl-static` runs it from the repository root, as
 ;;;;
 ;;;;   ecl -norc -load tests/static/build.lisp </dev/null
 ;;;;
@@ -10,13 +9,16 @@
 ;;;; static archives. It sets ASDF's output translations itself, ignoring
 ;;;; any it would inherit, so every fasl goes under build/ecl-static/cache/:
 ;;;; fasls compiled under CFFI's :c/c++ method must be shared with no other
-;;;; ECL (finding 9).
+;;;; ECL, since ASDF keys an ECL's fasls by version and platform alone,
+;;;; though their compiled calls differ by method.
 ;;;;
-;;;; It uses ECL's own ASDF and no other (finding 23). Any serious condition
-;;;; prints itself and exits 1. ECL's own handler of the command line quits
-;;;; 1 on an ERROR (src/lsp/cmdline.lsp), but any other serious condition
-;;;; reaches its debugger, which waits for input, and quits with status 0 at
-;;;; the end of stdin (the top level's :eof command, src/lsp/top.lsp).
+;;;; It uses ECL's own ASDF and no other: a newer ASDF, loaded over Debian's
+;;;; ECL, fails to link the program, since it links in ECL's libcmp.a, which
+;;;; Debian doesn't ship. Any serious condition prints itself and exits 1.
+;;;; ECL's own handler of the command line quits 1 on an ERROR
+;;;; (src/lsp/cmdline.lsp), but any other serious condition reaches its
+;;;; debugger, which waits for input, and quits with status 0 at the end of
+;;;; stdin (the top level's :eof command, src/lsp/top.lsp).
 ;;;;
 ;;;; It stays in CL-USER: ECL's builder writes the program's prologue and
 ;;;; epilogue forms out as text, which the program reads back in CL-USER as
@@ -44,18 +46,18 @@ implementation.")
 
 (defparameter *archive-names* '("libcmark-gfm-extensions.a" "libcmark-gfm.a")
   "cmark-gfm's two static archives, in the order the linker must see them:
-the extensions call into the core, so they come first (finding 6).")
+the extensions call into the core, so they come first.")
 
 (defparameter *linkable-asdf* (probe-file (translate-logical-pathname "SYS:libasdf.a"))
   "ECL's ASDF as an archive that ASDF links into a program, or NIL when this
-ECL ships none, as Debian's doesn't (finding 23).")
+ECL ships none, as Debian's doesn't.")
 
 ;;; ECL runs a program's prologue and epilogue under EXT:SAFE-EVAL
 ;;; (src/lsp/top.lsp). It hands any serious condition to the debugger, and
 ;;; the cleanup of its UNWIND-PROTECT returns from it, which stops any
 ;;; unwind passing through. So EXT:QUIT, which unwinds, doesn't end the
 ;;; program from there: on Debian's ECL, after the prologue's EXT:QUIT, the
-;;; program went on to start its compiled files. Both forms handle every
+;;; program goes on to start its compiled files. Both forms handle every
 ;;; serious condition themselves, and end the program with EXT:EXIT, which
 ;;; runs the exit hooks and calls exit() without unwinding (src/c/main.d).
 
@@ -70,7 +72,7 @@ ECL ships none, as Debian's doesn't (finding 23).")
        (ext:exit 3)))
   "What the program runs as it starts, before any compiled file, when ECL
 ships no ASDF to link in: CFFI's compiled code refers to ASDF's packages,
-so ECL's own ASDF must be loaded first (finding 23). A failure exits 3.")
+so ECL's own ASDF must be loaded first. A failure exits 3.")
 
 (defparameter *epilogue*
   '(handler-case
@@ -97,9 +99,8 @@ So a relative DIRECTORY, or one holding // or /./, names that file wherever
 the linker runs: ECL runs it in its own default directory (SAVE-DIRECTORY,
 src/cmp/cmpos-run.lsp), not necessarily the build's. Signals an error when
 the path holds a *, a ? or a backslash, which ECL's pathnames read as a
-wildcard (findings 12 and 30), when ECL can't look the path up, or when no
-file is there. Blanks, quotes and colons in a directory's name went
-through, and built."
+wildcard, when ECL can't look the path up, or when no file is there. A
+directory's name may hold blanks, quotes and colons."
   (let ((path (concatenate 'string (string-right-trim "/" directory) "/" name)))
     (when (find-if (lambda (char) (member char '(#\* #\? #\\) :test #'char=)) path)
       (error "ECL's pathnames read a *, a ? or a \\ as a wildcard, and ~A holds one. Put ~
@@ -143,10 +144,10 @@ backslash in PATH gets a backslash before it."
   "Make ASDF compile every file under *FASL-DIRECTORY*, ignoring the output
 translations it would inherit, ASDF_OUTPUT_TRANSLATIONS and the
 configuration files among them: an inherited translation could send some
-fasls elsewhere (finding 9). ASDF keeps two entries of its own around this
-one, as a probe of its table showed: before it, ECL's own directory, left
-untranslated; after it, the user cache under XDG_CACHE_HOME, which no file
-reaches, since this entry matches every file first."
+fasls where another ECL shares them. ASDF keeps two entries of its own
+around this one: before it, ECL's own directory, left untranslated; after
+it, the user cache under XDG_CACHE_HOME, which no file reaches, since this
+entry matches every file first."
   (asdf:initialize-output-translations
    `(:output-translations
      (t (,*fasl-directory* :implementation))
@@ -175,13 +176,12 @@ translation checked is that of cffi.asd, a file in its tree."
     (dolist (output (append (compiled-outputs "cl-commonmark-gfm" "api")
                             (compiled-outputs *smoke-system* "smoke")))
       (unless (uiop:subpathp output *fasl-directory*)
-        (error "ASDF would compile into ~A, outside ~A, where this build's fasls must go ~
-                (finding 9)"
+        (error "ASDF would compile into ~A, outside ~A, where this build's fasls must go"
                output *fasl-directory*)))
     (let ((translated (asdf:apply-output-translations cffi)))
       (unless (uiop:subpathp translated *fasl-directory*)
         (error "ASDF would put CFFI's fasls outside ~A, where this build's fasls must go: ~
-                it translates ~A, in CFFI's tree, to ~A (finding 9)"
+                it translates ~A, in CFFI's tree, to ~A"
                *fasl-directory* cffi translated)))))
 
 ;;; The build
@@ -201,12 +201,12 @@ and where the archives come from."
   (finish-output))
 
 (defun build-program ()
-  "Build the program, as M4 design §6.3's recipe has it:
+  "Build the program:
 - compile everything, CFFI included, under CFFI's :c/c++ method, with
   LOAD-SYSTEM :FORCE :ALL, into *FASL-DIRECTORY*. ASDF 3.1.8.8's
-  MAKE-BUILD can't compile it itself (finding 23);
+  MAKE-BUILD can't compile it itself;
 - with the archives first in C::*LD-LIBS*: ECL's builder puts its
-  :LD-FLAGS before the objects, and C::*LD-LIBS* after them (finding 6).
+  :LD-FLAGS before the objects, and C::*LD-LIBS* after them.
   They go in before anything compiles: ECL links each compiled file with
   C::*LD-LIBS* too (BUNDLE-CC, src/cmp/cmpbackend-cxx/cmpbackend-cxx.lsp),
   and without them the first file that calls cmark-gfm, src/ffi.fas,

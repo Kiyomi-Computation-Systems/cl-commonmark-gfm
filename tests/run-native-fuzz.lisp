@@ -1,12 +1,12 @@
-;;;; `make fuzz`'s native half (M3 plan, Task 9): load the native suite, then
-;;;; run only its property tests (tests/native/properties.lisp and
-;;;; divergences.lisp's *PROPERTY-TESTS*), not the whole suite, with
-;;;; CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES read from the
-;;;; environment as tests/run-native.lisp reads them. Shares its reporting
-;;;; code, tests/runner.lisp, and its open-counters check (ADR-0008).
+;;;; `make fuzz`'s native half: load the native suite, then run only its
+;;;; property tests (tests/native/properties.lisp and divergences.lisp's
+;;;; *PROPERTY-TESTS*), not the whole suite, with CL_COMMONMARK_GFM_SEED and
+;;;; CL_COMMONMARK_GFM_CASES read from the environment as
+;;;; tests/run-native.lisp reads them. Shares its reporting code,
+;;;; tests/runner.lisp, and its open-counters check.
 ;;;;
 ;;;; The very first form prints a fixed marker and flushes it, exactly as
-;;;; tests/run-native.lisp's does (ADR-0013).
+;;;; tests/run-native.lisp's does, for scripts/lisp-start-watchdog.
 
 (format t "~&;; lisp started~%")
 (finish-output)
@@ -16,9 +16,9 @@
 (asdf:load-system "cl-commonmark-gfm/native-tests")
 
 ;; Fail fast, before any property case runs, when cmark-gfm's pinned
-;; libraries can't be found (ADR-0009), exactly as tests/run-native.lisp
-;; does, with the same arguments START-NATIVE-LAYER gives
-;; RESOLVE-CMARK-LIBRARIES (src/native/startup.lisp).
+;; libraries can't be found, exactly as tests/run-native.lisp does, with the
+;; same arguments START-NATIVE-LAYER gives RESOLVE-CMARK-LIBRARIES
+;; (src/native/startup.lisp).
 (handler-case
     (cl-commonmark-gfm.native-core:resolve-cmark-libraries
      :libraries (cl-commonmark-gfm.native::native-override

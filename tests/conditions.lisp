@@ -93,8 +93,8 @@
                                         :datum :extension
                                         :reason "extension node"))))
 
-;;; M2: INVALID-OPTION, with INVALID-PARSE-OPTION and INVALID-RENDER-OPTION
-;;; under it (M2 design §7.2, §7.4, D16).
+;;; INVALID-OPTION, with INVALID-PARSE-OPTION and INVALID-RENDER-OPTION under
+;;; it.
 
 (define-test invalid-option-hierarchy
   (true (subtypep 'invalid-option 'commonmark-gfm-error))
@@ -102,15 +102,14 @@
   (true (subtypep 'invalid-parse-option 'invalid-option))
   (true (subtypep 'invalid-parse-option 'commonmark-gfm-error))
   (true (subtypep 'invalid-parse-option 'error))
-  ;; INVALID-RENDER-OPTION is M1's condition, now under INVALID-OPTION
-  ;; instead of directly under COMMONMARK-GFM-ERROR.
+  ;; INVALID-RENDER-OPTION sits under INVALID-OPTION, not directly under
+  ;; COMMONMARK-GFM-ERROR.
   (true (subtypep 'invalid-render-option 'invalid-option))
   (true (subtypep 'invalid-render-option 'commonmark-gfm-error))
   (true (subtypep 'invalid-render-option 'error)))
 
-;;; M2: RESOURCE-LIMIT-EXCEEDED, a direct subtype of COMMONMARK-GFM-ERROR,
-;;; beside INVALID-OPTION and NATIVE-ERROR, not under either (M2 design
-;;; §5.5, §7.4).
+;;; RESOURCE-LIMIT-EXCEEDED, a direct subtype of COMMONMARK-GFM-ERROR, beside
+;;; INVALID-OPTION and NATIVE-ERROR, not under either.
 
 (define-test resource-limit-exceeded-hierarchy
   (true (subtypep 'resource-limit-exceeded 'commonmark-gfm-error))
@@ -141,9 +140,9 @@
                                         :limit '*max-nodes*
                                         :maximum 1000000))))
 
-;;; M2b: UNSUPPORTED-INPUT, a direct subtype of COMMONMARK-GFM-ERROR, beside
+;;; UNSUPPORTED-INPUT, a direct subtype of COMMONMARK-GFM-ERROR, beside
 ;;; INVALID-OPTION, RESOURCE-LIMIT-EXCEEDED and NATIVE-ERROR, not under any
-;;; of them (M2 design §5.6, §7.4; finding 16).
+;;; of them.
 
 (define-test unsupported-input-hierarchy
   (true (subtypep 'unsupported-input 'commonmark-gfm-error))
@@ -167,8 +166,7 @@
                                         :datum 7
                                         :reason "entity decodes to ^"))))
 
-;;; M2: NATIVE-ERROR, with its six subtypes (M2 design §5.2, §5.4, §6.3,
-;;; §7.4, D16).
+;;; NATIVE-ERROR, with its six subtypes.
 
 (define-test native-error-hierarchy
   (true (subtypep 'native-error 'commonmark-gfm-error))
@@ -211,7 +209,7 @@
     (is string= "0.28.0" (condition-found-version condition))
     (is equal '("/usr/lib/libcmark-gfm.so") (condition-paths condition))))
 
-(define-test condition-report-across-every-m2-subtype
+(define-test condition-report-across-option-and-native-subtypes
   (is string= "parse: unknown key: :BOGUS"
       (princ-to-string (make-condition 'invalid-parse-option
                                         :operation 'parse

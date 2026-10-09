@@ -8,7 +8,9 @@
   [M3 spec](../2026-10-02-m3-extensions-versions-properties-design.md) §4
   and M3 findings 3 and 7: the copier already keeps an unknown node as
   `:extension`, and M3 tests that path on nodes built through cmark's
-  public API; positions copied as reported can be negative
+  public API; positions copied as reported can be negative; amended
+  2026-10-09: the soundness tests and the `:bounds` property compare each
+  output bound with cmark's own bytes, not with the decoded output
 - **Date:** 2026-09-30
 - **Scope:** `copy-native-tree`, with its attributes, positions and text;
   the UTF-8 encoder and decoder; the corpus reader; the four oracles
@@ -101,8 +103,13 @@ become U+FFFD, as Unicode recommends (spec §6.5).
 - **Decoding never fails.** cmark can return bad bytes for a valid input
   (finding 19), so a strict decoder would turn that input into an error.
 - **Lengths never shrink.** U+FFFD is never shorter than the bytes it
-  replaces. The soundness tests measure decoded output (spec §8.4), so a
-  bound that passes them covers cmark's own bytes too.
+  replaces, so a decoded string is never shorter in UTF-8 than cmark's
+  bytes. The output bounds bound cmark's own bytes: the soundness tests
+  (spec §8.4) and the `:bounds` property compare each bound with the
+  octets cmark wrote, the second value of `render-html` and
+  `render-plaintext`, not with the decoded string, which can be longer
+  (amended 2026-10-09; the bullet said the tests measured decoded
+  output).
 
 ### Four witnesses, over the whole corpus (D4)
 

@@ -1,6 +1,6 @@
 # cl-commonmark-gfm
 #
-# On a Guix host, run targets through the container (ADR-0004):
+# On a Guix host, run targets through the container:
 #   scripts/guix-env make <target>
 
 SBCL ?= sbcl
@@ -14,7 +14,7 @@ CCL  ?= ccl
 # whichever recipe is running it.
 GOAL = $(strip $(if $(MAKECMDGOALS),$(MAKECMDGOALS),$@))
 
-# The container's ocicl, pinned by tag AND commit (ADR-0003, ADR-0004).
+# The container's ocicl, pinned by tag AND commit.
 # `make ocicl` refuses a tag that has moved. Outside Guix, use your own ocicl:
 # nothing else in this Makefile names .guix-env/.
 OCICL_TAG    := v2.9.0
@@ -23,25 +23,26 @@ OCICL_URL    := https://github.com/ocicl/ocicl
 STATE_DIR    := .guix-env
 OCICL_SRC    := $(STATE_DIR)/src/ocicl-$(OCICL_TAG)
 
-# The cmark-gfm release every native build and test is pinned to (ADR-0002).
+# The cmark-gfm release every native build and test is pinned to.
 CMARK_GFM_VERSION := 0.29.0.gfm.13
 
-# The vendor/cmark-gfm submodule's commit for that release (ADR-0002, ADR-0011).
+# The vendor/cmark-gfm submodule's commit for that release.
 CMARK_GFM_COMMIT := 587a12bb54d95ac37241377e6ddc93ea0e45439b
 
-# The ADR that must record CMARK_GFM_COMMIT in full; check-pins fails if it
-# doesn't. Overridable so a mutation can point it elsewhere (see the check).
+# The decision record that must record CMARK_GFM_COMMIT in full; check-pins
+# fails if it doesn't. Overridable so a mutation can point it elsewhere (see
+# the check).
 PIN_ADR := .plans/decisions/0002-pin-cmark-gfm-0.29.0.gfm.13.md
 
 # Every syntax extension, plus footnotes (an option, not an extension, in
-# the library; the CLI spells it as one). Used by check-vocabulary (ADR-0005).
+# the library; the CLI spells it as one). Used by check-vocabulary.
 VOCAB_FLAGS := --sourcepos -e footnotes -e table -e strikethrough -e autolink \
                -e tagfilter -e tasklist
 VOCAB_MD    := tests/fixtures/vocabulary.md
 VOCAB_XML   := tests/fixtures/vocabulary.xml
 
-# The oracle fixtures (M1 design §7.3): one manifest, one Markdown input and one
-# committed HTML file per case. FIXTURES_FLAGS is cmark's GFM set, minus
+# The oracle fixtures: one manifest, one Markdown input and one committed
+# HTML file per case. FIXTURES_FLAGS is cmark's GFM set, minus
 # --sourcepos, applied before each case's own extra flags.
 FIXTURES_DIR   := tests/fixtures/html
 FIXTURES_CASES := $(FIXTURES_DIR)/cases
@@ -49,7 +50,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight test fuzz check-site site reference check-reference check-docs check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight check-citations test fuzz check-site site reference check-reference check-docs check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
 
 # The name column is as wide as the longest target's name.
 help: ## Show this help message
@@ -107,8 +108,9 @@ deps: ## Install the Lisp dependencies pinned in ocicl.csv
 	@scripts/require-tools "$(GOAL)" ocicl
 	@ocicl install </dev/null
 
-# The AST vocabulary table in the plan was read off this output. If a pin
-# bump changes it, the table (and ADR-0005) must be revisited.
+# The AST's node kinds (src/ast/schema.lisp) and how cmark-gfm's node
+# types map to them (src/native-core/classify.lisp) follow this output. If
+# a pin bump changes it, revisit both.
 check-vocabulary: ## Diff the pinned cmark-gfm's XML for the vocabulary fixture against the record
 	@scripts/require-tools "$(GOAL)" cmark-gfm
 	@cmark-gfm $(VOCAB_FLAGS) -t xml $(VOCAB_MD) | diff -u $(VOCAB_XML) - \
@@ -213,7 +215,7 @@ check-notice: ## Diff NOTICE's COPYING section against vendor/cmark-gfm/COPYING
 # The Lisps each test suite runs on. check-purity runs the pure suite on
 # all three; check-native runs the native suite on NATIVE_LISPS, sbcl by
 # default, so `make test` is what a pull request runs. main's CI adds `make
-# check-native NATIVE_LISPS="ccl ecl"` (M4 design §5.6; ADR-0013).
+# check-native NATIVE_LISPS="ccl ecl"`.
 LISPS ?= sbcl ccl ecl
 NATIVE_LISPS ?= sbcl
 
@@ -222,17 +224,16 @@ NATIVE_LISPS ?= sbcl
 # cl-commonmark-gfm.asd but never walks into vendor/ or .guix-env/; then
 # ocicl// recursively, so it finds every dependency ocicl installed. There
 # is no empty entry, so no inherited configuration (e.g. a home directory
-# source-registry.conf) leaks in (M1 design §7.1, §7.2).
+# source-registry.conf) leaks in.
 TEST_SOURCE_REGISTRY := $(CURDIR)/:$(CURDIR)/ocicl//
 
 # CCL 1.13's release binary sometimes hangs inside its own startup, before
-# any Lisp code runs, and is deaf to SIGTERM (finding 20, M2 design §8.5;
-# ADR-0013). run-suite below runs CCL only through
-# scripts/lisp-start-watchdog, which waits CCL_START_WINDOW seconds for
-# LISP_START_MARKER -- tests/run.lisp and tests/run-native.lisp's first,
-# flushed line of output -- before killing the run and starting it again,
-# up to CCL_START_TRIES times. `make check-watchdog` tests the script
-# itself, against a fake.
+# any Lisp code runs, and is deaf to SIGTERM. run-suite below runs CCL only
+# through scripts/lisp-start-watchdog, which waits CCL_START_WINDOW seconds
+# for LISP_START_MARKER -- tests/run.lisp and tests/run-native.lisp's
+# first, flushed line of output -- before killing the run and starting it
+# again, up to CCL_START_TRIES times. `make check-watchdog` tests the
+# script itself, against a fake.
 CCL_START_WINDOW ?= 30
 CCL_START_TRIES  ?= 3
 LISP_START_MARKER := ;; lisp started
@@ -243,10 +244,9 @@ LISP_START_MARKER := ;; lisp started
 # reports each Lisp under TARGET's name; and fails when any Lisp fails or is
 # unknown.
 #
-# SBCL gets a 2 GB heap wherever it runs. Debian's SBCL, which CI uses
-# (ADR-0013), defaults to 1 GB and Guix's to 3 GB. The deep tests need more
-# than 768 MB at their peak, and under 1 GB CI's run ran out of heap while
-# the container's passed.
+# SBCL gets a 2 GB heap wherever it runs. Debian's SBCL, which CI uses,
+# defaults to 1 GB and Guix's to 3 GB. The deep tests need more than 768 MB
+# at their peak, and a run under 1 GB can run out of heap.
 #
 # An empty or blank LISPS/NATIVE_LISPS makes the `for` loop below run zero
 # times, leaving $$failed empty: nothing would run, yet TARGET would report
@@ -300,9 +300,9 @@ fi; \
 echo "$(1): passed on all of: $(2)"
 endef
 
-# PROPERTY_SEED and PROPERTY_CASES (ADR-0020) replay a property run: given,
-# check-purity and check-native, and so `make test`, pass them to the Lisp
-# runs as CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES. Unset (the
+# PROPERTY_SEED and PROPERTY_CASES replay a property run: given, check-purity
+# and check-native, and so `make test`, pass them to the Lisp runs as
+# CL_COMMONMARK_GFM_SEED and CL_COMMONMARK_GFM_CASES. Unset (the
 # default), nothing is passed and the harness's own defaults hold (seed 1,
 # the CI counts). scripts/guix-env preserves only TERM, COLORTERM, LANG and
 # GUIX_ENV_MANIFEST into the container, so these must be make variables,
@@ -325,13 +325,20 @@ check-watchdog: ## Test scripts/lisp-start-watchdog against a fake command
 check-preflight: ## Test that make fails fast, with a hint, when its tools are missing
 	@sh tests/make-preflight.sh
 
-test: check-watchdog check-preflight check-purity check-fixtures check-native check-site check-reference check-docs ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
+# Comments, docstrings and pages give their reasons in their own words,
+# never as a reference to the plans: scripts/check-citations says what it
+# finds, and where it doesn't look.
+check-citations: ## Test scripts/check-citations, then refuse references to the plans with it
+	@scripts/require-tools "$(GOAL)" git
+	@sh tests/check-citations.sh && sh scripts/check-citations
 
-# The property tests' own CI case counts (ADR-0020) give `make test` about
-# 30 s in the container. `make fuzz` replaces every property's own count
-# with the flat FUZZ_CASES, from FUZZ_SEED (random by default): a few
-# minutes, not hours, at the default. FUZZ_SEED=N FUZZ_CASES=M replays a
-# fuzz failure. Empty is refused, not silently treated as unset.
+test: check-watchdog check-preflight check-purity check-fixtures check-native check-site check-reference check-docs check-citations ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
+
+# The property tests' own CI case counts give `make test` about 30 s in the
+# container. `make fuzz` replaces every property's own count with the flat
+# FUZZ_CASES, from FUZZ_SEED (random by default): a few minutes, not hours,
+# at the default. FUZZ_SEED=N FUZZ_CASES=M replays a fuzz failure. Empty is
+# refused, not silently treated as unset.
 FUZZ_CASES ?= 150000
 FUZZ_SEED  ?= random
 
@@ -434,22 +441,23 @@ check-guix-inside: ## (inside the container) Assert the pinned toolchain and iso
 	@CMARK_GFM_VERSION=$(CMARK_GFM_VERSION) OCICL_TAG=$(OCICL_TAG) sh scripts/guix-env-selftest
 
 # check-ecl-static builds the smoke program, tests/static/, as an ECL
-# program with cmark-gfm linked in, and runs it (M4 design §6.3). Its
-# fasls, compiled under CFFI's :c/c++ method, go into ECL_STATIC_DIR with
-# the program, and nowhere else: no other ECL may share them (finding 9).
-# tests/static/build.lisp sets ASDF's output translations itself, so no
-# inherited translation can send them elsewhere, and the recipe empties
-# ECL_STATIC_DIR before each build. The program runs with
+# program with cmark-gfm linked in, and runs it. Its fasls, compiled under
+# CFFI's :c/c++ method, go into ECL_STATIC_DIR with the program, and
+# nowhere else: no other ECL may share them, since ASDF keys an ECL's
+# fasls by version and platform alone, though their compiled calls differ
+# by method. tests/static/build.lisp sets ASDF's output translations
+# itself, so no inherited translation can send them elsewhere, and the
+# recipe empties ECL_STATIC_DIR before each build. The program runs with
 # CL_COMMONMARK_GFM_LIBS naming two files there that don't exist, so a
 # startup that looks for files fails.
 #
 # The program's exit status alone doesn't show that it ran its checks. An
 # ECL program that fails as it starts, before its epilogue, stops in ECL's
-# debugger, which quits with status 0 at the end of its stdin (finding 26;
-# the top level's :eof command, ECL 24.5.10's src/lsp/top.lsp). On
-# Debian's ECL, a program built without the build's prologue does just
-# that (finding 7). So the recipe also requires the program's summary line,
-# with at least one check and 0 failed.
+# debugger, which quits with status 0 at the end of its stdin (the top
+# level's :eof command, ECL 24.5.10's src/lsp/top.lsp). On Debian's ECL, a
+# program built without the build's prologue does just that. So the recipe
+# also requires the program's summary line, with at least one check and 0
+# failed.
 ECL_STATIC_DIR        := build/ecl-static
 ECL_STATIC_PATH       := $(CURDIR)/$(ECL_STATIC_DIR)
 ECL_STATIC_CORE       := $(ECL_STATIC_PATH)/missing-libcmark-gfm.so
@@ -463,12 +471,11 @@ STATIC_SOURCE_REGISTRY := $(CURDIR)/:$(CURDIR)/tests/static/:$(CURDIR)/ocicl//
 # The directory holding cmark-gfm's static archives, libcmark-gfm.a and
 # libcmark-gfm-extensions.a, which Debian ships in libcmark-gfm-dev and
 # libcmark-gfm-extensions-dev. Left empty, it is the directory of the first
-# path in CL_COMMONMARK_GFM_LIBS, which the containers set (ADR-0004);
-# otherwise the first of discovery's Linux directories, multiarch first,
-# that holds both pinned shared libraries (ADR-0009;
-# src/native-core/discovery.lisp), as Debian's /usr/lib/x86_64-linux-gnu
-# does. That search is Linux's alone: elsewhere, such as on macOS,
-# CMARK_GFM_ARCHIVE_DIR must name the directory (M4 design §6.3).
+# path in CL_COMMONMARK_GFM_LIBS, which the containers set; otherwise the
+# first of discovery's Linux directories, multiarch first, that holds both
+# pinned shared libraries (src/native-core/discovery.lisp), as Debian's
+# /usr/lib/x86_64-linux-gnu does. That search is Linux's alone: elsewhere,
+# such as on macOS, CMARK_GFM_ARCHIVE_DIR must name the directory.
 CMARK_GFM_ARCHIVE_DIR ?=
 
 check-ecl-static: ## Build and run an ECL program with cmark-gfm linked in
@@ -544,14 +551,14 @@ check-ecl-nodffi: ## Run the ECL-without-dynamic-FFI container's checks
 #
 # The condition test, tests/static/nodffi.lisp, does probe the FFI, so ASDF
 # compiles it first, with cl-commonmark-gfm, into this container's own fasl
-# cache (finding 9); then a process of its own loads them and runs it (M4
-# design §6.4). It runs with CL_COMMONMARK_GFM_LIBS malformed, so a
-# startup that ran discovery before step 1 would signal
+# cache, since ECLs built differently can't share fasls; then a process of
+# its own loads them and runs it. It runs with CL_COMMONMARK_GFM_LIBS
+# malformed, so a startup that ran discovery before step 1 would signal
 # native-library-not-found there, and the test would fail. ECL reads each
 # -eval form as it runs it (ECL 24.5.10's src/lsp/cmdline.lsp), so the last
 # can name the package the load made. Like the smoke program, it must print
 # its summary line, with at least one check and 0 failed: an ECL process
-# can exit 0 from its debugger (finding 26).
+# can exit 0 from its debugger.
 check-ecl-nodffi-inside: ## (inside that container) The dynamic-FFI guard, dynamic-ffi-unavailable's condition test, then check-ecl-static
 	@if command -v guix >/dev/null 2>&1 && [ -z "$${GUIX_ENVIRONMENT:-}" ]; then \
 	  echo "make $(GOAL): this target runs inside the container whose ECL has no" \

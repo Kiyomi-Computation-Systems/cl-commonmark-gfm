@@ -6,10 +6,9 @@ Licensed under the BSD 3-Clause License; see LICENSE.
 
 
 cl-commonmark-gfm binds cmark-gfm (https://github.com/github/cmark-gfm),
-pinned to release 0.29.0.gfm.13 (ADR-0002). The project-built C shim
-links against cmark-gfm's core and extension libraries, and any binary
-artifact that bundles them carries their code. cmark-gfm's COPYING file
-for that release is reproduced below, unmodified.
+pinned to release 0.29.0.gfm.13. It calls cmark-gfm's core and extension
+libraries, and any binary artifact that bundles them carries their code.
+cmark-gfm's COPYING file for that release is reproduced below, unmodified.
 
 
 cmark-gfm 0.29.0.gfm.13 -- COPYING

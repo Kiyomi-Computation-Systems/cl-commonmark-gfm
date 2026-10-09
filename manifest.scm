@@ -1,18 +1,18 @@
-;;; Development toolchain for cl-commonmark-gfm (ADR-0004).
+;;; Development toolchain for cl-commonmark-gfm.
 ;;;
 ;;; Enter it with scripts/guix-env, which pins Guix to channels.scm and runs
 ;;; this manifest in a container. Plain `guix shell -m manifest.scm` also
 ;;; loads this file, but against whatever Guix you have pulled.
 ;;;
 ;;; ocicl is not packaged in Guix. `make ocicl` builds the pinned release
-;;; from source with the sbcl below, into .guix-env/ (ADR-0003).
+;;; from source with the sbcl below, into .guix-env/.
 
 (specifications->manifest
- '(;; The three Lisps the plan targets. Guix builds them for x86_64-linux.
+ '(;; The three Lisps the library supports. Guix builds them for x86_64-linux.
    "sbcl" "ecl" "ccl"
-   ;; The pinned native dependency (ADR-0002). No C shim (ADR-0008):
-   ;; gcc-toolchain is what ECL compiles Lisp through, and pkg-config is
-   ;; what the self-test's cmark-gfm-version assertion queries.
+   ;; The pinned native dependency, which the library binds directly, with
+   ;; no C shim: gcc-toolchain is what ECL compiles Lisp through, and
+   ;; pkg-config is what the self-test's cmark-gfm-version assertion queries.
    "cmark-gfm" "gcc-toolchain" "pkg-config"
    ;; ocicl's TLS loads libcrypto through CFFI by bare name, which resolves
    ;; only because scripts/guix-env-enter sets LD_LIBRARY_PATH.

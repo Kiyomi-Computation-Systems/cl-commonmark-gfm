@@ -1,7 +1,7 @@
 #!/bin/sh
-# Runs INSIDE the container, as the first command scripts/guix-env starts
-# (ADR-0004). Points everything that would write under HOME at .guix-env/
-# in the repository instead, so it survives between container runs:
+# Runs INSIDE the container, as the first command scripts/guix-env starts.
+# Points everything that would write under HOME at .guix-env/ in the
+# repository instead, so it survives between container runs:
 #
 #   .guix-env/bin     the ocicl binary `make ocicl` builds
 #   .guix-env/share   ocicl's runtime (XDG_DATA_HOME)
@@ -11,14 +11,14 @@
 #
 # Under another manifest, XDG_CACHE_HOME is instead
 # .guix-env/cache-<that manifest's file name without .scm>, so two ECLs
-# built differently never share fasls (M4 design §6.4; finding 9).
+# built differently never share fasls.
 #
 # It also sets CL_COMMONMARK_GFM_LIBS to the profile's exact pinned pair
-# (ADR-0009: the library loads cmark-gfm from exactly these two absolute
-# paths, never by bare name). And it puts the profile's lib/ on
-# LD_LIBRARY_PATH, which now exists only for ocicl's libcrypto: Guix's
-# glibc searches no FHS directory, so without it a CFFI load of libcrypto
-# by bare name finds nothing.
+# (the library loads cmark-gfm from exactly these two absolute paths, never
+# by bare name). And it puts the profile's lib/ on LD_LIBRARY_PATH, which
+# is there only for ocicl's libcrypto: Guix's glibc searches no FHS
+# directory, so without it a CFFI load of libcrypto by bare name finds
+# nothing.
 set -eu
 
 if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
@@ -45,7 +45,7 @@ export OCICL_PREFIX="$state/"
 export PATH="$state/bin:$PATH"
 export LD_LIBRARY_PATH="$GUIX_ENVIRONMENT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-# The pinned pair, by absolute path (ADR-0009). Each glob must match
+# The pinned pair, by absolute path. Each glob must match
 # exactly one file; an unmatched glob stays literal in sh (word splitting
 # does not break it apart, since it has no whitespace of its own), so it
 # is simply a nonexistent path and matches zero files below.

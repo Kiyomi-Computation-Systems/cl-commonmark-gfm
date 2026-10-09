@@ -1,22 +1,23 @@
-;;;; The native properties, 3 and 4 (ADR-0020; M3 design §6.3): the bounds,
-;;;; and clean outcomes. Registered for the :SYNTAX-SOUP and :CORPUS-SPLICES
+;;;; Two of the native properties: the bounds (:BOUNDS), and clean outcomes
+;;;; (:CLEAN-OUTCOMES). Registered for the :SYNTAX-SOUP and :CORPUS-SPLICES
 ;;;; generators, on the HTML oracle's 33 option sets
 ;;;; (tests/property-harness.lisp's ORACLE-OPTION-SETS). Run on SBCL, CCL and
-;;;; ECL from M4a, as the rest of the native suite is; in CI, CCL's and ECL's
-;;;; run on main (M4 design §5.5, §5.6).
+;;;; ECL, as the rest of the native suite is; in CI, CCL's and ECL's run
+;;;; only on a push to main or a dispatch, not on pull requests, since they
+;;;; are slow.
 ;;;;
-;;;; Property 3 reaches past the entry points, straight to
+;;;; The :BOUNDS property reaches past the entry points, straight to
 ;;;; CALL-WITH-NATIVE-DOCUMENT, RENDER-HTML, RENDER-PLAINTEXT and the two
 ;;;; output bounds -- none of which apply the entry points' own input guard,
 ;;;; CL-COMMONMARK-GFM::CHECK-INPUT (src/api.lisp). So every case here runs
 ;;;; CHECK-INPUT itself, with the options' resolved :FOOTNOTES, before any of
-;;;; those calls: an input matching cmark's footnote-entity bug (M2 design
-;;;; finding 16; ADR-0019), with footnotes on, must never reach cmark -- it
-;;;; reads freed heap memory and can crash the process.
+;;;; those calls: an input matching cmark's footnote-entity bug, with
+;;;; footnotes on, must never reach cmark -- it reads freed heap memory and
+;;;; can crash the process.
 ;;;;
-;;;; Each of the 33 option sets carries keys built for the HTML oracle
-;;;; (ADR-0011), not for any one entry point: PARSE, say, has no :SOFTBREAK
-;;;; key at all, and would signal INVALID-PARSE-OPTION for one.
+;;;; Each of the 33 option sets carries keys built for the HTML oracle, not
+;;;; for any one entry point: PARSE, say, has no :SOFTBREAK key at all, and
+;;;; would signal INVALID-PARSE-OPTION for one.
 ;;;; ENTRY-POINT-OPTIONS filters each case's options down to the keys the
 ;;;; entry point in hand accepts, by CHECK-OPTIONS' own tables
 ;;;; (src/native-core/options.lisp), so a filtering mistake can never be
@@ -29,8 +30,8 @@
 (defun entry-point-keys (entry-point)
   "The option keys ENTRY-POINT (:PARSE, :HTML, :PLAINTEXT or :HTML-TREE)
 accepts, exactly as CHECK-OPTIONS resolves them
-(src/native-core/options.lisp; M2 design §7.2): its parse keys, its render
-keys and its tree keys."
+(src/native-core/options.lisp): its parse keys, its render keys and its
+tree keys."
   (append (native-core::parse-keys entry-point)
           (native-core::render-keys entry-point)
           (native-core::tree-keys entry-point)))
@@ -46,7 +47,7 @@ for a key the oracle's own 33 sets carry for a different entry point."
           when (member key keys)
             append (list key value))))
 
-;;; Property 3: the bounds
+;;; The :BOUNDS property
 
 (defun html-bound-failure (input options)
   "NIL when HTML-OUTPUT-BOUND covers what RENDER-HTML writes for INPUT
@@ -91,7 +92,7 @@ is safe here."
               bound cells))))
 
 (defun bounds-property (input options)
-  "Property 3 (M3 design §6.3), registered under :BOUNDS: HTML-OUTPUT-BOUND
+  "The bounds property, registered under :BOUNDS: HTML-OUTPUT-BOUND
 is at least what RENDER-HTML writes, PLAINTEXT-OUTPUT-BOUND is at least what
 RENDER-PLAINTEXT writes, and TABLE-CELL-BOUND of INPUT is at least the
 :TABLE-CELL nodes PARSE's AST holds -- each for the same document and
@@ -121,11 +122,11 @@ makes."
 
 (register-property :bounds 'bounds-property :generators '(:syntax-soup :corpus-splices))
 
-;;; Property 4: clean outcomes
+;;; The :CLEAN-OUTCOMES property
 
 (defvar *clean-outcomes-cases* 0
-  "How many property-4 cases have run in this image: a full
-TRIVIAL-GARBAGE:GC runs every 100 (M3 design §6.3).")
+  "How many :CLEAN-OUTCOMES cases have run in this image: a full
+TRIVIAL-GARBAGE:GC runs every 100.")
 
 (defun maybe-gc-every-100-cases ()
   "Run a full TRIVIAL-GARBAGE:GC on every 100th call, counted in
@@ -135,9 +136,9 @@ TRIVIAL-GARBAGE:GC runs every 100 (M3 design §6.3).")
 
 (defun clean-outcomes-checks (input parse-options ast)
   "AST, from a first PARSE of INPUT under PARSE-OPTIONS, checked against
-property 4's remaining clean-outcome rules (M3 design §6.3): the open
-counters zero, and a second PARSE NODE= to it. Its third rule, no foreign
-pointer in the AST, needs no check: the AST's schema guarantees it (see
+the :CLEAN-OUTCOMES property's remaining rules: the open counters zero, and
+a second PARSE NODE= to it. Its third rule, no foreign pointer in the AST,
+needs no check: the AST's schema guarantees it (see
 THE-AST-SCHEMA-REJECTS-A-FOREIGN-POINTER, below)."
   (cond
     ((not (open-counts-zero-p))
@@ -148,11 +149,12 @@ THE-AST-SCHEMA-REJECTS-A-FOREIGN-POINTER, below)."
     (t :pass)))
 
 (defun clean-outcomes-case (input options)
-  "One case of property 4: call each entry point with its own filtered
-options (ENTRY-POINT-OPTIONS), then CLEAN-OUTCOMES-CHECKS. Each entry point
-runs its own input guard, with the same INPUT and the same resolved
-:FOOTNOTES (no filtering drops :PROFILE or :FOOTNOTES), so one signalling
-UNSUPPORTED-INPUT means they all would: the whole case is :GUARD."
+  "One case of the :CLEAN-OUTCOMES property: call each entry point with its
+own filtered options (ENTRY-POINT-OPTIONS), then CLEAN-OUTCOMES-CHECKS.
+Each entry point runs its own input guard, with the same INPUT and the
+same resolved :FOOTNOTES (no filtering drops :PROFILE or :FOOTNOTES), so
+one signalling UNSUPPORTED-INPUT means they all would: the whole case is
+:GUARD."
   (let ((parse-options (entry-point-options :parse options)))
     (handler-case
         (let ((ast (apply #'parse input parse-options)))
@@ -163,7 +165,7 @@ UNSUPPORTED-INPUT means they all would: the whole case is :GUARD."
       (unsupported-input () :guard))))
 
 (defun clean-outcomes-property (input options)
-  "Property 4 (M3 design §6.3), registered under :CLEAN-OUTCOMES: PARSE,
+  "The clean-outcomes property, registered under :CLEAN-OUTCOMES: PARSE,
 MARKDOWN->HTML, MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE each return, or
 signal UNSUPPORTED-INPUT (:GUARD); anything else is :FAIL (RUN-CASE catches
 a condition none of this handles). CLEAN-OUTCOMES-CASE's four calls and
@@ -175,19 +177,17 @@ the case's outcome."
 (register-property :clean-outcomes 'clean-outcomes-property
                    :generators '(:syntax-soup :corpus-splices))
 
-;;; Self tests (M3 plan, Task 4, "Tests first"): ENTRY-POINT-OPTIONS'
-;;; filtering against all 33 of the HTML oracle's option sets; crafted
-;;; inputs that must pass properties 3 and 4; the footnote-entity guard both
-;;; share, which no parse may precede; and each clause seen to fail: a
-;;; redefined output bound and table-cell bound for property 3, a
-;;; deliberate parser leak and a copy that differs between two parses for
-;;; property 4, and the schema that leaves property 4 no foreign pointer to
-;;; find.
+;;; Self tests: ENTRY-POINT-OPTIONS' filtering against all 33 of the HTML
+;;; oracle's option sets; crafted inputs that must pass :BOUNDS and
+;;; :CLEAN-OUTCOMES; the footnote-entity guard both share, which no parse
+;;; may precede; and each clause seen to fail: a redefined output bound and
+;;; table-cell bound for :BOUNDS, a deliberate parser leak and a copy that
+;;; differs between two parses for :CLEAN-OUTCOMES, and the schema that
+;;; leaves :CLEAN-OUTCOMES no foreign pointer to find.
 ;;;
-;;; Parachute keeps every assertion's closure until the run ends
-;;; (progress.md's global constraints), so every helper here returns a small
-;;; summary -- an outcome keyword, a short list, a detail string -- never a
-;;; generated input or a live AST.
+;;; Parachute keeps every assertion's closure until the run ends, so every
+;;; helper here returns a small summary -- an outcome keyword, a short list,
+;;; a detail string -- never a generated input or a live AST.
 
 (define-test entry-point-options-drops-softbreak-for-parse-but-keeps-it-elsewhere
   (is equal '(:profile :gfm) (entry-point-options :parse '(:softbreak :newline :profile :gfm)))
@@ -199,8 +199,8 @@ the case's outcome."
 
 (define-test an-unfiltered-oracle-option-set-is-not-one-parse-accepts
   ;; Without ENTRY-POINT-OPTIONS' filtering, :SOFTBREAK alone would make
-  ;; every :PARSE case of properties 3 and 4 an INVALID-PARSE-OPTION, never
-  ;; a library failure worth reporting as one.
+  ;; every :PARSE case of :BOUNDS and :CLEAN-OUTCOMES an
+  ;; INVALID-PARSE-OPTION, never a library failure worth reporting as one.
   (fail (check-options :parse 'self-test (first (oracle-option-sets))) 'invalid-parse-option))
 
 (defun entry-point-option-failures ()
@@ -223,26 +223,26 @@ ENTRY-POINT-OPTIONS filtering CHECK-OPTIONS still rejects."
 (define-test every-entry-point-accepts-its-filtered-options-for-all-33-oracle-sets
   (is equal '() (entry-point-option-failures)))
 
-;;; Property 3: a crafted pass
+;;; :BOUNDS: a crafted pass
 
 (defun short-row-table ()
   "A pipe table whose body row has one cell where the header has two: cmark
 pads it to two (try_opening_table_row, extensions/table.c)."
   (format nil "| a | b |~%|---|---|~%| 1 |~%"))
 
-(define-test a-pipe-table-with-a-short-row-passes-property-3
+(define-test a-pipe-table-with-a-short-row-passes-bounds
   (is eql :pass (run-case :bounds (short-row-table)
                           (list :softbreak :newline :profile :commonmark :extensions '(:table)))))
 
-;;; Property 3: a redefined bound must be caught (M3 plan, Task 4,
-;;; "Mutations": this test is its own mutation)
+;;; :BOUNDS: a redefined bound must be caught. Each test here is its own
+;;; mutation: it breaks one bound, and the property must fail.
 
 (defun zero-html-output-bound (document checked-options markdown &optional operation)
   "A broken HTML-OUTPUT-BOUND: always 0, whatever it is asked about."
   (declare (ignore document checked-options markdown operation))
   0)
 
-(define-test property-3-fails-when-html-output-bound-is-redefined-to-return-zero
+(define-test bounds-fails-when-html-output-bound-is-redefined-to-return-zero
   (let ((options (list :softbreak :newline :profile :commonmark :extensions '(:table))))
     (with-redefined ((html-output-bound #'zero-html-output-bound))
       (multiple-value-bind (outcome detail) (run-case :bounds (short-row-table) options)
@@ -255,7 +255,7 @@ pads it to two (try_opening_table_row, extensions/table.c)."
   (declare (ignore string))
   0)
 
-(define-test property-3-fails-when-table-cell-bound-is-redefined-to-return-zero
+(define-test bounds-fails-when-table-cell-bound-is-redefined-to-return-zero
   ;; The short-row table parses into four cells, padding included. The
   ;; output bounds don't read this bound, so the table-cell clause alone
   ;; can fail here.
@@ -267,17 +267,17 @@ pads it to two (try_opening_table_row, extensions/table.c)."
               detail))))
   (true (open-counts-zero-p)))
 
-;;; Property 4: a crafted pass
+;;; :CLEAN-OUTCOMES: a crafted pass
 
 (defun footnote-reference-markdown ()
   "A minimal footnote reference and its definition."
   (format nil "a note[^1]~%~%[^1]: words~%"))
 
-(define-test a-footnote-reference-passes-property-4
+(define-test a-footnote-reference-passes-clean-outcomes
   (is eql :pass (run-case :clean-outcomes (footnote-reference-markdown) (list :profile :gfm))))
 
-;;; The footnote-entity guard both properties share (M2 design finding 16;
-;;; ADR-0019): never let this input reach cmark.
+;;; The footnote-entity guard both properties share: never let this input
+;;; reach cmark, which reads freed heap memory on it.
 
 (define-test the-footnote-entity-bug-pattern-guards-both-properties
   ;; :GUARD alone would hold even with the guard run after the native
@@ -290,16 +290,15 @@ pads it to two (try_opening_table_row, extensions/table.c)."
     (is = before (created-parsers) "the guarded input reached no parser"))
   (true (open-counts-zero-p)))
 
-;;; Property 4: a deliberate leak must be caught (M3 plan, Task 4,
-;;; "Mutations": property 4 skipping this check must make this test fail)
+;;; :CLEAN-OUTCOMES: a deliberate leak must be caught. The property
+;;; skipping its open-counter check must make this test fail.
 
-(define-test property-4-fails-when-a-parser-leaks
+(define-test clean-outcomes-fails-when-a-parser-leaks
   ;; NOTE-PARSER-CREATED is what OPEN-PARSER calls on a real parser
   ;; (src/native/counters.lisp; src/native/document.lisp); calling it here
   ;; directly, with no matching free, simulates a leak without any real
   ;; native call. Restored in UNWIND-PROTECT, so the open counters return to
-  ;; zero whatever this test does (the global constraint every native test
-  ;; ends with them there).
+  ;; zero whatever this test does, as every native test must leave them.
   (native::note-parser-created)
   (unwind-protect
        (multiple-value-bind (outcome detail)
@@ -310,7 +309,7 @@ pads it to two (try_opening_table_row, extensions/table.c)."
     (native::note-parser-freed))
   (true (open-counts-zero-p)))
 
-;;; Property 4: a copy that differs between two parses must be caught
+;;; :CLEAN-OUTCOMES: a copy that differs between two parses must be caught
 
 (defun counting-copied-attributes (original)
   "A COPIED-ATTRIBUTES (src/native/copy.lisp) that calls ORIGINAL, then
@@ -324,7 +323,7 @@ wouldn't."
             (list :literal (format nil "~A~D" (getf attributes :literal) (incf copied)))
             attributes)))))
 
-(define-test property-4-fails-when-a-second-parse-differs
+(define-test clean-outcomes-fails-when-a-second-parse-differs
   (with-redefined ((native::copied-attributes
                     (counting-copied-attributes #'native::copied-attributes)))
     (multiple-value-bind (outcome detail)
@@ -333,12 +332,12 @@ wouldn't."
       (true (search "second parse" detail :test #'char=) "names the second parse: ~A" detail)))
   (true (open-counts-zero-p)))
 
-;;; Property 4 needs no check for foreign pointers in the AST (M3 design
-;;; §6.3): every node is built by MAKE-NODE, whose schema
-;;; (src/ast/schema.lisp) takes strings, keywords, integers, booleans and
-;;; lists of keywords as attribute values, and integers in positions. A
-;;; foreign pointer is none of these, so MAKE-NODE signals
-;;; INVALID-AST-NODE, which RUN-CASE counts as a :FAIL.
+;;; :CLEAN-OUTCOMES needs no check for foreign pointers in the AST: every
+;;; node is built by MAKE-NODE, whose schema (src/ast/schema.lisp) takes
+;;; strings, keywords, integers, booleans and lists of keywords as attribute
+;;; values, and integers in positions. A foreign pointer is none of these,
+;;; so MAKE-NODE signals INVALID-AST-NODE, which RUN-CASE counts as a
+;;; :FAIL.
 
 (defun pointer-attribute-outcomes ()
   "What MAKE-NODE does with a foreign pointer as a :TEXT node's :LITERAL, and
@@ -354,9 +353,9 @@ as a :LINK's :DESTINATION: the condition type it signals for each, or
               cl-commonmark-gfm.conditions:invalid-ast-node)
       (pointer-attribute-outcomes)))
 
-;;; The real property tests (M3 plan, Task 9): one Parachute test per
-;;; property and generator, one assertion over its run's problems, so a run
-;;; that failed a case, passed none, or left a native handle open fails.
+;;; The real property tests: one Parachute test per property and
+;;; generator, one assertion over its run's problems, so a run that failed
+;;; a case, passed none, or left a native handle open fails.
 ;;; The description is the harness's SUMMARY-REPORT, with all a replay
 ;;; needs, made before the assertion runs: the closure keeps only the short
 ;;; list of problems, no generated input.
@@ -378,8 +377,8 @@ nothing."
 
 (defun native-run-problems (summary)
   "What makes SUMMARY's native run unsound, as short strings: the harness's
-SUMMARY-PROBLEMS, and open counters that aren't zero once it has run
-(ADR-0008). NIL when it is sound."
+SUMMARY-PROBLEMS, and open counters that aren't zero once it has run,
+which mean a native handle leaked. NIL when it is sound."
   (append (summary-problems summary)
           (unless (open-counts-zero-p)
             (list (format nil "the open counters aren't zero after the run: ~S"

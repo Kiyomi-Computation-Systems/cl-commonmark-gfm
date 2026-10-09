@@ -22,7 +22,7 @@ jobs:
     steps:
       # actions/checkout needs git and HTTPS certs already in the container:
       # without git, a checkout with submodules: true FAILS outright (it
-      # cannot fall back to the REST API download for submodules) (ADR-0013).
+      # cannot fall back to the REST API download for submodules).
       # ci/install-toolchain.sh runs later, after checkout, and installs the
       # rest of the toolchain (it re-installs these two harmlessly).
       - name: Install git for checkout
@@ -68,7 +68,7 @@ jobs:
 
       # A job skips its later steps once one fails. The Lisp steps run anyway,
       # so a failed check above doesn't hide their results; -k runs
-      # check-fixtures even when check-purity fails (ADR-0013).
+      # check-fixtures even when check-purity fails.
       - name: make deps
         if: ${{ !cancelled() }}
         run: make deps
@@ -78,17 +78,15 @@ jobs:
         run: make -k test
 
       # CCL's and ECL's native suites are slow, so they run only on a push
-      # to main or a dispatch (M4 design D3; ADR-0013): NATIVE_LISPS keeps
-      # its sbcl default, so make test above already covers what a pull
-      # request runs.
+      # to main or a dispatch: NATIVE_LISPS keeps its sbcl default, so make
+      # test above already covers what a pull request runs.
       - name: make check-native (CCL and ECL)
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: make check-native NATIVE_LISPS="ccl ecl"
 
       # This step comes after the native suites above, so that discovery
-      # only ever sees the runtime packages, as a user's install would
-      # (ADR-0009; ADR-0013). The -dev packages ship the static archives
-      # make check-ecl-static links (M4 design §6.5).
+      # only ever sees the runtime packages, as a user's install would. The
+      # -dev packages ship the static archives make check-ecl-static links.
       # No apt-get update: the job's first step already ran it in this
       # same container, and these packages are in the apt index it
       # already fetched.
@@ -101,11 +99,10 @@ jobs:
             libcmark-gfm-dev libcmark-gfm-extensions-dev
 
       # Builds an ECL program with cmark-gfm linked in and runs the smoke
-      # program (M4 design §6.3); on main and on dispatch only, like the
-      # step above.
+      # program; on main and on dispatch only, like the step above.
       - name: make check-ecl-static
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: make check-ecl-static
 
-      # No dependency cache yet: ./ocicl/ could be cached, keyed on a hash
-      # of ocicl.csv, alongside the checkout step above (left for later).
+      # No dependency cache: ./ocicl/ could be cached, keyed on a hash of
+      # ocicl.csv, alongside the checkout step above.

@@ -1,5 +1,5 @@
-;;;; The smoke program of a linked ECL build (M4 design §6.3): an ECL
-;;;; program with cmark-gfm linked in, whose startup loads nothing.
+;;;; The smoke program of a linked ECL build: an ECL program with
+;;;; cmark-gfm linked in, whose startup loads nothing.
 ;;;; tests/static/build.lisp builds it, and its epilogue calls MAIN. `make
 ;;;; check-ecl-static` runs it with one argument, the fixtures directory,
 ;;;; and with CL_COMMONMARK_GFM_LIBS naming two files that don't exist, so a
@@ -30,13 +30,13 @@
 ;;; What the checks expect
 
 (defparameter *pinned-version* "0.29.0.gfm.13"
-  "The cmark-gfm release a linked program's state must report (ADR-0002).")
+  "The cmark-gfm release a linked program's state must report.")
 
 (defconstant +case-count+ 28
-  "How many cases tests/fixtures/html/cases lists: the 28 oracle fixtures
-(M4 design D6). The pure suite keeps the manifest and its own table of
-cases in step (tests/oracle.lisp). Counting them here catches a manifest
-read short, which would otherwise check less and still pass.")
+  "How many cases tests/fixtures/html/cases lists: the 28 oracle fixtures.
+The pure suite keeps the manifest and its own table of cases in step
+(tests/oracle.lisp). Counting them here catches a manifest read short,
+which would otherwise check less and still pass.")
 
 (defparameter *restart-case* "paragraphs"
   "The case rendered again after the restart.")
@@ -45,7 +45,7 @@ read short, which would otherwise check less and still pass.")
   '("missing-libcmark-gfm.so" "missing-libcmark-gfm-extensions.so")
   "The files, core then extensions, in the fixtures directory, that the
 restart binds *CMARK-GFM-LIBRARIES* to. Neither exists, and a linked
-startup ignores the override (M4 design §6.1).")
+startup ignores the override.")
 
 ;;; Counting and reporting the checks
 
@@ -204,16 +204,16 @@ isn't UTF-8, which fails the check."
 
 (defun ffi-method-problem ()
   "cmark's calls, in src/ffi.lisp, must have been compiled with CFFI's
-:C/C++ method, which makes them direct C calls and the program linked (M4
-design §6.1; finding 25). FFI-METHOD records the method as that file
-compiles."
+:C/C++ method, which makes them direct C calls and the program linked.
+FFI-METHOD records the method as that file compiles, since CFFI's own
+variable is back at ECL's default by the time the program runs."
   (let ((method (cl-commonmark-gfm.native::ffi-method)))
     (unless (eql method :c/c++)
       (detail "cmark's calls, in src/ffi.lisp, were compiled with ~S, not :C/C++" method))))
 
 (defun linked-state-problem ()
   "The published state must be linked: its paths :LINKED, as it loaded no
-file, and its version the pinned one (M4 design §6.1)."
+file, and its version the pinned one."
   (let* ((state (cl-commonmark-gfm.native::native-state))
          (paths (cl-commonmark-gfm.native::state-paths state))
          (version (cl-commonmark-gfm.native::state-version state))
@@ -240,7 +240,7 @@ file, and its version the pinned one (M4 design §6.1)."
 that don't exist, *RESTART-CASE* of CASES must render through
 MARKDOWN->HTML as its committed HTML has it, and the startup count must
 rise by one: a linked state closes nothing, starts again, and ignores the
-override (M4 design §6.3)."
+override."
   (let ((entry (find *restart-case* cases :key #'first :test #'string=))
         (libraries (missing-library-paths directory))
         (before (cl-commonmark-gfm.native::native-startup-count))
@@ -265,7 +265,7 @@ override (M4 design §6.3)."
 
 (defun open-counts-problem ()
   "The open counters must be at zero: no parser, root or render buffer left
-open (ADR-0008)."
+open."
   (let ((counts (cl-commonmark-gfm.native::native-open-counts)))
     (unless (loop for (nil count) on counts by #'cddr always (zerop count))
       (detail "handles left open:~{ ~(~A~) ~D~}" counts))))
@@ -273,8 +273,8 @@ open (ADR-0008)."
 (defun foreign-libraries-problem ()
   "CFFI must list no loaded library: a linked program loads none. Replacing
 ECL's own FFI functions to catch a load would catch nothing, since ECL
-compiles a call to them as a direct C call (finding 24), so what was
-loaded is checked instead."
+compiles a call to them as a direct C call, so what was loaded is checked
+instead."
   (let ((libraries (cffi:list-foreign-libraries)))
     (when libraries
       (detail "CFFI lists ~D loaded: ~{~A~^, ~}" (length libraries)

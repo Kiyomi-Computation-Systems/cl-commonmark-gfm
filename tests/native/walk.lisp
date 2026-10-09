@@ -1,5 +1,5 @@
-;;;; The native walker and the node accessors (M2 design §5.1, §6.2, §6.4),
-;;;; over tests/fixtures/vocabulary.md, which holds every kind once or more.
+;;;; The native walker and the node accessors, over
+;;;; tests/fixtures/vocabulary.md, which holds every kind once or more.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -44,7 +44,7 @@ lines of a literal's text, start none."
 (define-test walk-native-enters-nodes-in-the-xml-order
   (is equal (xml-element-names (fixture-string "vocabulary.xml")) (vocabulary-type-strings)))
 
-;;; The walk protocol: WALK-AST's (M2 design §4.1)
+;;; The walk protocol: WALK-AST's
 
 (defun document-events (document skip)
   "Every (EVENT TYPE-STRING) WALK-NATIVE makes over DOCUMENT, in order.
@@ -91,8 +91,8 @@ including the matching (:EXIT TYPE-STRING): what :SKIP leaves of a walk."
     (is equal '((:enter "document")) (walk-events markdown :skip "document")
         "skipping the root ends the walk")))
 
-;;; Classification: the extension pointer and the type string (M2 design
-;;; §6.2). vocabulary.md holds every kind but :extension.
+;;; Classification: the extension pointer and the type string.
+;;; vocabulary.md holds every kind but :extension.
 
 (define-test every-kind-but-extension-is-classified-in-the-vocabulary
   (is equal '(:block-quote :code :code-block :document :emph :footnote-definition
@@ -121,8 +121,7 @@ including the matching (:EXIT TYPE-STRING): what :SKIP leaves of a walk."
 
 ;;; CLASSIFY-NODE reads a node's type string only when the node has an
 ;;; extension. Reading it costs three foreign calls, each a symbol lookup
-;;; under ECL's dynamic FFI (M4 design §5.7), so NATIVE-KIND reads it for
-;;; no other node.
+;;; under ECL's dynamic FFI, so NATIVE-KIND reads it for no other node.
 
 (defun type-string-reads (document)
   "Classify every node of DOCUMENT with NATIVE-KIND, and return the nodes
@@ -243,8 +242,8 @@ of those it read one; as (WITH READ-WITH WITHOUT READ-WITHOUT)."
 
 (define-test a-footnote-reference-reads-its-definition
   ;; After parsing, a reference's own literal is its number; its label as
-  ;; written is its definition's literal (process_footnotes, src/blocks.c;
-  ;; M2 design finding 6).
+  ;; written is its definition's literal (process_footnotes,
+  ;; src/blocks.c).
   (call-with-native-document (format nil "x[^note]~%~%[^note]: N.~%") '()
                              (lambda (document checked-options)
                                (declare (ignore checked-options))

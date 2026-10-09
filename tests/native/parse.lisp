@@ -1,11 +1,11 @@
-;;;; PARSE and the primary package (M2 design §3, §7.1, §7.2; ADR-0017):
-;;;; what PARSE rejects, and in what order, before any native call; each
-;;;; option reaching cmark; and the package's re-exports.
+;;;; PARSE and the primary package: what PARSE rejects, and in what order,
+;;;; before any native call; each option reaching cmark; and the package's
+;;;; re-exports.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
-;;; What PARSE rejects before any native call (M2 design §7.1). The
-;;; monotonic parser count shows that no parser was made.
+;;; What PARSE rejects before any native call. The monotonic parser count
+;;; shows that no parser was made.
 
 (define-test parse-given-a-non-string-signals-a-type-error
   ;; Most of these would reach UTF8-LENGTH and signal a TYPE-ERROR there,
@@ -22,8 +22,8 @@
   (true (open-counts-zero-p)))
 
 (define-test option-errors-signal-invalid-parse-option-before-any-parser
-  ;; PARSE signals INVALID-PARSE-OPTION for every option problem (M2 design
-  ;; §7.2), including a render option it doesn't take.
+  ;; PARSE signals INVALID-PARSE-OPTION for every option problem, including
+  ;; a render option it doesn't take.
   (native-state)
   (let ((parsers (created-parsers)))
     (dolist (options '((:bogus t)
@@ -47,8 +47,8 @@
   (true (open-counts-zero-p)))
 
 (define-test parse-checks-its-argument-its-options-then-the-limits-before-starting-up
-  ;; M2 design §7.1: the type, then the options, then the limits, then
-  ;; startup. After a reset, none of these rejections starts cmark up.
+  ;; The type, then the options, then the limits, then startup. After a
+  ;; reset, none of these rejections starts cmark up.
   (with-startup-reset
     (let ((startups (native-startup-count)))
       (fail (parse 42 :bogus t) 'type-error "a non-string, with a bad option")
@@ -61,10 +61,10 @@
       (is = (1+ startups) (native-startup-count))))
   (true (open-counts-zero-p)))
 
-;;; Each option reaches cmark (M2 design §7.2): *OPTIONS-MARKDOWN* holds one
-;;; of each thing an option turns on. Expected kinds from the pinned CLI's
-;;; XML under the matching flags. Under :COMMONMARK, or without footnotes,
-;;; [^n]: n is a link reference definition, and x[^n] a link to n.
+;;; Each option reaches cmark: *OPTIONS-MARKDOWN* holds one of each thing
+;;; an option turns on. Expected kinds from the pinned CLI's XML under the
+;;; matching flags. Under :COMMONMARK, or without footnotes, [^n]: n is a
+;;; link reference definition, and x[^n] a link to n.
 
 (defparameter *options-markdown*
   (markdown-lines "~~s~~ x[^n] www.example.com"
@@ -102,12 +102,11 @@ when www.example.com became a link."
   (is string= "“q” it’s" (text-of (parse "\"q\" it's" :smart t)) ":smart t")
   (is string= "\"q\" it's" (text-of (parse "\"q\" it's")) ":smart nil, the default"))
 
-;;; M3 finding 7: the table extension can rebuild a paragraph with no
-;;; position, so inline positions inside it are computed from a missing
-;;; origin (cmark_parse_inlines, src/inlines.c), and an autolink at the
-;;; start of a line gets a negative column (www_match,
-;;; extensions/autolink.c). PARSE keeps cmark's report, not a repaired one
-;;; (ADR-0005).
+;;; The table extension can rebuild a paragraph with no position, so
+;;; inline positions inside it are computed from a missing origin
+;;; (cmark_parse_inlines, src/inlines.c), and an autolink at the start of a
+;;; line gets a negative column (www_match, extensions/autolink.c). PARSE
+;;; keeps cmark's report, not a repaired one.
 
 (define-test parse-keeps-cmarks-negative-column-for-an-autolink
   (let* ((ast (parse (format nil "a~%www.g~%b~%|-")))
@@ -115,9 +114,9 @@ when www.example.com became a link."
     (is equal (cons (cons 1 -1) (cons 1 4)) (node-sourcepos link)))
   (true (open-counts-zero-p)))
 
-;;; The primary package (M2 design §3): one package for a caller, holding
-;;; the public symbols of the conditions, the AST and the HTML tree, the
-;;; four variables, and the entry points.
+;;; The primary package: one package for a caller, holding the public
+;;; symbols of the conditions, the AST and the HTML tree, the four
+;;; variables, and the entry points.
 
 (defparameter *re-exported-packages*
   '("CL-COMMONMARK-GFM.CONDITIONS" "CL-COMMONMARK-GFM.AST" "CL-COMMONMARK-GFM.HTML-TREE")
@@ -148,8 +147,8 @@ cl-commonmark-gfm."
 
 (defparameter *entry-point-names*
   '("PARSE" "MARKDOWN->HTML" "MARKDOWN->PLAINTEXT" "MARKDOWN->HTML-TREE")
-  "The names of the four entry points (M2 design §7.1), the only symbols of
-its own cl-commonmark-gfm may export.")
+  "The names of the four entry points, the only symbols of its own
+cl-commonmark-gfm may export.")
 
 (defun stray-exports ()
   "Each symbol cl-commonmark-gfm exports that is neither one of

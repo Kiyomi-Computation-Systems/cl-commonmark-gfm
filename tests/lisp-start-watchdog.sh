@@ -1,9 +1,8 @@
 #!/bin/sh
 # Tests scripts/lisp-start-watchdog against a fake command: no CCL, no
 # Lisp, just a small script with counter and pid files and short (2s)
-# windows (M2 design §8.5, ADR-0013). `make check-watchdog` runs this; it is pure
-# shell and fast. Checks name themselves, and the exit status is
-# non-zero if any failed.
+# windows. `make check-watchdog` runs this; it is pure shell and fast.
+# Checks name themselves, and the exit status is non-zero if any failed.
 set -u
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -23,7 +22,7 @@ check() { name=$1; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
 
 # Whether the fakes started for a case still run, by the pids they wrote
 # to $pids. `kill -0` needs no procps: neither CI's image nor the Guix
-# container has pgrep, and `! pgrep` passed there whatever ran. A fake the
+# container has pgrep, and `! pgrep` passes there whatever runs. A fake the
 # watchdog killed is gone, not a zombie: the watchdog's wrapper, its
 # parent, reaps it.
 pids=$tmp/pids
@@ -51,8 +50,8 @@ marker='FAKE-MARKER-OK'
 # The fake: counts its own starts in $FAKE_COUNTER (one line appended per
 # invocation), writes its pid to $FAKE_PIDS (one line each too), and
 # behaves according to $FAKE_PLAN. A 'hang' branch traps and ignores
-# SIGTERM, as the real CCL does (finding 20): a watchdog that sent SIGTERM
-# instead of SIGKILL would hang against it.
+# SIGTERM, as the real CCL does: a watchdog that sent SIGTERM instead of
+# SIGKILL would hang against it.
 fake=$tmp/fake-lisp
 cat >"$fake" <<'FAKE'
 #!/bin/sh
@@ -179,8 +178,7 @@ done
 
 # C9: SIGTERM while the fake is hung, before its marker. The watchdog
 # must SIGKILL it and exit at once, not just remove its work directory
-# and keep waiting forever (the bug this fixes: a SIGTERM during a hung
-# start used to leave the watchdog waiting on the hung run forever).
+# and keep waiting forever.
 counter=$tmp/counter
 : >"$counter"
 : >"$pids"

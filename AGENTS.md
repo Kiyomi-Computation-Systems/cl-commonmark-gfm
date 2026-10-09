@@ -133,7 +133,10 @@ We run this when we're done and ready to merge the PR.
   every other comment and docstring is for developers. Cite nothing in
   `/.plans` (ADRs, plans, design documents, findings, milestones) and no
   review labels, and tell no history: where a citation stood in for a
-  reason, write the reason out.
+  reason, write the reason out. `make check-citations` refuses the
+  clearest forms, such as an ADR's number or a design's section, in the
+  code, tests, scripts and pages (`scripts/check-citations` lists what it
+  skips).
 - Spell C identifiers as cmark-gfm's source does. Give its paths in full
   (`vendor/cmark-gfm/src/inlines.c`), unless the file's header has already
   given that path in full or said what its paths are relative to.

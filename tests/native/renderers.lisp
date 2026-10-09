@@ -1,15 +1,15 @@
-;;;; The three renderers (M2 design §7.1, §7.2, §8.4; ADR-0017):
-;;;; MARKDOWN->HTML, MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE, reached as
-;;;; a caller would, through CL-COMMONMARK-GFM. Every value worked out below
-;;;; was confirmed against the pinned CLI first (`cmark-gfm`), the way
-;;;; tests/native/copier.lisp confirms the copier's.
+;;;; The three renderers: MARKDOWN->HTML, MARKDOWN->PLAINTEXT and
+;;;; MARKDOWN->HTML-TREE, reached as a caller would, through
+;;;; CL-COMMONMARK-GFM. Every value worked out below is confirmed against
+;;;; the pinned CLI (`cmark-gfm`), the way tests/native/copier.lisp confirms
+;;;; the copier's.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
-;;; Basic shape: each renderer against the spec's own example (M2 design
-;;; §7.1), and MARKDOWN->HTML-TREE against the pipeline it is built from.
+;;; Basic shape: each renderer against one small example, *hi*, and
+;;; MARKDOWN->HTML-TREE against the pipeline it is built from.
 
-(define-test markdown->html-renders-the-spec-example
+(define-test markdown->html-renders-emphasis
   (is string= (format nil "<p><em>hi</em></p>~%") (markdown->html "*hi*")))
 
 (define-test markdown->plaintext-renders-without-markup
@@ -21,8 +21,8 @@
   (is equal (ast->html-tree (parse "*hi*")) (markdown->html-tree "*hi*")))
 
 ;;; Every option reaches cmark, each shown with an effect only that value
-;;; can produce (M2 design §7.2; confirmed against the pinned CLI, flags
-;;; noted alongside each check).
+;;; can produce (confirmed against the pinned CLI, flags noted alongside
+;;; each check).
 
 (define-test markdown->html-every-option-does-what-it-says
   ;; :profile / :extensions: strikethrough is on by :GFM's default, off
@@ -40,8 +40,8 @@
   (is string= (format nil "<p>~Cq~C it~Cs</p>~%" (code-char #x201C) (code-char #x201D)
                       (code-char #x2019))
       (markdown->html "\"q\" it's" :smart t))
-  ;; :sourcepos: adds data-sourcepos; off by default, unlike PARSE
-  ;; (cmark-gfm --sourcepos; M2 design D14).
+  ;; :sourcepos: adds data-sourcepos, as cmark-gfm --sourcepos does; off
+  ;; by default, unlike PARSE, since HTML reads better without it.
   (is string= (format nil "<p data-sourcepos=\"1:1-1:2\">hi</p>~%")
       (markdown->html "hi" :sourcepos t))
   (false (search "data-sourcepos" (markdown->html "hi")) ":sourcepos nil, the default")
@@ -93,36 +93,36 @@
   (is string= (format nil "<p>~Cq~C it~Cs</p>~%" (code-char #x201C) (code-char #x201D)
                       (code-char #x2019))
       (html-tree->string (markdown->html-tree "\"q\" it's" :smart t)))
-  ;; :softbreak, the tree option: :br gives <br /> (ADR-0012).
+  ;; :softbreak, the tree option: :br gives <br />.
   (is string= (format nil "<p>a<br />~%b</p>~%")
       (html-tree->string (markdown->html-tree (markdown-lines "a" "b") :softbreak :br)))
   ;; :raw-html :text: the literal shows in the tree, escaped like any other
-  ;; text, not commented out (ADR-0012; M1 design).
+  ;; text, not commented out.
   (is string= (format nil "&lt;div&gt;x&lt;/div&gt;~%")
       (html-tree->string (markdown->html-tree (markdown-lines "<div>x</div>") :raw-html :text)))
   (is string= (format nil "<!-- raw HTML omitted -->~%")
       (html-tree->string (markdown->html-tree (markdown-lines "<div>x</div>"))))
-  ;; :link-policy :safe, the default, blanks a dangerous URL; :unsafe keeps it
-  ;; (ADR-0012).
+  ;; :link-policy :safe, the default, blanks a dangerous URL; :unsafe keeps
+  ;; it.
   (is string= (format nil "<p><a href=\"\">x</a></p>~%")
       (html-tree->string (markdown->html-tree "[x](javascript:alert(1))")))
   (is string= (format nil "<p><a href=\"javascript:alert(1)\">x</a></p>~%")
       (html-tree->string (markdown->html-tree "[x](javascript:alert(1))" :link-policy :unsafe)))
   ;; :document-wrapper wraps the whole tree in the named element, with no
-  ;; newline of its own (M1 design).
+  ;; newline of its own.
   (is string= (format nil "<div><p>x</p>~%</div>")
       (html-tree->string (markdown->html-tree "x" :document-wrapper :div))))
 
-;;; Option errors create no parser (M2 design §7.1, §7.2, §8.4): every
-;;; renderer's own check runs before any native call. For MARKDOWN->HTML-TREE
-;;; that includes a bad tree option, checked by CHECK-TREE-OPTIONS ahead of
-;;; CHECK-INPUT and any native call (ADR-0012). Each form also names the
-;;; exact condition §7.2's "Which condition" calls for: INVALID-PARSE-OPTION
-;;; for a bad :PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART or :SOURCEPOS value
-;;; that's one of the renderer's own keys; INVALID-RENDER-OPTION for
-;;; everything else -- an odd-length list, an unknown key (:SOURCEPOS is one
-;;; for MARKDOWN->PLAINTEXT and MARKDOWN->HTML-TREE, which don't take it),
-;;; and a bad render or tree-option value.
+;;; Option errors create no parser: every renderer's own check runs before
+;;; any native call. For MARKDOWN->HTML-TREE that includes a bad tree
+;;; option, checked by CHECK-TREE-OPTIONS ahead of CHECK-INPUT and any
+;;; native call. Each form also names the exact condition it must signal:
+;;; INVALID-PARSE-OPTION for a bad :PROFILE, :EXTENSIONS, :FOOTNOTES, :SMART
+;;; or :SOURCEPOS value that's one of the renderer's own keys;
+;;; INVALID-RENDER-OPTION for everything else -- an odd-length list, an
+;;; unknown key (:SOURCEPOS is one for MARKDOWN->PLAINTEXT and
+;;; MARKDOWN->HTML-TREE, which don't take it), and a bad render or
+;;; tree-option value.
 
 (defmacro no-parser-for-each (&rest type-and-forms)
   "Assert that each (TYPE FORM) of TYPE-AND-FORMS signals exactly TYPE, with
@@ -174,7 +174,7 @@ RAISED, and that calling it never raises the parser count."
    (invalid-render-option (markdown->html-tree "x" :document-wrapper :br)))
   (true (open-counts-zero-p)))
 
-;;; Non-ASCII round-trips through every entry point (M2 design §6.5, §8.4).
+;;; Non-ASCII round-trips through every entry point.
 
 (define-test non-ascii-text-round-trips-through-every-entry-point
   (let ((markdown (format nil "日本 caf~C" (code-char #xE9))))
@@ -183,10 +183,10 @@ RAISED, and that calling it never raises the parser count."
     (is string= (format nil "<p>日本 caf~C</p>~%" (code-char #xE9))
         (html-tree->string (markdown->html-tree markdown)))))
 
-;;; A non-string signals a TYPE-ERROR, before any native call (M2 design
-;;; §7.1). CHECK-TYPE's own condition isn't always exactly TYPE-ERROR (SBCL
-;;; signals SIMPLE-TYPE-ERROR, a subtype), so this stays a FAIL-style
-;;; supertype check, unlike NO-PARSER-FOR-EACH's exact one above.
+;;; A non-string signals a TYPE-ERROR, before any native call. CHECK-TYPE's
+;;; own condition isn't always exactly TYPE-ERROR (SBCL signals
+;;; SIMPLE-TYPE-ERROR, a subtype), so this is a FAIL-style supertype check,
+;;; unlike NO-PARSER-FOR-EACH's exact one above.
 
 (defmacro no-parser-and-fails-with (type form)
   "Assert, with Parachute's FAIL, that FORM signals a condition of (at least)
@@ -204,9 +204,8 @@ TYPE, and that calling it never raises the parser count."
     (no-parser-and-fails-with 'type-error (markdown->html-tree markdown)))
   (true (open-counts-zero-p)))
 
-;;; Threads, through the entry points (M2 design §7.5, §8.4): concurrent
-;;; PARSE, MARKDOWN->HTML and MARKDOWN->HTML-TREE calls equal sequential
-;;; ones.
+;;; Threads, through the entry points: concurrent PARSE, MARKDOWN->HTML and
+;;; MARKDOWN->HTML-TREE calls equal sequential ones.
 
 (defparameter *entry-point-race-markdown*
   (markdown-lines "# Heading" "" "A paragraph with a [link](/x) and a note[^a]." ""
@@ -242,16 +241,16 @@ by the entry-point thread test.")
             "MARKDOWN->HTML-TREE calls")))
   (true (open-counts-zero-p)))
 
-;;; Ill-formed UTF-8 from cmark (M2 design §6.5; finding 19). A footnote
-;;; reference that spans a line break dangles, and cmark writes it back as
-;;; text cut inside a multi-byte character: handle_close_bracket
-;;; (src/inlines.c) copies its label by columns, which restart at the line
-;;; break, and process_footnotes (src/blocks.c) turns the dangling
-;;; reference into the text [^, those bytes and ]. The pinned CLI, with the
-;;; GFM flags, writes <p>x [^a then 1, 1, 2 or 3 bytes of the cut character
-;;; then ]</p> for these four, and x [^a and a newline in plaintext, whose
-;;; renderer stops a text node at an ill-formed byte (S_out, src/render.c).
-;;; Each cut start is one maximal subpart, so one U+FFFD.
+;;; Ill-formed UTF-8 from cmark. A footnote reference that spans a line
+;;; break dangles, and cmark writes it back as text cut inside a multi-byte
+;;; character: handle_close_bracket (src/inlines.c) copies its label by
+;;; columns, which restart at the line break, and process_footnotes
+;;; (src/blocks.c) turns the dangling reference into the text [^, those
+;;; bytes and ]. The pinned CLI, with the GFM flags, writes <p>x [^a then
+;;; 1, 1, 2 or 3 bytes of the cut character then ]</p> for these four, and
+;;; x [^a and a newline in plaintext, whose renderer stops a text node at an
+;;; ill-formed byte (S_out, src/render.c). Each cut start is one maximal
+;;; subpart, so one U+FFFD.
 
 (defun split-label-inputs ()
   "The four inputs, as (NAME MARKDOWN): é cut after its first byte, and

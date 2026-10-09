@@ -1,10 +1,9 @@
-;;;; Threads (M2 design §5.2, §7.5, §8.4; finding 14): renders from many
-;;;; threads at once give the results they give alone, and a first call
-;;;; from many threads at once starts up once.
+;;;; Threads: renders from many threads at once give the results they give
+;;;; alone, and a first call from many threads at once starts up once.
 ;;;;
 ;;;; Every thread below goes through MAKE-TEST-THREAD (helpers.lisp), so no
-;;;; condition it signals can escape it and end the whole run (M4 finding
-;;;; 1).
+;;;; condition it signals can escape it and end the whole run, as one does
+;;;; on CCL.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -107,7 +106,7 @@ thread has reached it. Every thread is joined, however this exits."
         when (eql status :signalled)
           collect value))
 
-;;; Concurrent startup (M2 design §5.2, §8.4)
+;;; Concurrent startup
 
 (defparameter *startup-threads* 8
   "How many threads make their first call at once.")
@@ -136,14 +135,14 @@ every thread to make its call while the startup runs."
       (true (eql (native-state) (first states)) "the threads got the published state")
       (true (open-counts-zero-p)))))
 
-;;; Concurrent renders (M2 design §7.5, §8.4; finding 14). Inline parsing
-;;; happens only in cmark_parser_finish (finalize_document, then
-;;; process_inlines, src/blocks.c). process_inlines adds the attached
-;;; extensions' special characters, ~ for strikethrough and : and w for
-;;; autolink, to two process-wide tables, SPECIAL_CHARS and SKIP_CHARS
-;;; (cmark_inlines_add_special_character, src/inlines.c), and removes them
-;;; when it is done. Two finishes at once corrupt each other's inlines. The
-;;; inputs are finding 14's.
+;;; Concurrent renders. Inline parsing happens only in cmark_parser_finish
+;;; (finalize_document, then process_inlines, src/blocks.c).
+;;; process_inlines adds the attached extensions' special characters, ~ for
+;;; strikethrough and : and w for autolink, to two process-wide tables,
+;;; SPECIAL_CHARS and SKIP_CHARS (cmark_inlines_add_special_character,
+;;; src/inlines.c), and removes them when it is done. Two finishes at once
+;;; corrupt each other's inlines, so each finish holds the finish lock. The
+;;; inputs below are ones those races corrupt without it.
 
 (defparameter *race-threads* 8
   "How many threads render at once, half of them each race document.")
@@ -156,13 +155,13 @@ every thread to make its call while the startup runs."
   (cl-commonmark-gfm.tests::repeat-string (format nil "~A~%~%" text) count))
 
 (defun gfm-race-markdown ()
-  "Finding 14's GFM input, 136,000 octets: 2,000 paragraphs, each with a
+  "The GFM race input, 136,000 octets: 2,000 paragraphs, each with a
 strikethrough and two autolinks. A parse loses them when another parse's
 finish removes ~, : and w from the tables while it runs."
   (paragraphs "Some ~~struck~~ text and www.example.com and https://x.org/y here." 2000))
 
 (defun commonmark-race-markdown ()
-  "Finding 14's CommonMark input, 84,000 octets: 4,000 paragraphs of
+  "The CommonMark race input, 84,000 octets: 4,000 paragraphs of
 a~_b_~c. While a GFM parse holds ~ in SKIP_CHARS, a parse without
 extensions skips the ~ when it reads the characters around each _, finds
 letters on both sides, and the _ can neither open nor close (scan_delims,
@@ -183,8 +182,8 @@ live native document."
         do (setf start (+ position (length part)))))
 
 (define-test the-race-documents-hold-what-a-race-loses
-  ;; The race's control: rendered alone, the documents hold what finding
-  ;; 14's races lost. The counts are the pinned CLI's.
+  ;; The race's control: rendered alone, the documents hold what a race
+  ;; without the finish lock loses. The counts are the pinned CLI's.
   (is = 2000 (occurrences "<del>" (render-html-of (gfm-race-markdown) '())))
   (is = 4000 (occurrences "<a href=" (render-html-of (gfm-race-markdown) '())))
   (is = 8000 (occurrences "<em>" (render-html-of (commonmark-race-markdown)
@@ -291,11 +290,11 @@ SECONDS: its threads are then left waiting."
       (is = 1 (count :signalled outcomes :key #'first) "threads that signalled")
       (is = 3 (count :returned outcomes :key #'first) "threads that returned"))))
 
-;;; Closing cmark under a parse (M2 design §5.3; finding 18). A call holds
-;;; the published state from the moment the startup lock hands it over
-;;; until its document is released. While any call holds it, closing
-;;; signals and closes nothing: the state stays published, both libraries
-;;; stay loaded, and the call goes on unharmed.
+;;; Closing cmark under a parse, which would fault that parse or leave its
+;;; document open. A call holds the published state from the moment the
+;;; startup lock hands it over until its document is released. While any
+;;; call holds it, closing signals and closes nothing: the state stays
+;;; published, both libraries stay loaded, and the call goes on unharmed.
 
 (defstruct (rendezvous (:constructor make-rendezvous ()))
   "Where a worker waits for the main thread: its LOCK and CHANGED

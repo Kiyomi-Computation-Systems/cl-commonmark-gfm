@@ -1,19 +1,19 @@
-;;;; The condition test of the container whose ECL has no dynamic FFI (M4
-;;;; design §6.2 and §6.4; findings 8, 26, 27 and 29). `make
-;;;; check-ecl-nodffi-inside` runs it there, after its guard and before the
-;;;; smoke program, in a process of its own: ECL loads its system,
-;;;; cl-commonmark-gfm-static-nodffi, as any session loads cl-commonmark-gfm,
-;;;; and calls MAIN. ASDF has compiled both into that container's own fasl
-;;;; cache with CFFI's method left at its default, :DLOPEN on an ECL that
-;;;; has :DLOPEN but not :DFFI (src/cffi-ecl.lisp). ECL code that probes the
-;;;; FFI must be compiled: interpreted code takes other paths through it.
+;;;; The condition test of the container whose ECL has no dynamic FFI.
+;;;; `make check-ecl-nodffi-inside` runs it there, after its guard and
+;;;; before the smoke program, in a process of its own: ECL loads its
+;;;; system, cl-commonmark-gfm-static-nodffi, as any session loads
+;;;; cl-commonmark-gfm, and calls MAIN. ASDF has compiled both into that
+;;;; container's own fasl cache with CFFI's method left at its default,
+;;;; :DLOPEN on an ECL that has :DLOPEN but not :DFFI (src/cffi-ecl.lisp).
+;;;; ECL code that probes the FFI must be compiled: interpreted code takes
+;;;; other paths through it.
 ;;;;
 ;;;; There, the native layer isn't linked, and CFFI refuses to load a
 ;;;; library at run time: its ECL backend's %LOAD-FOREIGN-LIBRARY signals
-;;;; without :DFFI, though ECL's own loader would load one (finding 29). So
-;;;; MARKDOWN->HTML's startup stops at step 1, with DYNAMIC-FFI-UNAVAILABLE:
-;;;; its datum the missing feature, :DFFI, and its report saying how to
-;;;; link cmark-gfm into a program instead (M4 design §6.2).
+;;;; without :DFFI, though ECL's own loader would load one. So
+;;;; MARKDOWN->HTML's startup stops at step 1, with
+;;;; DYNAMIC-FFI-UNAVAILABLE: its datum the missing feature, :DFFI, and its
+;;;; report saying how to link cmark-gfm into a program instead.
 ;;;;
 ;;;; Step 1 must come before discovery, step 2. The target runs this with
 ;;;; CL_COMMONMARK_GFM_LIBS malformed, so discovery would signal
@@ -22,17 +22,16 @@
 ;;;; sure of that premise, so a run without the malformed value fails
 ;;;; rather than passing untested.
 ;;;;
-;;;; Nothing here checks that the failed startup left nothing behind (M4
-;;;; design §6.4). Such checks couldn't fail on this ECL: CFFI refuses
-;;;; every load there, and step 1 comes before any state, parse or load
-;;;; exists.
+;;;; Nothing here checks that the failed startup left nothing behind. Such
+;;;; checks couldn't fail on this ECL: CFFI refuses every load there, and
+;;;; step 1 comes before any state, parse or load exists.
 ;;;;
 ;;;; MAIN calls MARKDOWN->HTML once, prints one line per failed check,
 ;;;; "FAIL <check>: <detail>", then "check-ecl-nodffi: <n> checks, <m>
 ;;;; failed", and returns true only when nothing failed. Every check catches
 ;;;; its own errors, and MAIN any other serious condition: one that reaches
 ;;;; ECL's debugger ends the process with status 0 at the end of stdin (the
-;;;; top level's :eof command, ECL 24.5.10's src/lsp/top.lsp; finding 26),
+;;;; top level's :eof command, ECL 24.5.10's src/lsp/top.lsp),
 ;;;; so the target also requires the summary line, with 0 failed.
 ;;;;
 ;;;; It reaches the native layer's internals as package::symbol, as the
@@ -57,13 +56,13 @@
   "The method CFFI compiles foreign calls with, by default, on an ECL that
 has :DLOPEN but not :DFFI (*CFFI-ECL-METHOD*, src/cffi-ecl.lisp), and so
 the method cmark's calls were compiled with here: a session that leaves it
-alone isn't linked (M4 design §6.1).")
+alone isn't linked.")
 
 (defparameter *report-needles*
   '("cffi-sys:*cffi-ecl-method*" ":c/c++" "libcmark-gfm-extensions.a" "libcmark-gfm.a")
-  "What DYNAMIC-FFI-UNAVAILABLE's report must name, as M4 design §6.2's
-instructions for a linked program do: the variable to set, its value, and
-the two archives to link, extensions first.")
+  "What DYNAMIC-FFI-UNAVAILABLE's report must name, to say how to build a
+linked program: the variable to set, its value, and the two archives to
+link, extensions first.")
 
 (defparameter *markdown* "Hello, *world*."
   "What MAIN asks MARKDOWN->HTML to render. Startup fails before it is
@@ -126,9 +125,8 @@ or NIL when it returns."
 (defun discovery-problem ()
   "Discovery, run with the arguments startup's step 2 gives it, must signal
 NATIVE-LIBRARY-NOT-FOUND here, so that a startup that ran it before step 1
-would fail with that, not DYNAMIC-FFI-UNAVAILABLE (M4 design §6.4). It
-loads nothing: the override, CL_COMMONMARK_GFM_LIBS and a file check are
-all it reads."
+would fail with that, not DYNAMIC-FFI-UNAVAILABLE. It loads nothing: the
+override, CL_COMMONMARK_GFM_LIBS and a file check are all it reads."
   (handler-case
       (let ((paths (cl-commonmark-gfm.native-core:resolve-cmark-libraries
                     :libraries (cl-commonmark-gfm.native::native-override
@@ -154,8 +152,7 @@ DYNAMIC-FFI-UNAVAILABLE: step 1 came first."
              (condition-detail condition) 'dynamic-ffi-unavailable))))
 
 (defun datum-problem (condition)
-  "CONDITION's datum must be the missing feature, :DFFI (M4 design §6.2;
-finding 8)."
+  "CONDITION's datum must be the missing feature, :DFFI."
   (cond
     ((null condition)
      "markdown->html signalled nothing, so there is no datum")
@@ -166,7 +163,7 @@ finding 8)."
 
 (defun report-problem (condition)
   "CONDITION's report must name each of *REPORT-NEEDLES*, so it says how to
-build a linked program instead (M4 design §6.2)."
+build a linked program instead."
   (if (null condition)
       "markdown->html signalled nothing, so there is no report"
       (let* ((report (report-string condition))

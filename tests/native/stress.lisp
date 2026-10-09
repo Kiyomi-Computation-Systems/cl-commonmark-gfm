@@ -1,14 +1,15 @@
-;;;; Render stress (ADR-0008, ADR-0013; M2 design §8.4): documents up to the
-;;;; default input limit, each parsed and rendered again and again, render
-;;;; the same every time and leave nothing open. No tool in CI inspects
-;;;; native memory (ADR-0013), so this catches crashes and leaks under
-;;;; repeated large renders, not any one cause: a buffer freed through the
-;;;; wrong slot of the allocator (ADR-0008's first ABI belief), which the
-;;;; slot test can't catch, is one of them. Calling `calloc` or `realloc`
-;;;; where `free` belongs is undefined behavior, not a guaranteed leak: a
-;;;; reviewer called the real free site that way and, on SBCL 2.6.4
-;;;; x86-64, it aborted the process on the first render; elsewhere it
-;;;; might only leak, which nothing here measures either.
+;;;; Render stress: documents up to the default input limit, each parsed
+;;;; and rendered again and again, render the same every time and leave
+;;;; nothing open. No tool in CI inspects native memory, since the library
+;;;; compiles no C to sanitize and the three Lisps' collectors don't suit
+;;;; Valgrind. So this catches crashes and leaks under repeated large
+;;;; renders, not any one cause: a buffer freed through the wrong slot of
+;;;; the allocator, whose `free` the library reads as its third, is one of
+;;;; them, and the slot test can't catch it. Calling `calloc` or `realloc`
+;;;; where `free` belongs is undefined behavior, not a guaranteed leak: at
+;;;; the real free site, on SBCL 2.6.4 x86-64, it aborts the process at the
+;;;; first render; elsewhere it might only leak, which nothing here
+;;;; measures either.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 

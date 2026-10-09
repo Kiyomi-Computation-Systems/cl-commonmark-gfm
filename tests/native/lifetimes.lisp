@@ -1,6 +1,8 @@
-;;;; Lifetimes (M2 design §5.4, §8.4; ADR-0008): every failure path frees
-;;;; what it created, a document used after its scope signals, and the two
-;;;; ABI beliefs hold.
+;;;; Lifetimes: every failure path frees what it created, a document used
+;;;; after its scope signals, and the two ABI beliefs hold. The library
+;;;; binds cmark-gfm with no C compiler to check its ABI, so it believes,
+;;;; and tests, two facts: the allocator's `free` is its third function
+;;;; pointer, and the tasklist accessor's C `bool` is one byte.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -92,7 +94,8 @@
       (raised simple-error (call-with-native-document "text" '() (constantly nil)))))
   (true (open-counts-zero-p)))
 
-;;; A document used after its scope (M2 design §5.4, D13)
+;;; A document used after its scope: every accessor checks the document's
+;;; alive flag
 
 (defparameter *node-accessors*
   '(native-first-child native-next native-parent
@@ -151,7 +154,7 @@
     (let ((condition (raised native::native-document-released (native-literal document root))))
       (is eql 'native-literal (native::released-operation condition)))))
 
-;;; The two ABI beliefs (ADR-0008)
+;;; The two ABI beliefs
 
 (define-test the-allocator-holds-three-distinct-functions
   (let* ((state (native-state))

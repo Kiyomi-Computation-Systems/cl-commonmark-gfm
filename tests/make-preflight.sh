@@ -1,8 +1,8 @@
 #!/bin/sh
 # Tests the Makefile's fail-fast tool checks (scripts/require-tools, wired
 # into deps, check-vocabulary, check-fixtures, fixtures-html, run-suite,
-# check-ecl-static, and the site's check-site, site, reference,
-# check-reference and check-docs), check-ecl-static's search for
+# check-ecl-static, check-citations, and the site's check-site, site,
+# reference, check-reference and check-docs), check-ecl-static's search for
 # cmark-gfm's static archives, check-ecl-nodffi-inside's hint on a Guix
 # host, and the native runners' own library check (tests/run-native.lisp,
 # tests/run-native-fuzz.lisp). `make check-preflight` runs this; it is
@@ -29,8 +29,7 @@
 # already up to date, so neither recipe runs at all, while check-purity
 # (and its own require-tools call) still does. This doesn't touch
 # MAKECMDGOALS: -o only marks the targets it names as not needing a
-# rebuild, so GOAL still resolves to "test" throughout (confirmed by hand
-# against a scratch Makefile before relying on it here).
+# rebuild, so GOAL still resolves to "test" throughout.
 #
 # Case (h) is the one real run: it needs a real sbcl and the ocicl/
 # dependencies already installed, so it only runs when both are present
@@ -183,8 +182,8 @@ check "e check-fixtures: exit 2" [ "$status" -eq 2 ]
 check "e check-fixtures: names cmark-gfm" has "cmark-gfm"
 
 # (i) make check-purity LISPS=bogus: an unknown Lisp is the loop's to
-# report, as before the preflight existed -- not a missing tool, and not
-# require-tools' usage error from an empty list of tools.
+# report -- not a missing tool, and not require-tools' usage error from an
+# empty list of tools.
 fresh_case
 guix_environment=
 run_make check-purity LISPS=bogus
@@ -264,7 +263,7 @@ check "l check-ecl-static: nowhere else" lacks "$tmp/extensions/"
 check "l check-ecl-static: nothing started" nothing_started
 
 # (m) make check-ecl-static, a stub ecl, neither variable set, on a machine
-# ADR-0009 names no multiarch directory for (uname -m says riscv64): the
+# discovery names no multiarch directory for (uname -m says riscv64): the
 # search covers discovery's other Linux directories, finds no pair, and
 # says so, saying the search is Linux's. Only uname starts. Skipped where
 # one of those directories really holds the pair.
@@ -288,7 +287,7 @@ else
   check "m check-ecl-static: only uname started" only_started uname
 fi
 
-# (n) the same, on a machine whose multiarch directory ADR-0009 names
+# (n) the same, on a machine whose multiarch directory discovery names
 # (uname -m says aarch64): searched first, and named first. Skipped where
 # one of the directories really holds the pair.
 if found=$(first_holding_pair /usr/lib/aarch64-linux-gnu /usr/lib64 /usr/lib /usr/local/lib); then
@@ -388,6 +387,15 @@ run_make site
 check "v site, no git: its recipe exits 2" recipe_failed_with site 2
 check "v site: names git" has "git not found"
 check "v site: nothing started" nothing_started
+
+# (w) make check-citations, no git: fails, naming git, before its test or
+# the check runs.
+fresh_case
+guix_environment=
+run_make check-citations
+check "w check-citations, no git: its recipe exits 2" recipe_failed_with check-citations 2
+check "w check-citations: names git" has "git not found"
+check "w check-citations: hints make check-citations" has "make check-citations"
 
 # (h) the native library check: only with a real sbcl and ocicl/'s
 # dependencies in place, since it runs make for real, on the real PATH,
