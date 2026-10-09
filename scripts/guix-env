@@ -1,5 +1,5 @@
 #!/bin/sh
-# The pinned Guix development container (ADR-0004).
+# The pinned Guix development container.
 #
 #   scripts/guix-env                an interactive bash
 #   scripts/guix-env CMD [ARG...]   run CMD, e.g. `make check-guix-inside`
@@ -9,12 +9,12 @@
 # tests through here.
 #
 # GUIX_ENV_MANIFEST names another manifest: a file name at the repository
-# root, such as manifest-ecl-nodffi.scm (M4 design §6.4; ADR-0004). Unset
-# or empty, it's manifest.scm. Before Guix starts, a value holding a / is
-# refused, even one naming a real file, and so is a name with no file.
-# The variable is preserved into the container, where
-# scripts/guix-env-enter gives that manifest a fasl cache named after it
-# (finding 9); a path would mis-key that cache.
+# root, such as manifest-ecl-nodffi.scm. Unset or empty, it's manifest.scm.
+# Before Guix starts, a value holding a / is refused, even one naming a
+# real file, and so is a name with no file. The variable is preserved into
+# the container, where scripts/guix-env-enter gives that manifest a fasl
+# cache named after it, since ECLs built differently can't share fasls; a
+# path would mis-key that cache.
 #
 # GUIX_ENV_DRY_RUN=1 prints `cd <dir>` and the guix command, one argument
 # per line, instead of running it: tests/guix-env-launcher.sh asserts on

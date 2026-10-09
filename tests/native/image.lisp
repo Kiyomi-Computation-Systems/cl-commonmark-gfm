@@ -1,11 +1,11 @@
-;;;; Saved images (M2 design §5.3, §8.4; M4 design §5.4; ADR-0017; D12,
-;;;; findings 12 and 18): a save hook closes cmark-gfm and clears the
-;;;; published state, so an image saved after the native layer started up
-;;;; starts up again on its first call; it refuses, and closes nothing,
-;;;; while a call holds the state; and a restore hook clears whatever state
-;;;; an image still carries when it starts. The saved-image tests run
-;;;; children of SBCL and CCL, each with a time limit (children.lisp). ECL
-;;;; doesn't save images.
+;;;; Saved images: a save hook closes cmark-gfm and clears the published
+;;;; state, so an image saved after the native layer started up starts up
+;;;; again on its first call; it refuses, and closes nothing, while a call
+;;;; holds the state; and a restore hook clears whatever state an image
+;;;; still carries when it starts. The hooks are the Lisps' own, which run
+;;;; on every save, since UIOP's run only inside UIOP:DUMP-IMAGE and
+;;;; UIOP:RESTORE-IMAGE. The saved-image tests run children of SBCL and
+;;;; CCL, each with a time limit (children.lisp). ECL doesn't save images.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -43,7 +43,7 @@
   "How many calls hold the published state, read under the startup lock,
 or NIL when the lock can't be had within 10 seconds. Polls, by CALL-WITH-
 LOCK-WITHIN, since CCL's bordeaux-threads doesn't implement WITH-LOCK-
-HELD's :TIMEOUT (M4 finding 1)."
+HELD's :TIMEOUT."
   (multiple-value-bind (holds got-it)
       (call-with-lock-within native::*startup-lock* 10
                              (lambda () (length native::*holds*)))
@@ -54,12 +54,11 @@ HELD's :TIMEOUT (M4 finding 1)."
   (with-open-file (stream path :element-type '(unsigned-byte 8) :if-does-not-exist nil)
     (and stream (file-length stream))))
 
-;;; A saved image (M2 design §8.4; M4 design §5.4). The first child loads
-;;; /native, renders, and saves an image while its state is published. The
-;;; second starts from that image and renders again. On CCL the image's
-;;; process must also start with no pair recorded (M4 design §5.3): the
-;;; record names the pair the saving process called into, and the image's
-;;; own process has called into nothing yet.
+;;; A saved image. The first child loads /native, renders, and saves an
+;;; image while its state is published. The second starts from that image
+;;; and renders again. On CCL the image's process must also start with no
+;;; pair recorded: the record names the pair the saving process called
+;;; into, and the image's own process has called into nothing yet.
 
 (defparameter *saved-image-markdown* "~~gone~~ and www.example.com"
   "What each child renders: a strikethrough and an autolink, which only
@@ -185,15 +184,15 @@ image. The image lives in a temporary directory, which is deleted."
       (is equal *saved-image-html* (getf started :html :unreported) "the restarted image renders")
       (is eql 2 (getf started :startups :unreported) "the restarted image started up once more"))))
 
-;;; An image saved with the save hook skipped (M2 design §5.3, §8.4). It
-;;; carries the published state, and reopens the libraries it had loaded:
-;;; SBCL at the paths it loaded them from, CCL by their sonames, from
-;;; wherever the loader finds them (REFRESH-EXTERNAL-ENTRYPOINTS, CCL
-;;; 1.13's level-0/l0-cfm-support.lisp): the container's library path and
-;;; Debian's multiarch directory both hold them. Likely at other addresses,
-;;; so the state's pointers are stale. The restore hook clears that state as
-;;; the image starts, so its first call starts up again. On CCL it records
-;;; the pair CCL reopened instead of clearing the record (M4 design §5.3).
+;;; An image saved with the save hook skipped. It carries the published
+;;; state, and reopens the libraries it had loaded: SBCL at the paths it
+;;; loaded them from, CCL by their sonames, from wherever the loader finds
+;;; them (REFRESH-EXTERNAL-ENTRYPOINTS, CCL 1.13's
+;;; level-0/l0-cfm-support.lisp): the container's library path and Debian's
+;;; multiarch directory both hold them. Likely at other addresses, so the
+;;; state's pointers are stale. The restore hook clears that state as the
+;;; image starts, so its first call starts up again. On CCL it records the
+;;; pair CCL reopened instead of clearing the record.
 
 #+(or sbcl ccl)
 (define-test an-image-saved-without-the-save-hook-starts-with-nothing-published
@@ -215,8 +214,8 @@ image. The image lives in a temporary directory, which is deleted."
       (is eql nil (getf started :published-at-start :unreported)
           "the restarted image has nothing published")
       ;; On CCL the image reopened the pair it carried, so the restore hook
-      ;; recorded it (M4 finding 22; AN-IMAGE-SAVED-WITHOUT-THE-SAVE-HOOK-
-      ;; RECORDS-THE-PAIR-CCL-REOPENED checks which files, and the refusal).
+      ;; recorded it (AN-IMAGE-SAVED-WITHOUT-THE-SAVE-HOOK-RECORDS-THE-PAIR-
+      ;; CCL-REOPENED checks which files, and the refusal).
       #+ccl
       (true (getf started :pair-at-start) "the restarted image recorded the pair CCL reopened")
       #-ccl
@@ -225,10 +224,10 @@ image. The image lives in a temporary directory, which is deleted."
       (is equal *saved-image-html* (getf started :html :unreported) "the restarted image renders")
       (is eql 2 (getf started :startups :unreported) "the restarted image started up once more"))))
 
-;;; CCL's records of the libraries it has opened (M4 design §5.4): the
-;;; checks below find them by soname, which a copy of the pair shares: CCL
-;;; reuses a listed record of the same soname (SHLIB-FROM-MAP-ENTRY, CCL
-;;; 1.13's level-0/l0-cfm-support.lisp).
+;;; CCL's records of the libraries it has opened: the checks below find
+;;; them by soname, which a copy of the pair shares: CCL reuses a listed
+;;; record of the same soname (SHLIB-FROM-MAP-ENTRY, CCL 1.13's
+;;; level-0/l0-cfm-support.lisp).
 
 #+ccl
 (defun state-records (state)
@@ -256,13 +255,13 @@ sonames are among SONAMES."
   (remove-if-not (lambda (record) (member (record-soname record) sonames :test #'equal))
                  ccl::*shared-libraries*))
 
-;;; An image saved after a failed startup (M4 design §5.3, §5.4). Step 4
-;;; read cmark's version string, a call into the core, then failed: so on
-;;; CCL the core stays mapped (M4 finding 2), and the pair stays recorded,
-;;; while nothing is published, and the save hook has nothing to close. The
-;;; image still mustn't reopen the pair: on CCL, the failed startup's own
-;;; close made CCL forget both libraries (CLOSE-LIBRARIES). SBCL unloads
-;;; both on close.
+;;; An image saved after a failed startup. Step 4 read cmark's version
+;;; string, a call into the core, then failed: so on CCL, which never
+;;; unloads a library it has called into, the core stays mapped, and the
+;;; pair stays recorded, while nothing is published, and the save hook has
+;;; nothing to close. The image still mustn't reopen the pair: on CCL, the
+;;; failed startup's own close made CCL forget both libraries
+;;; (CLOSE-LIBRARIES). SBCL unloads both on close.
 
 #+(or sbcl ccl)
 (defun save-after-a-failed-startup (image)
@@ -326,16 +325,16 @@ whether cmark-gfm is mapped."
            (is equal *saved-image-html* html "the image's first ordinary call renders")
            (is eql 1 startups-added "the image's first call started up")))))))
 
-;;; An image saved after the core is loaded again outside a startup. On
-;;; CCL, the reset made CCL forget both libraries (CLOSE-LIBRARIES), but
-;;; opening any library makes CCL record again every library it maps and
-;;; doesn't list (OPEN-SHARED-LIBRARY-INTERNAL, CCL 1.13's
-;;; level-0/l0-cfm-support.lisp), and it still maps the pair it called into
-;;; (M4 finding 2). Here a CFFI load and close of the core brings both
-;;; records back: the core's, emptied by the close but listed, and the
-;;; extensions'. Nothing is published, so the save hook's reset closes
-;;; nothing; the hook must still make CCL forget the recorded pair's
-;;; libraries. On SBCL, the same steps leave nothing behind.
+;;; An image saved after the core is loaded again outside a startup. On CCL,
+;;; the reset made CCL forget both libraries (CLOSE-LIBRARIES), but opening
+;;; any library makes CCL record again every library it maps and doesn't
+;;; list (OPEN-SHARED-LIBRARY-INTERNAL, CCL 1.13's
+;;; level-0/l0-cfm-support.lisp), and it still maps the pair it called into.
+;;; Here a CFFI load and close of the core brings both records back: the
+;;; core's, emptied by the close but listed, and the extensions'. Nothing is
+;;; published, so the save hook's reset closes nothing; the hook must still
+;;; make CCL forget the recorded pair's libraries. On SBCL, the same steps
+;;; leave nothing behind.
 
 #+(or sbcl ccl)
 (defun save-after-the-core-is-loaded-again (image)
@@ -405,10 +404,10 @@ cmark-gfm is mapped."
            (is equal *saved-image-html* html "the image's first ordinary call renders")
            (is eql 1 startups-added "the image's first call started up")))))))
 
-;;; An image saved while other code holds the pair open (M4 design §5.4).
-;;; CCL keeps one record of a library, however many times it is opened, and
-;;; counts the opens not yet closed: a user's own CFFI load of the pair and
-;;; startup's load of the same files share both records (CCL 1.13's
+;;; An image saved while other code holds the pair open. CCL keeps one
+;;; record of a library, however many times it is opened, and counts the
+;;; opens not yet closed: a user's own CFFI load of the pair and startup's
+;;; load of the same files share both records (CCL 1.13's
 ;;; OPEN-SHARED-LIBRARY-INTERNAL, level-0/l0-cfm-support.lisp). Startup's
 ;;; close leaves the user's opens counted, so CCL must forget neither
 ;;; record, at the close or in the save hook: the user's code still holds
@@ -417,8 +416,8 @@ cmark-gfm is mapped."
 ;;;
 ;;; Such an image starts with the pair mapped, and CFFI's lookups by name
 ;;; land in it, so it must refuse another pair, as any CCL process does: the
-;;; restore hook records the files CCL reopened (M4 design §5.3; M4 finding
-;;; 22). The image's child names a copy of the pair at another path first.
+;;; restore hook records the files CCL reopened. The image's child names a
+;;; copy of the pair at another path first.
 
 #+ccl
 (defun check-the-image-kept-the-reopened-pair (restarted copies)
@@ -505,10 +504,9 @@ whether CCL still lists the record of each library the user holds; and
              image-octets)
        (check-the-image-kept-the-reopened-pair restarted (list core-copy extensions-copy))))))
 
-;;; An image saved with the save hook skipped (M2 design §5.3, §8.4): on CCL
-;;; it reopens, by soname, the pair it carried, as it starts, so the restore
-;;; hook records the files CCL reopened, and the image refuses another pair
-;;; (M4 design §5.3; M4 finding 22).
+;;; An image saved with the save hook skipped: on CCL it reopens, by
+;;; soname, the pair it carried, as it starts, so the restore hook records
+;;; the files CCL reopened, and the image refuses another pair.
 
 #+ccl
 (defun save-without-the-save-hook (image)
@@ -541,11 +539,11 @@ asked for."
              image-octets)
        (check-the-image-kept-the-reopened-pair restarted (list core-copy extensions-copy))))))
 
-;;; Never under a parse (M2 design §5.3; finding 18). SBCL runs its save
-;;; hooks before it refuses a save while other threads run
-;;; (SAVE-LISP-AND-DIE, then DEINIT, src/code/save.lisp), so the hook must
-;;; not close cmark-gfm while any call holds its state: it signals instead,
-;;; and the save fails with everything still loaded.
+;;; Never under a parse. SBCL runs its save hooks before it refuses a save
+;;; while other threads run (SAVE-LISP-AND-DIE, then DEINIT,
+;;; src/code/save.lisp), so the hook must not close cmark-gfm while any call
+;;; holds its state: it signals instead, and the save fails with everything
+;;; still loaded.
 
 (defun hook-under-a-live-document ()
   "Call the save hook's function inside a live document's scope, and render
@@ -581,8 +579,8 @@ save the save hook refused carries."
 ;;; waits at a gate inside a live document, which it entered before the
 ;;; save is tried. SBCL calls the save hook first, so the hook refuses,
 ;;; every time, before SBCL looks at the other threads. One attempt, since
-;;; SBCL 2.5.2, Debian's, failed an internal AVER when saves were refused
-;;; again and again while a worker parsed.
+;;; SBCL 2.5.2, Debian's, can fail an internal AVER when saves are refused
+;;; again and again while a worker parses.
 
 #+sbcl
 (defun save-under-a-hold (image)
@@ -674,15 +672,15 @@ in a temporary directory, and return the child's RUN-CHILD plist."
       (is equal '(:parsers 0 :roots 0 :buffers 0) open "the child's open counts")
       (false image-written "no image was written"))))
 
-;;; CCL (M4 design §5.4) saves differently. CCL:SAVE-APPLICATION, called
-;;; from any thread but the initial one, as a child's forms are, kills the
-;;; thread that called it, and asks the initial thread to save (CCL 1.13's
-;;; lib/dumplisp.lisp). That thread first kills every other thread, each by
-;;; an interrupt that unwinds it, running its cleanup forms, and waits up
-;;; to 50 ms for each to signal its end (PREPARE-TO-QUIT,
-;;; level-1/l1-readloop.lisp), which a thread does before it counts as
-;;; ended (PROCESS-INITIAL-FORM-EXITED, level-1/l1-processes.lisp). Only
-;;; then does it call CCL:*SAVE-EXIT-FUNCTIONS*. So:
+;;; CCL saves differently. CCL:SAVE-APPLICATION, called from any thread but
+;;; the initial one, as a child's forms are, kills the thread that called
+;;; it, and asks the initial thread to save (CCL 1.13's lib/dumplisp.lisp).
+;;; That thread first kills every other thread, each by an interrupt that
+;;; unwinds it, running its cleanup forms, and waits up to 50 ms for each to
+;;; signal its end (PREPARE-TO-QUIT, level-1/l1-readloop.lisp), which a
+;;; thread does before it counts as ended (PROCESS-INITIAL-FORM-EXITED,
+;;; level-1/l1-processes.lisp). Only then does it call
+;;; CCL:*SAVE-EXIT-FUNCTIONS*. So:
 ;;; - a worker that holds the state where an interrupt lands at once, at a
 ;;;   gate or between cmark calls, is unwound first: its document is
 ;;;   released and its hold ends, though the thread may still be finishing.
@@ -694,12 +692,9 @@ in a temporary directory, and return the child's RUN-CHILD plist."
 ;;;   (ABNORMAL-APPLICATION-EXIT, level-1/l1-readloop-lds.lisp). No image is
 ;;;   written: the file SAVE-APPLICATION opened before the hooks ran stays
 ;;;   empty.
-;;; M4 finding 14: a worker outside a cmark call was unwound before the save
-;;; hook ran in 13 saves of 13, and one inside a call, its interrupts
-;;; deferred, still held the state in 4 of 4. That refusal is what keeps the
-;;; second case safe: with the save hook removed, CCL saved past the worker
-;;; and died of SIGSEGV, leaving an image it couldn't load, in 3 saves of 3,
-;;; and so did a CCL with no cmark-gfm loaded. The save can't return to the
+;;; That refusal is what keeps the second case safe: without it, CCL saves
+;;; past the worker and dies of SIGSEGV, leaving an image it can't load,
+;;; with or without cmark-gfm loaded. The save can't return to the
 ;;; child's forms, so the child reports each fact as it happens: before the
 ;;; save, from functions CCL calls before and after the library's save hook,
 ;;; and from a cleanup function CCL calls as it quits when the save fails.
@@ -959,12 +954,12 @@ image file's length, or NIL when there is no file."
         (is equal *saved-image-html* html "the image renders")
         (is eql 1 startups-added "the image's first call started up")))))
 
-;;; On CCL, every close forgets (M4 design §5.4). CCL keeps a record of each
-;;; shared library it has opened, and a closed one stays on its list, for a
-;;; saved image to reopen by soname. So closing the pair, by a reset or a
-;;; failed startup, also takes both records off that list
-;;; (NATIVE::CLOSE-LIBRARIES). The checks find the records by the sonames
-;;; of the published state's two libraries (LISTED-RECORDS-NAMED).
+;;; On CCL, every close forgets. CCL keeps a record of each shared library
+;;; it has opened, and a closed one stays on its list, for a saved image to
+;;; reopen by soname. So closing the pair, by a reset or a failed startup,
+;;; also takes both records off that list (NATIVE::CLOSE-LIBRARIES). The
+;;; checks find the records by the sonames of the published state's two
+;;; libraries (LISTED-RECORDS-NAMED).
 
 #+ccl
 (define-test a-reset-makes-ccl-forget-both-libraries
@@ -988,8 +983,8 @@ image file's length, or NIL when there is no file."
     ;; Step 3: the core loads, then the extensions don't, so only the core
     ;; closes. Opening the core, CCL also records every library it maps but
     ;; doesn't list (OPEN-SHARED-LIBRARY-INTERNAL): here the extensions,
-    ;; which this process called into and still maps (M4 finding 2), though
-    ;; the reset made CCL forget them. So only the core's record is checked.
+    ;; which this process called into and still maps, though the reset
+    ;; made CCL forget them. So only the core's record is checked.
     (with-startup-reset
       (let ((*cmark-gfm-libraries*
               (list (first paths) (uiop:native-namestring (fixture-path "vocabulary.md")))))

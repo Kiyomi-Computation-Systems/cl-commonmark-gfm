@@ -1,8 +1,7 @@
-;;;; The limits through PARSE (M2 design §5.5, §8.4; ADR-0016). Each is
-;;;; checked before cmark does the work it guards: the input octets and the
-;;;; table-cell bound before any parser, the node count while copying. The
-;;;; monotonic parser count shows which came first, and every test ends
-;;;; with the open counters at zero.
+;;;; The limits through PARSE. Each is checked before cmark does the work
+;;;; it guards: the input octets and the table-cell bound before any
+;;;; parser, the node count while copying. The monotonic parser count shows
+;;;; which came first, and every test ends with the open counters at zero.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -44,8 +43,8 @@ extensions/table.c), so it builds COLUMNS x (ROWS + 1) cells."
 
 (define-test a-padded-table-past-the-cell-bound-is-rejected-before-any-parser
   ;; 100 columns and 50 one-cell rows: cmark would build 5,100 cells. The
-  ;; bound (M2 design §5.5) is the delimiter row's 100 dash runs times the
-  ;; 52 lines of their run: 5,200, past *max-nodes* bound to 5,000.
+  ;; bound is the delimiter row's 100 dash runs times the 52 lines of their
+  ;; run: 5,200, past *max-nodes* bound to 5,000.
   (native-state)
   (let* ((parsers (created-parsers))
          (condition (let ((*max-nodes* 5000))
@@ -77,7 +76,7 @@ extensions/table.c), so it builds COLUMNS x (ROWS + 1) cells."
   (true (open-counts-zero-p)))
 
 (define-test a-limit-bound-to-a-non-integer-signals-a-type-error-before-any-parser
-  ;; M2 design §5.5: a limit's variable must hold a non-negative integer.
+  ;; A limit's variable must hold a non-negative integer.
   (native-state)
   (let ((parsers (created-parsers)))
     (let ((*max-input-octets* -1))
@@ -88,9 +87,9 @@ extensions/table.c), so it builds COLUMNS x (ROWS + 1) cells."
   (true (open-counts-zero-p)))
 
 ;;; Every entry point checks all three bindings first, before any native
-;;; call, whether or not it uses the limit (M2 design §5.5). Before, a bad
-;;; *MAX-OUTPUT-OCTETS* surfaced only after a whole parse and bound walk,
-;;; and PARSE never noticed it.
+;;; call, whether or not it uses the limit: a bad *MAX-OUTPUT-OCTETS* must
+;;; not wait for a whole parse and bound walk to surface, and PARSE must
+;;; notice it too.
 
 (defparameter *limit-variables*
   '(*max-input-octets* *max-nodes* cl-commonmark-gfm:*max-output-octets*)
@@ -127,9 +126,9 @@ that error's datum; :PARSERS, how many parsers it created."
             (is = 0 parsers "~(~A~) ~S, ~A: no parser" variable value name))))))
   (true (open-counts-zero-p)))
 
-;;; The table-cell bound is sound (M2 design §8.4): never below the cells
-;;; the copy holds. Each input is built and parsed inside a helper, so no
-;;; assertion holds a large one.
+;;; The table-cell bound is sound: never below the cells the copy holds.
+;;; Each input is built and parsed inside a helper, so no assertion holds a
+;;; large one.
 
 (defun crafted-tables ()
   "Tables that probe the table-cell bound: plain, padded, short and long
@@ -215,16 +214,16 @@ below its cells."
   (is equal '(89998 90000) (cells-and-bound (pathological-tables)) "tables")
   (true (open-counts-zero-p)))
 
-;;; The output limit (M2 design §5.5, §8.4; ADR-0016). MARKDOWN->HTML and
-;;; MARKDOWN->PLAINTEXT check an upper bound on what cmark would write
-;;; against *MAX-OUTPUT-OCTETS* after parsing and before rendering: a
-;;; rejection comes after a parser was created, and before any render
-;;; buffer. The bounds are HTML-OUTPUT-BOUND and PLAINTEXT-OUTPUT-BOUND,
-;;; whose per-node terms the pure suite checks one by one.
+;;; The output limit. MARKDOWN->HTML and MARKDOWN->PLAINTEXT check an upper
+;;; bound on what cmark would write against *MAX-OUTPUT-OCTETS* after
+;;; parsing and before rendering: a rejection comes after a parser was
+;;; created, and before any render buffer. The bounds are HTML-OUTPUT-BOUND
+;;; and PLAINTEXT-OUTPUT-BOUND, whose per-node terms the pure suite checks
+;;; one by one.
 ;;;
 ;;; Inputs are built inside helpers, and every helper returns numbers or
-;;; small lists, so no assertion holds a large string (M2b plan, "Large
-;;; values").
+;;; small lists, so no assertion holds a large string: Parachute keeps
+;;; every assertion's closure until the run ends.
 
 (defun repeated (string count)
   "STRING, COUNT times over."
@@ -273,10 +272,9 @@ then COUNT references to it: each renders the whole destination."
   "DEPTH list markers on one line, opening DEPTH nested lists, then LINES
 lazy continuation lines of the innermost paragraph. Plaintext writes the
 innermost item's prefix, 4 x DEPTH spaces, before every one of them
-(src/plaintext.c, src/render.c; M2 design finding 4, corrected). A list
-item or a footnote definition opens only in the first 99 passes of
-open_new_blocks over one line (MAX_LIST_DEPTH, src/blocks.c); DEPTH stays
-well under that here."
+(src/plaintext.c, src/render.c). A list item or a footnote definition
+opens only in the first 99 passes of open_new_blocks over one line
+(MAX_LIST_DEPTH, src/blocks.c); DEPTH stays well under that here."
   (with-output-to-string (out)
     (write-string (repeated "- " depth) out)
     (write-line "a" out)
@@ -297,7 +295,7 @@ with the innermost item's prefix in plaintext."
         (write-line (concatenate 'string indent "x") out))
       (write-line (concatenate 'string indent "```") out))))
 
-;;; Rejection (M2 design §8.4): each source of blowup, under small bindings
+;;; Rejection: each source of blowup, under small bindings
 
 (defun entry-point-name (function)
   "The symbol each entry point names itself by in what it signals."
@@ -398,14 +396,15 @@ FUNCTION's entry point, after one parser and before any buffer."
                              (nested-lazy-list 30 1000)
                              100000 "plaintext prefixes"))
 
-;;; Soundness (M2 design §8.4): below the limits, neither bound is ever
-;;; below the UTF-8 octets of what cmark renders from the same document
+;;; Soundness: below the limits, neither bound is ever below the UTF-8
+;;; octets of what cmark renders from the same document
 
 (defun html-bound-and-octets (markdown options)
   "MARKDOWN parsed with OPTIONS, MARKDOWN->HTML's, as (BOUND OCTETS): its
 HTML-OUTPUT-BOUND, and the octets cmark_render_html wrote for the same
 document, RENDER-HTML's second value. The bound bounds those octets, which
-can be fewer than the decoded string's UTF-8 (M2 design §6.5)."
+can be fewer than the decoded string's UTF-8: an ill-formed sequence of 1
+to 3 octets decodes to U+FFFD, which is 3 octets."
   (call-with-native-document
    markdown options
    (lambda (document checked-options)
@@ -425,7 +424,7 @@ the same document, RENDER-PLAINTEXT's second value."
    :entry-point :plaintext))
 
 (defparameter *bound-softbreaks* '(:newline :space :br)
-  "Every :SOFTBREAK value, as the HTML oracle sweeps them (M2 design §8.3).")
+  "Every :SOFTBREAK value, as the HTML oracle sweeps them.")
 
 (defun html-bound-option-sets ()
   "Every :SOFTBREAK, with and without :UNSAFE-HTML T, and with and without
@@ -662,7 +661,7 @@ every HTML and plaintext option set."
   (destructuring-bind (bound octets) (html-bound-and-octets (dropped-definition-references 50) '())
     (true (>= bound octets) "bound ~D, rendered ~D" bound octets)))
 
-;;; Deep and ordinary documents still fit (M2b plan, Task 9)
+;;; Deep and ordinary documents fit the default limits
 
 (defun renders-within-the-default-limits-p (function markdown)
   "True when FUNCTION, an entry point, renders MARKDOWN under the default

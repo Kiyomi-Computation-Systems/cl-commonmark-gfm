@@ -1,7 +1,7 @@
 ;;;; The pinned corpus, read the way vendor/cmark-gfm/test/spec_tests.py's
-;;;; GET_TESTS reads it (M2 design §8.2; ADR-0018). Pure: no native call, no
-;;;; option checking. Every corpus-driven test in the native suite builds its
-;;;; examples through this reader.
+;;;; GET_TESTS reads it. Pure: no native call, no option checking. Every
+;;;; corpus-driven test in the native suite builds its examples through this
+;;;; reader.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -70,13 +70,13 @@ concatenated in order into one fresh string."
 
 (defun replace-arrows-with-tabs (string)
   "STRING with every U+2192 (RIGHTWARDS ARROW) replaced by a tab, as
-spec_tests.py's `.replace('\\u2192', \"\\t\")` (M2 design §8.2)."
+spec_tests.py's `.replace('\\u2192', \"\\t\")`."
   (substitute #\Tab (code-char #x2192) string))
 
-;;; The fence (M2 design §8.2): 32 backticks, trimmed, open and close an
-;;; example; DEFPARAMETER, not DEFCONSTANT, since a fresh string built by
-;;; MAKE-STRING isn't EQL across a reload (AGENTS.md; M2 design §3's note
-;;; on *CMARK-GFM-VERSION* and *EXTENSION-KEYWORDS*).
+;;; The fence: 32 backticks, trimmed, open and close an example;
+;;; DEFPARAMETER, not DEFCONSTANT, since a fresh string built by MAKE-STRING
+;;; isn't EQL to the last one, and DEFCONSTANT may evaluate its value more
+;;; than once: as the file compiles, and at each load.
 
 (defparameter *corpus-fence* (make-string 32 :initial-element #\`)
   "The 32-backtick fence that opens and closes a corpus example
@@ -84,12 +84,11 @@ spec_tests.py's `.replace('\\u2192', \"\\t\")` (M2 design §8.2)."
 
 (defparameter *corpus-fence-start* (concatenate 'string *corpus-fence* " example")
   "A trimmed line that opens a corpus example starts with this; the words
-after it are the example's fence words (M2 design §8.2).")
+after it are the example's fence words.")
 
-;;; Section headings (M2 design §8.2): GET_TESTS' header_re, #+ , matched at
-;;; the very start of the untrimmed line, outside any example. The actual
-;;; corpus never repeats the pattern within one heading line (checked against
-;;; all six files while this was written), so stripping only the leading run
+;;; Section headings: GET_TESTS' header_re, #+ , matched at the very start
+;;; of the untrimmed line, outside any example. None of the six files repeats
+;;; the pattern within one heading line, so stripping only the leading run
 ;;; gives the same text Python's header_re.sub('', line).strip() would.
 
 (defun corpus-heading-hash-count (line)
@@ -101,14 +100,14 @@ immediately followed by a space; NIL when LINE doesn't open a heading."
 
 (defun corpus-section-heading (line)
   "LINE's section heading text when LINE opens one at top level; NIL
-otherwise (M2 design §8.2)."
+otherwise."
   (let ((hashes (corpus-heading-hash-count line)))
     (when hashes
       (corpus-trim (subseq line (1+ hashes))))))
 
-;;; Each example's options (M2 design §8.2): FILE's base options, a fence
-;;; word "footnotes" setting :FOOTNOTES T, and every other fence word folded
-;;; into :EXTENSIONS, which starts from :PROFILE's own defaults and keeps
+;;; Each example's options: FILE's base options, a fence word "footnotes"
+;;; setting :FOOTNOTES T, and every other fence word folded into
+;;; :EXTENSIONS, which starts from :PROFILE's own defaults and keeps
 ;;; *EXTENSION-KEYWORDS*' canonical order with no repeats.
 
 (defun corpus-extension-keyword (word)
@@ -118,17 +117,17 @@ matching *EXTENSION-KEYWORDS*."
   (intern (string-upcase word) :keyword))
 
 (defun corpus-base-extensions (profile)
-  "PROFILE's default :EXTENSIONS (M2 design §7.2, §8.2): every one of
-*EXTENSION-KEYWORDS* under :GFM, none under :COMMONMARK."
+  "PROFILE's default :EXTENSIONS: every one of *EXTENSION-KEYWORDS* under
+:GFM, none under :COMMONMARK."
   (ecase profile
     (:gfm (copy-list *extension-keywords*))
     (:commonmark '())))
 
 (defun fenced-options (base-options fence-words)
-  "BASE-OPTIONS, extended by FENCE-WORDS, an example's fence-line words (M2
-design §8.2): \"footnotes\" adds :FOOTNOTES T; every other word joins
-:EXTENSIONS, canonical order, no repeats, starting from :PROFILE's own
-defaults. :EXTENSIONS is always a fresh list, built by LOOP's COLLECT, never
+  "BASE-OPTIONS, extended by FENCE-WORDS, an example's fence-line words:
+\"footnotes\" adds :FOOTNOTES T; every other word joins :EXTENSIONS,
+canonical order, no repeats, starting from :PROFILE's own defaults.
+:EXTENSIONS is always a fresh list, built by LOOP's COLLECT, never
 REMOVE-IF-NOT: REMOVE-IF-NOT may return *EXTENSION-KEYWORDS* itself when
 PRESENT names every one of them, or a tail of it otherwise (the same hazard
 CANONICAL-EXTENSIONS guards against in src/native-core/options.lisp)."
@@ -148,8 +147,8 @@ CANONICAL-EXTENSIONS guards against in src/native-core/options.lisp)."
 (defstruct (corpus-example
             (:constructor make-corpus-example (file section number markdown html options))
             (:copier nil))
-  "One enabled example of the pinned corpus (M2 design §8.2): FILE, its name
-under vendor/cmark-gfm/test/; SECTION, the heading text above it; NUMBER, its
+  "One enabled example of the pinned corpus: FILE, its name under
+vendor/cmark-gfm/test/; SECTION, the heading text above it; NUMBER, its
 1-based position among FILE's examples, disabled ones counted too; MARKDOWN
 and HTML, each with every -> already a tab; and OPTIONS, the plist FILE's
 base options and the example's own fence words make (FENCED-OPTIONS)."
@@ -157,9 +156,8 @@ base options and the example's own fence words make (FENCED-OPTIONS)."
 
 (defun corpus-file-examples (file base-options text)
   "Every enabled example of TEXT, FILE's content, as CORPUS-EXAMPLEs, in file
-order (M2 design §8.2). Mirrors GET_TESTS in
-vendor/cmark-gfm/test/spec_tests.py line by line, built with a loop, not
-recursion:
+order. Mirrors GET_TESTS in vendor/cmark-gfm/test/spec_tests.py line by
+line, built with a loop, not recursion:
 - a line, once trimmed, starting with the 32-backtick fence then \" example\"
   opens an example; the words after that are its fence words;
 - a line of exactly the fence, trimmed, closes it, numbering it whether or
@@ -198,7 +196,7 @@ Every -> becomes a tab in both MARKDOWN and HTML."
           ((= state 2) (push line html-lines))
           (heading (setf section heading)))))))
 
-;;; The six files and their base options (M2 design §8.2)
+;;; The six files and their base options
 
 (defparameter *corpus-files*
   (list (list "spec.txt" (list :profile :commonmark))
@@ -207,12 +205,12 @@ Every -> becomes a tab in both MARKDOWN and HTML."
         (list "extensions.txt" (list :profile :gfm))
         (list "extensions-full-info-string.txt" (list :profile :gfm))
         (list "extensions-table-prefer-style-attributes.txt" (list :profile :gfm)))
-  "The pinned corpus's six files, in witness order, each with its own base
-options (M2 design §8.2). spec.txt, regression.txt and smart_punct.txt are
-plain CommonMark, smart_punct.txt with :SMART T; the other three are :GFM.
-extensions-full-info-string.txt and extensions-table-prefer-style-attributes.txt
-test CLI flags with no version-1 option (--full-info-string,
---table-prefer-style-attributes).")
+  "The pinned corpus's six files, in the order CORPUS-EXAMPLES reads them,
+each with its own base options. spec.txt, regression.txt and
+smart_punct.txt are plain CommonMark, smart_punct.txt with :SMART T; the
+other three are :GFM. extensions-full-info-string.txt and
+extensions-table-prefer-style-attributes.txt test CLI flags that no option
+of this library sets (--full-info-string, --table-prefer-style-attributes).")
 
 (defun corpus-pathname (file)
   "The absolute pathname of vendor/cmark-gfm/test/FILE."
@@ -220,14 +218,13 @@ test CLI flags with no version-1 option (--full-info-string,
                                  (concatenate 'string "vendor/cmark-gfm/test/" file)))
 
 (defun read-corpus-file (file base-options)
-  "FILE's enabled examples, read from vendor/cmark-gfm/test/FILE as UTF-8 (M2
-design §8.2)."
+  "FILE's enabled examples, read from vendor/cmark-gfm/test/FILE as UTF-8."
   (corpus-file-examples file base-options
                         (uiop:read-file-string (corpus-pathname file) :external-format :utf-8)))
 
 (defun corpus-examples ()
   "Every enabled example of the pinned corpus's six files, in *CORPUS-FILES*'
-order, each file's own numbering intact (M2 design §8.2): 747 in all."
+order, each file's own numbering intact: 747 in all."
   (loop for (file base-options) in *corpus-files*
         append (read-corpus-file file base-options)))
 
@@ -243,8 +240,7 @@ order, each file's own numbering intact (M2 design §8.2): 747 in all."
   (true (no-shared-cons-p (getf (fenced-options (list :profile :gfm) '()) :extensions)
                           *extension-keywords*)))
 
-;;; Tests: the counts (M2 design §8.1, §8.2), and one example per file
-;;; checked field by field.
+;;; Tests: the counts, and one example per file checked field by field.
 
 (defun corpus-counts-by-file ()
   "An alist of each *CORPUS-FILES* name to how many enabled examples

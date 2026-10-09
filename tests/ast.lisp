@@ -228,14 +228,14 @@
     (is equal sourcepos (node-sourcepos (make-node :paragraph :sourcepos sourcepos)))))
 
 (define-test make-node-accepts-negative-sourcepos
-  ;; M3 finding 7: the table extension can rebuild a paragraph with no
-  ;; position, so an inline inside it gets a position computed from a
-  ;; missing origin, and cmark has been seen to report a negative start
-  ;; column from it. The AST keeps whatever cmark reports and never
-  ;; repairs it, accepting any integer in any of the four slots by design
-  ;; (ADR-0005). All four are negative here to check that schema, not to
-  ;; claim cmark reports them so: MAKE-NODE, COPY-NODE and NODE= are all
-  ;; shown keeping a negative end, not only a negative start.
+  ;; The table extension can rebuild a paragraph with no position, so an
+  ;; inline inside it gets a position computed from a missing origin, and
+  ;; cmark can report a negative start column from it. The AST keeps
+  ;; whatever cmark reports and never repairs it, accepting any integer in
+  ;; any of the four slots by design. All four are negative here to check
+  ;; that schema, not to claim cmark reports them so: MAKE-NODE, COPY-NODE
+  ;; and NODE= are all shown keeping a negative end, not only a negative
+  ;; start.
   (let* ((sourcepos (cons (cons -1 -2) (cons -3 -4)))
          (node (make-node :paragraph :sourcepos sourcepos)))
     (is equal sourcepos (node-sourcepos node))
@@ -316,9 +316,9 @@
 (define-test copy-node-rejects-non-list-children-before-copying
   (fail (copy-node (make-node :paragraph) :children "abc") 'invalid-ast-node))
 
-;; Only reachable once CHECK-CHILDREN runs before COPY-LIST: PROPER-LIST-P's
-;; Floyd cycle detection catches this without ever looping, so a circular
-;; CHILDREN argument is rejected rather than exhausting the heap.
+;; CHECK-CHILDREN runs before COPY-LIST, so PROPER-LIST-P's Floyd cycle
+;; detection catches this without ever looping: a circular CHILDREN
+;; argument is rejected rather than exhausting the heap.
 (define-test copy-node-rejects-a-circular-children-list
   (let ((l (list (make-node :thematic-break))))
     (setf (cdr l) l)
@@ -359,19 +359,16 @@
     (invalid-ast-node (e) (is eql 'node-attribute (condition-operation e)))))
 
 ;;; NODE-ATTRIBUTE and MAKE-NODE print a pathological KEY safely in a reason
-;;; string (a pre-existing M1 bug): a circular or deeply nested KEY must not
-;;; hang or crash the process. Each hangs or crashes M1's code; that was
-;;; confirmed under a bound, one scenario per process, since Parachute's
-;;; reporter cannot survive a hang. A keyword KEY still reads as it did in
-;;; M1.
+;;; string: a circular or deeply nested KEY must not hang or crash the
+;;; process. A keyword KEY reads as its name in lower case.
 
-(define-test node-attribute-reason-names-a-keyword-key-as-m1-did
+(define-test node-attribute-reason-names-a-keyword-key-in-lower-case
   (handler-case (progn (node-attribute (make-node :paragraph) :bogus)
                        (true nil "expected invalid-ast-node"))
     (invalid-ast-node (e)
       (is string= "paragraph node has no bogus attribute" (condition-reason e)))))
 
-(define-test make-node-reason-names-a-keyword-key-as-m1-did
+(define-test make-node-reason-names-a-keyword-key-in-lower-case
   (handler-case (progn (make-node :text :attributes (list :bogus "x"))
                        (true nil "expected invalid-ast-node"))
     (invalid-ast-node (e)

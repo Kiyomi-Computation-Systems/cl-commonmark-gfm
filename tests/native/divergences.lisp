@@ -1,8 +1,11 @@
-;;;; ADR-0014's two known footnote divergences, as property 1 excuses them
-;;;; (ADR-0020; M3 design §6.4), and the oracle properties, 1 and 2 (M3
-;;;; design §6.3): the HTML oracle and the XML oracle. Each excuse is a
-;;;; function of cmark's HTML, the tree's HTML, and the case's AST parsed
-;;;; with :SOURCEPOS T. It excuses a difference only in its own documented
+;;;; The HTML tree's two known footnote divergences from cmark, as the
+;;;; :HTML-ORACLE property excuses them, and the two oracle properties,
+;;;; :HTML-ORACLE and :XML-ORACLE. Both divergences come from what a parsed
+;;;; tree doesn't hold: the tree counts repeat references in tree order,
+;;;; where cmark counts them in source order; and it drops a definition
+;;;; referenced only from a dropped definition, which cmark keeps. Each
+;;;; excuse is a function of cmark's HTML, the tree's HTML, and the case's
+;;;; AST parsed with :SOURCEPOS T. It excuses a difference only in its own
 ;;;; shape; every other difference stays a failure.
 ;;;;
 ;;;; cmark's footnote markup, read from vendor/cmark-gfm, not from memory:
@@ -33,19 +36,18 @@
 ;;;;   one of the 33 option sets (none sets :UNSAFE-HTML). So the markup
 ;;;;   below, and " id=\"", can only be cmark's own, and the tree's.
 ;;;;
-;;;; Both excuses are narrower than spec §6.4's words, never wider. The
-;;;; repeat excuse touches only the ids of the labels the AST shows in the
-;;;; divergent shape, only when the tree numbered them fnref-L, fnref-L-2
-;;;; and so on, and rewrites each to the one id cmark gives that reference,
-;;;; by its position in the source; the rest, backrefs included, must then
-;;;; be cmark's, byte for byte. A removed item must be a definition the AST
-;;;; holds no reference to. Three other shapes of the same two causes stay
-;;;; failures (M3 finding 9), each confirmed with the pinned CLI: a dangling
-;;;; footnote numbered before a kept one, which renumbers every footnote
-;;;; after it; repeat references in two definitions whose numbers differ
-;;;; from their source order, with no body reference; and a footnote
-;;;; referenced from the body and from a dropped definition, whose backrefs
-;;;; dangle in part.
+;;;; Both excuses are narrow, and must stay so. The repeat excuse touches
+;;;; only the ids of the labels the AST shows in the divergent shape, only
+;;;; when the tree numbered them fnref-L, fnref-L-2 and so on, and rewrites
+;;;; each to the one id cmark gives that reference, by its position in the
+;;;; source; the rest, backrefs included, must then be cmark's, byte for
+;;;; byte. A removed item must be a definition the AST holds no reference
+;;;; to. Three other shapes of the same two causes stay failures, each
+;;;; confirmed with the pinned CLI: a dangling footnote numbered before a
+;;;; kept one, which renumbers every footnote after it; repeat references in
+;;;; two definitions whose numbers differ from their source order, with no
+;;;; body reference; and a footnote referenced from the body and from a
+;;;; dropped definition, whose backrefs dangle in part.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -90,7 +92,7 @@ written; the (LINE . COLUMN) its position starts at, or NIL; and whether a
 (defun repeat-divergent-labels (ast)
   "Each label L, once, for which AST, parsed with :SOURCEPOS T, holds a
 reference to L inside a definition that starts, in the source, before a
-body reference to L: the shape of ADR-0014's first divergence. Such a
+body reference to L: the shape of the repeat divergence. Such a
 reference is a repeat in the tree, which puts every definition after the
 body, but cmark counted it first (process_footnotes, src/blocks.c). A
 reference without a position decides nothing."
@@ -169,7 +171,7 @@ that quote's index; NIL when no double quote follows."
 ;;; :EXCUSED-REPEAT: each repeat reference's id, as cmark numbers it. Both
 ;;; give a label's K-th reference the id fnref-L-K, but cmark counts K in
 ;;; source order (process_footnotes, src/blocks.c), and the tree in tree
-;;; order (ADR-0014). A backref doesn't depend on that order:
+;;; order. A backref doesn't depend on that order:
 ;;; S_put_footnote_backref (src/html.c) writes fnref-L, then fnref-L-2 up to
 ;;; the definition's count, and so does the tree.
 
@@ -260,9 +262,9 @@ TREE-NUMBERED-P checks them."
     (spliced tree-html (sort edits #'< :key #'first))))
 
 (defun excused-repeat-p (cmark-html tree-html ast)
-  "True when spec §6.4 excuses the difference between CMARK-HTML and
-TREE-HTML as ADR-0014's first divergence, repeat references counted in tree
-order, and as nothing else:
+  "True when the difference between CMARK-HTML and TREE-HTML is excused as
+the repeat divergence, repeat references counted in tree order, and as
+nothing else:
 - AST, the parse with :SOURCEPOS T, has the divergence's shape: for some
   label L, a reference inside a definition that comes, in the source,
   before a body reference to L (REPEAT-DIVERGENT-LABELS);
@@ -354,19 +356,19 @@ order. HTML itself and NIL when no item is removed."
 (defun unreferenced-definition-label-p (label ast)
   "True when AST holds a definition whose label, as HTML-LABEL writes it, is
 LABEL, and no reference to it: the parsed tree has lost every reference to
-it (ADR-0014, \"Known divergences\")."
+it."
   (and (member label (mapcar #'html-label (footnote-definition-labels ast)) :test #'string=)
        (notany (lambda (reference) (string= label (html-label (first reference))))
                (ast-footnote-references ast))))
 
 (defun excused-dropped-p (cmark-html tree-html ast)
-  "True when spec §6.4 excuses the difference between CMARK-HTML and
-TREE-HTML as ADR-0014's second divergence, a definition referenced only
-from a dropped definition: the two are equal once cmark's footnote items
-are removed wherever every backref links to no id in cmark's output. Each
-removed item must also be a definition AST holds no reference to, so a
-footnote the tree should still render, one referenced from an image's alt
-text say, is never excused."
+  "True when the difference between CMARK-HTML and TREE-HTML is excused as
+the dropped-definition divergence, a definition referenced only from a dropped
+definition: the two are equal once cmark's footnote items are removed
+wherever every backref links to no id in cmark's output. Each removed item
+must also be a definition AST holds no reference to, so a footnote the tree
+should still render, one referenced from an image's alt text say, is never
+excused."
   (multiple-value-bind (remaining removed) (without-dangling-items cmark-html)
     (and removed
          (every (lambda (label) (unreferenced-definition-label-p label ast)) removed)
@@ -392,10 +394,10 @@ and a few characters of each from there. Never a whole input."
             what index (snippet cmark index) (snippet ours index))))
 
 (defun html-oracle-outcome (cmark-html tree-html ast)
-  "Property 1's outcome for one case, from cmark's HTML, the tree's HTML
-and AST, the case parsed with :SOURCEPOS T: :PASS when the two are equal;
-:EXCUSED-REPEAT or :EXCUSED-DROPPED when spec §6.4 excuses their difference
-in that shape; otherwise :FAIL, and a detail."
+  "The :HTML-ORACLE property's outcome for one case, from cmark's HTML, the
+tree's HTML and AST, the case parsed with :SOURCEPOS T: :PASS when the two
+are equal; :EXCUSED-REPEAT or :EXCUSED-DROPPED when an excuse covers their
+difference in that shape; otherwise :FAIL, and a detail."
   (cond
     ((string= cmark-html tree-html) :pass)
     ((excused-repeat-p cmark-html tree-html ast) :excused-repeat)
@@ -415,7 +417,7 @@ filtering drops :PROFILE or :FOOTNOTES, so :PARSE's options decide for all."
                          nil)
       (unsupported-input () t))))
 
-;;; Property 1: the HTML oracle
+;;; The HTML oracle, the :HTML-ORACLE property
 
 (defun html-oracle-sides (input options)
   "cmark's HTML and the tree's HTML for INPUT under OPTIONS, as
@@ -432,10 +434,11 @@ excuse needs it: the AST alone can't tell which reference came first."
   (apply #'parse input :sourcepos t (entry-point-options :parse options)))
 
 (defun html-oracle-property (input options)
-  "Property 1 (M3 design §6.3), registered under :HTML-ORACLE: the tree's
-HTML equals cmark's under the case's options, unless spec §6.4 excuses the
-difference as one of ADR-0014's two divergences (HTML-ORACLE-OUTCOME). An
-input the guard rejects is :GUARD, before anything reaches cmark."
+  "The HTML oracle property, registered under :HTML-ORACLE: the tree's HTML
+equals cmark's under the case's options, unless an excuse covers the
+difference as one of the two known footnote divergences
+(HTML-ORACLE-OUTCOME). An input the guard rejects is :GUARD, before
+anything reaches cmark."
   (if (guarded-p input options 'html-oracle-property)
       :guard
       (multiple-value-bind (cmark tree) (html-oracle-sides input options)
@@ -446,7 +449,7 @@ input the guard rejects is :GUARD, before anything reaches cmark."
 (register-property :html-oracle 'html-oracle-property
                    :generators '(:syntax-soup :corpus-splices))
 
-;;; Property 2: the XML oracle
+;;; The XML oracle, the :XML-ORACLE property
 
 (defun cmark-xml (input options)
   "cmark's own XML for INPUT, parsed with OPTIONS, PARSE's keys: RENDER-XML
@@ -459,7 +462,7 @@ INPUT."
      (values (render-xml document)))))
 
 (defun xml-oracle-property (input options)
-  "Property 2 (M3 design §6.3), registered under :XML-ORACLE: the AST PARSE
+  "The XML oracle property, registered under :XML-ORACLE: the AST PARSE
 copies for INPUT with :SOURCEPOS T, written as cmark's XML by
 AST->CMARK-XML (tests/native/xml.lisp), equals cmark's own RENDER-XML of
 the same input and options, positions included. An input the guard rejects
@@ -477,20 +480,20 @@ is :GUARD, before anything reaches cmark."
 (register-property :xml-oracle 'xml-oracle-property
                    :generators '(:syntax-soup :corpus-splices))
 
-;;; Self tests (M3 plan, Task 5, "Tests first"): ADR-0014's two pinned
-;;; divergences, each excused as its own kind; every one-character change to
-;;; a pin's tree HTML failing; mismatches that a rewrite by source order
-;;; alone would hide, failing when the AST holds no in-definition reference
-;;; before a body reference; a dangling footnote the AST still references,
-;;; never excused; broken repeat ids failing, on the repeat pin too; M3
-;;; finding 9's three shapes failing; property 2 on vocabulary.md, with and
-;;; without the copier's end positions; and the footnote-entity guard both
+;;; Self tests: the two pinned divergences, each excused as its own kind;
+;;; every one-character change to a pin's tree HTML failing; mismatches
+;;; that a rewrite by source order alone would hide, failing when the AST
+;;; holds no in-definition reference before a body reference; a dangling
+;;; footnote the AST still references, never excused; broken repeat ids
+;;; failing, on the repeat pin too; the three unexcused divergence shapes
+;;; failing; the :XML-ORACLE property on vocabulary.md, with and without
+;;; the copier's end positions; and the footnote-entity guard both
 ;;; properties share, which no parse may precede.
 ;;;
-;;; Parachute keeps every assertion's closure until the run ends
-;;; (progress.md's global constraints), so every helper here computes its
-;;; HTML, ASTs and changed strings itself, and returns a small summary: an
-;;; outcome keyword, a short list of indices, a boolean.
+;;; Parachute keeps every assertion's closure until the run ends, so every
+;;; helper here computes its HTML, ASTs and changed strings itself, and
+;;; returns a small summary: an outcome keyword, a short list of indices, a
+;;; boolean.
 
 (defun gfm-options ()
   "The HTML oracle's option set for :GFM at :SOFTBREAK :NEWLINE: the
@@ -527,8 +530,9 @@ which is not empty (confirmed with the pinned CLI)."
 ;;; Each pin is excused, as its own kind
 
 (defun pin-outcomes (markdown)
-  "Property 1's outcomes for MARKDOWN over all 33 option sets: the distinct
-outcomes where footnotes are on, and those where they are off."
+  "The :HTML-ORACLE property's outcomes for MARKDOWN over all 33 option
+sets: the distinct outcomes where footnotes are on, and those where they
+are off."
   (let ((on '())
         (off '()))
     (dolist (options (oracle-option-sets))
@@ -612,12 +616,12 @@ HTML for it which, as the tree's whole HTML, gives any outcome but :FAIL."
 ;;; label), so REPEAT-DIVERGENT-LABELS excludes them on its own. Swapping
 ;;; a label's two ids also always breaks TREE-NUMBERED-P's own fnref-L,
 ;;; fnref-L-2 order, so a REPEAT-DIVERGENT-LABELS mutated to keep one of
-;;; these labels would still pass here, unnoticed: this test no longer
-;;; exercises the shape check.
+;;; these labels would still pass here, unnoticed: this test doesn't
+;;; exercise the shape check.
 ;;; EACH-PINNED-DIVERGENCE-IS-EXCUSED-AS-ITS-OWN-KIND and
 ;;; THE-REPEAT-EXCUSE-NEEDS-A-BODY-REFERENCE-AFTER-AN-IN-DEFINITION-ONE
-;;; guard that; this one now guards TREE-NUMBERED-P's rejection of a
-;;; swapped pair, on AST shapes the repeat excuse never reaches.
+;;; guard that; this one guards TREE-NUMBERED-P's rejection of a swapped
+;;; pair, on AST shapes the repeat excuse never reaches.
 
 (defun swapped-substrings (string first second)
   "STRING with each occurrence of FIRST and of SECOND, read left to right,
@@ -687,9 +691,9 @@ so its backref dangles, in the tree's HTML as in cmark's."
   (markdown-lines "![x[^a]](u)" "" "[^a]: A"))
 
 (defun image-alt-outcomes ()
-  "Property 1's outcome for IMAGE-ALT-REFERENCE; the labels of the items
-cmark's HTML has whose every backref dangles; and the outcome when the
-tree's HTML is cmark's without them."
+  "The :HTML-ORACLE property's outcome for IMAGE-ALT-REFERENCE; the labels
+of the items cmark's HTML has whose every backref dangles; and the outcome
+when the tree's HTML is cmark's without them."
   (multiple-value-bind (cmark tree) (html-oracle-sides (image-alt-reference) (gfm-options))
     (declare (ignore tree))
     (multiple-value-bind (without removed) (without-dangling-items cmark)
@@ -702,7 +706,7 @@ tree's HTML is cmark's without them."
   (is equal '(:property :pass :dangling ("a") :without-them :fail) (image-alt-outcomes))
   (true (open-counts-zero-p)))
 
-;;; Property 1 catches a broken tree path
+;;; The :HTML-ORACLE property catches a broken tree path
 
 (defun suffixless-reference-id (footnote k)
   "A broken REFERENCE-ID (src/html-tree/convert.lisp): fnref-L for every K,
@@ -711,9 +715,9 @@ the -K suffix of every repeat reference dropped."
   (concatenate 'string "fnref-" (html-tree::footnote-anchor footnote)))
 
 (defun suffixless-outcomes ()
-  "Property 1's outcome for TWO-BODY-REFERENCES, then with REFERENCE-ID
-broken by SUFFIXLESS-REFERENCE-ID, with whether its detail names the HTML
-difference."
+  "The :HTML-ORACLE property's outcome for TWO-BODY-REFERENCES, then with
+REFERENCE-ID broken by SUFFIXLESS-REFERENCE-ID, with whether its detail
+names the HTML difference."
   (let ((unchanged (run-case :html-oracle (two-body-references) (gfm-options))))
     (with-redefined ((html-tree::reference-id #'suffixless-reference-id))
       (multiple-value-bind (outcome detail) (run-case :html-oracle (two-body-references)
@@ -722,7 +726,7 @@ difference."
               :broken outcome
               :names-the-html (and (search "html differs from cmark's" detail) t))))))
 
-(define-test property-1-fails-when-repeat-reference-ids-lose-their-suffix
+(define-test html-oracle-fails-when-repeat-reference-ids-lose-their-suffix
   (is equal '(:unchanged :pass :broken :fail :names-the-html t) (suffixless-outcomes))
   (true (open-counts-zero-p)))
 
@@ -737,8 +741,8 @@ reference, then fnref-L-K+1, every repeat number one too high."
       (format nil "fnref-~A-~D" (html-tree::footnote-anchor footnote) (1+ k))))
 
 (defun repeat-pin-outcome-with (reference-id)
-  "Property 1's outcome for the repeat pin under GFM-OPTIONS, with
-REFERENCE-ID installed as HTML-TREE::REFERENCE-ID."
+  "The :HTML-ORACLE property's outcome for the repeat pin under
+GFM-OPTIONS, with REFERENCE-ID installed as HTML-TREE::REFERENCE-ID."
   (call-with-redefined 'html-tree::reference-id reference-id
                        (lambda () (run-case :html-oracle (repeat-pin) (gfm-options)))))
 
@@ -750,28 +754,30 @@ REFERENCE-ID installed as HTML-TREE::REFERENCE-ID."
   (is eql :fail (repeat-pin-outcome-with #'off-by-one-reference-id))
   (true (open-counts-zero-p)))
 
-;;; M3 finding 9's three shapes stay failures (ADR-0014, "Known
-;;; divergences")
+;;; Three more shapes of the divergences' two causes stay failures: no
+;;; excuse covers them
 
-(defun finding-9-shapes ()
-  "M3 finding 9's three inputs, each confirmed with the pinned CLI: a
-dangling footnote numbered before a kept one; repeat references in two
-definitions, swapped, with no body reference; a footnote referenced from
-the body and from a dropped definition."
+(defun unexcused-divergence-shapes ()
+  "Three inputs with the two divergences' causes but neither excuse's
+shape, each confirmed with the pinned CLI: a dangling footnote numbered
+before a kept one; repeat references in two definitions, swapped, with no
+body reference; a footnote referenced from the body and from a dropped
+definition."
   (list (format nil "[^a]: [^b]~%~%[^b]: B~%~%x[^c]~%~%[^c]: C~%")
         (format nil "x[^b] y[^a]~%~%[^a]: [^c]~%~%[^b]: [^c]~%~%[^c]: C~%")
         (format nil "[^a]: [^b]~%~%x[^b]~%~%[^b]: text~%")))
 
-(define-test property-1-fails-on-each-of-m3-finding-9s-shapes
+(define-test html-oracle-fails-on-each-unexcused-divergence-shape
   (is equal '(:fail :fail :fail)
       (mapcar (lambda (markdown) (run-case :html-oracle markdown (gfm-options)))
-              (finding-9-shapes)))
+              (unexcused-divergence-shapes)))
   (true (open-counts-zero-p)))
 
 (defun source-order-rewrite (markdown label)
   "For MARKDOWN under GFM-OPTIONS: whether the tree's HTML differs from
 cmark's; whether rewriting LABEL's reference ids by source order alone,
-without the excuse's checks, makes it cmark's; and property 1's outcome."
+without the excuse's checks, makes it cmark's; and the :HTML-ORACLE
+property's outcome."
   (multiple-value-bind (cmark tree) (html-oracle-sides markdown (gfm-options))
     (let ((ast (positions-ast markdown (gfm-options))))
       (list :differs (and (string/= cmark tree) t)
@@ -780,15 +786,17 @@ without the excuse's checks, makes it cmark's; and property 1's outcome."
 
 (define-test the-repeat-excuse-needs-a-body-reference-after-an-in-definition-one
   ;; Rewriting by source order would make both of these cmark's. The repeat
-  ;; pin has the shape ADR-0014 documents, and is excused; finding 9's
-  ;; second shape has no body reference to c, and stays a failure.
+  ;; pin has the repeat divergence's shape, and is excused; the second of
+  ;; UNEXCUSED-DIVERGENCE-SHAPES has no body reference to c, and stays a
+  ;; failure.
   (is equal '(:differs t :hidden t :outcome :excused-repeat)
       (source-order-rewrite (repeat-pin) "b"))
   (is equal '(:differs t :hidden t :outcome :fail)
-      (source-order-rewrite (second (finding-9-shapes)) "c"))
+      (source-order-rewrite (second (unexcused-divergence-shapes)) "c"))
   (true (open-counts-zero-p)))
 
-;;; Property 2 on vocabulary.md, with and without end positions
+;;; The :XML-ORACLE property on vocabulary.md, with and without end
+;;; positions
 
 (defun end-dropping-sourcepos (original)
   "A COPIED-SOURCEPOS (src/native/copy.lisp) that calls ORIGINAL, then drops
@@ -798,9 +806,9 @@ the end position, leaving 0:0 in its place."
       (and sourcepos (cons (car sourcepos) (cons 0 0))))))
 
 (defun vocabulary-xml-outcomes ()
-  "Property 2's outcome for tests/fixtures/vocabulary.md under GFM-OPTIONS;
-then with COPIED-SOURCEPOS dropping end positions, with whether its detail
-names the XML difference."
+  "The :XML-ORACLE property's outcome for tests/fixtures/vocabulary.md
+under GFM-OPTIONS; then with COPIED-SOURCEPOS dropping end positions, with
+whether its detail names the XML difference."
   (let* ((markdown (fixture-string "vocabulary.md"))
          (unchanged (run-case :xml-oracle markdown (gfm-options))))
     (with-redefined ((native::copied-sourcepos (end-dropping-sourcepos #'native::copied-sourcepos)))
@@ -809,15 +817,16 @@ names the XML difference."
               :without-ends outcome
               :names-the-xml (and (search "xml differs from cmark's" detail) t))))))
 
-(define-test property-2-passes-vocabulary-md-and-fails-without-end-positions
+(define-test xml-oracle-passes-vocabulary-md-and-fails-without-end-positions
   (is equal '(:unchanged :pass :without-ends :fail :names-the-xml t) (vocabulary-xml-outcomes))
   (true (open-counts-zero-p)))
 
-(define-test property-1-passes-vocabulary-md
+(define-test html-oracle-passes-vocabulary-md
   (is eql :pass (run-case :html-oracle (fixture-string "vocabulary.md") (gfm-options))))
 
-;;; The footnote-entity guard both properties share (M2 design finding 16;
-;;; ADR-0019): this input must never reach cmark.
+;;; The footnote-entity guard both properties share: this input must never
+;;; reach cmark, which reads freed memory for a footnote label that starts
+;;; with an entity decoding to ^.
 
 (define-test the-footnote-entity-bug-pattern-guards-both-oracle-properties
   ;; :GUARD alone would hold even with the guard run after the native
@@ -852,8 +861,8 @@ it twice, to a copy, so the real list stays as it is."
   (is = 1 (listings-after-adding-twice 'html-oracle-matches-on-syntax-soup))
   (is = 1 (listings-after-adding-twice 'a-test-not-listed-yet)))
 
-;;; The real property tests (M3 plan, Task 9): one Parachute test per
-;;; property and generator, one assertion over its summary.
+;;; The real property tests: one Parachute test per property and
+;;; generator, one assertion over its summary.
 
 (add-property-tests
  '(html-oracle-matches-on-syntax-soup html-oracle-matches-on-corpus-splices

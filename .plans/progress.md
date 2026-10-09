@@ -90,7 +90,8 @@ Every task brief is bound by these, on top of `AGENTS.md`.
   that reaches it can look like a pass (M4 finding 26).
 - Comments and docstrings follow AGENTS.md's Formatting rules: comments for
   developers, exported symbols' docstrings for users, no references to the
-  plans and no history (M5 comment sweep).
+  plans and no history (M5 comment sweep). `make check-citations`, in
+  `make test`, refuses the clearest references (M5 citation cleanup).
 
 ## Milestones
 
@@ -101,7 +102,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b merged 2026-10-04 (PR #10, `06d3b7f`) |
-| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), merged 2026-10-05 (PR #15, `e124fc4`); M5b, the pages, ready for its PR, on branch `m5b-pages`, with its close-out |
+| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), merged 2026-10-05 (PR #15, `e124fc4`); M5b, the pages, merged 2026-10-06 (PR #16, `12df186`); the citation cleanup, on branch `m5-cleanup-citations` |
 
 ### M0 checklist
 
@@ -398,6 +399,28 @@ the sweep's "for later" item 5:
   narrow re-check, clean; `main`'s CI steps and `pages.yml`'s build steps
   in local `debian:trixie` runs, green; close-out (Task 8)
 
+**The citation cleanup** (branch `m5-cleanup-citations`), the comment
+sweep's "for later" items 3 and 6:
+
+- [x] The comments and docstrings of `tests/`, `site/`, the Makefile, the
+  scripts, CI's files and the manifests drop their references to the
+  plans and their history, writing reasons out, as the sweep did for
+  `src/`. Four writers, one per area. A form check, seen to fail, shows
+  that only comments and docstrings changed in the Lisp files, apart from
+  15 renamed test and helper names and three code strings; a line check,
+  seen to fail, shows the same for the other files
+- [x] `make check-citations`, in `make test`: its own 58 tests, red
+  first, then a search of the files git tracks or would track for the
+  clearest references. Each of 28 mutations of the script failed its
+  tests; the preflight has a case for a missing git, 72 checks in all
+- [x] ADR-0018's "Lengths never shrink": the soundness tests compare each
+  bound with cmark's own bytes, not with decoded output. So
+  `*max-output-octets*`'s docstring and `docs/safety.md` now say the limit
+  bounds the octets cmark-gfm writes, and the docstring that the string
+  returned can be longer where cmark-gfm writes bytes that aren't UTF-8
+- [x] Two reviews, fixes; the suites on all three Lisps; `main`'s CI steps
+  in a local `debian:trixie` run; close-out
+
 **For the release,** a later M5 step:
 
 - [ ] Check what the release's ocicl step packages. If ocicl packages the
@@ -456,6 +479,91 @@ result.
 _None yet._
 
 ## Close-outs
+
+### 2026-10-09 — The citation cleanup (branch `m5-cleanup-citations`)
+
+- **Done:** the comment sweep's "for later" items 3 and 6.
+  - **Comments and docstrings** outside `src/` drop their references to
+    the plans and their history, as the sweep did for `src/`. Where a
+    reference stood in for a reason, the reason is written out. This
+    covers `tests/`, `site/`, the Makefile, the scripts, CI's files, the
+    manifests, `.gitignore`, the fixture manifest, `style.css`'s header
+    and `NOTICE`'s.
+  - **Code, as the maintainer agreed:** 15 names, 14 tests and one
+    helper. The four that told history were renamed; the ten that
+    numbered the properties as the M3 design does now use each
+    property's registered name, such as `bounds-fails-when-...`. Three
+    code strings changed: two error messages in `tests/static/build.lisp`
+    lost "(finding 9)", and the test extension's name, `"m3-unknown"`,
+    became `"test-unknown"`.
+  - **Comments that were wrong about the code,** found by the writers or
+    the reviews, and fixed:
+    - the watchdog's account of INT and TERM without its trap;
+    - `ci/install-toolchain.sh`'s claim that only `ci.yml` runs it;
+    - a test comment saying `tests/package.lisp` doesn't import
+      DECODE-UTF8;
+    - "Startup's step 4" placed in a test file;
+    - CALL-WITH-NATIVE-DOCUMENT "until the entry points exist";
+    - Parachute keeping closures "once" the run ends;
+    - `style.css`'s header, which was chez-cmark-gfm's;
+    - `NOTICE`'s "project-built C shim".
+  - **`*max-output-octets*`:** its docstring and `docs/safety.md`'s
+    table now say the limit bounds the octets cmark-gfm writes. The
+    docstring adds that the string returned can be longer, where
+    cmark-gfm writes bytes that aren't UTF-8 (review B). ADR-0018's
+    "Lengths never shrink" says what the tests compare.
+  - **`make check-citations`,** in `make test`, and ADR-0013's row.
+- **How:**
+  - Four Opus writers in parallel, one area each.
+  - Two Opus reviewers: A took `tests/native/`, B the rest and the check.
+  - An Opus re-check of the fixes.
+  - Review A found no must-fix and six should-fixes, mostly past tense
+    left in. Review B found one must-fix: the fixture manifest kept a
+    citation, which the check's `tests/fixtures` exclusion hid. Its
+    tests also pinned too little: 9 mutations passed them. The re-check
+    found no must-fix.
+- **The form check** (throwaway, `.guix-env/tmp/m5-citations/forms/`) is
+  the sweep's, adapted:
+  - it loads the test and site systems, and evaluates a script's own
+    DEFPACKAGE;
+  - it covers `src/`, `tests/` and `site/`, ECL alone reading the two
+    files that name its EXT package;
+  - it allows exactly the 15 renames and the three strings;
+  - SBCL and CCL each also read without `:linux`, so every
+    reader-conditional branch is read.
+
+  Of 18 planted mutations, every code change failed, on the Lisps that
+  read it. A docstring edit, a comment edit and a listed rename passed.
+- **The line check** (throwaway, `.guix-env/tmp/m5-citations/lines/`)
+  compares the other files with comment lines removed. Six mutations
+  each failed, two comment edits passed, and a `#` line in a heredoc is
+  read by hand.
+- **`check-citations`:**
+  - 58 tests, red first;
+  - each of 28 mutations of the script failed them;
+  - the tests run in the C locale, as CI does, where `.` is one byte;
+  - they pass in German too.
+- **Tests, in the Guix container, after the last edit:**
+  - `make test`: the pure suite's 584 tests on each Lisp, SBCL's native
+    199, the watchdog's 37, the preflight's 72, `check-site`'s 185 tests
+    and 11 pages, `check-reference`'s 49, `check-docs`' 77 examples, and
+    `check-citations`' 58 tests, with no references in 193 files.
+  - Earlier in the branch, CCL's native suite (209 tests) and ECL's (190)
+    passed, and so did `make check-ecl-static`'s 65 checks. Only comments
+    and docstrings changed after that, as the form check shows.
+- **`main`'s CI steps and `pages.yml`'s build steps** in local
+  `debian:trixie` runs: before the review fixes, all green, the test
+  steps in 770 s; on the final tree, all green again, in 796 s: CCL's
+  209 native tests, ECL's 190, SBCL's 199, `check-ecl-static`'s 65
+  checks, and `check-citations` clean in CI's own checkout.
+- **For later:**
+  - many C paths in `tests/native/` are short, such as `src/blocks.c`,
+    against AGENTS.md's full-path rule (review A);
+  - `check-citations` can't find a reference a line break splits;
+  - whether each output bound also covers the decoded string's UTF-8 is
+    untested;
+  - ECL warns of an unused gensym in REFERENCE-ID-SPANS, a macro's
+    expansion; the code is unchanged from `main`.
 
 ### 2026-10-05 — M5b: the pages (branch `m5b-pages`)
 

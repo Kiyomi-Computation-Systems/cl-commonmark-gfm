@@ -1,36 +1,33 @@
-;;;; Two of the four oracles over the pinned corpus (M2 design §8.2, §8.3;
-;;;; ADR-0018): witness 1, cmark's own expectations, and witness 2, the HTML
-;;;; oracle (tree path against MARKDOWN->HTML). Witness 3 (the XML oracle)
-;;;; and witness 4 (the fixture ASTs, already in tests/native/copier.lisp)
-;;;; are Task 8's and Task 6's.
+;;;; Two of the four oracles over the pinned corpus: witness 1, cmark's own
+;;;; expectations, and witness 2, the HTML oracle (tree path against
+;;;; MARKDOWN->HTML). Witness 3, the XML oracle, is in tests/native/xml.lisp,
+;;;; and witness 4, the fixture ASTs, in tests/native/copier.lisp.
 ;;;;
 ;;;; Every helper here returns a small summary -- a comparison count and a
 ;;;; list of small (FILE NUMBER) or (FILE NUMBER SOFTBREAK) identifiers --
-;;;; never the corpus examples themselves, so no assertion's closure keeps
-;;;; megabytes of Markdown or HTML alive once the run ends (M2b plan, "Large
-;;;; values"; .plans/progress.md's global constraint "Tests keep large
-;;;; values out of assertions").
+;;;; never the corpus examples themselves. Parachute keeps every assertion's
+;;;; closure until the run ends, so a closure holding the examples would
+;;;; keep megabytes of Markdown or HTML alive.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
-;;; Witness 1: cmark's own expectations (M2 design §8.3). MARKDOWN->HTML,
-;;; with the example's own options plus :UNSAFE-HTML T -- the flags cmark's
-;;; own test harness runs with (finding 8; vendor/cmark-gfm/test/cmark.py) --
-;;; must reproduce the expected HTML byte for byte. This guards ADR-0011's
-;;; weak spot: a broken corpus reader or a wrong option bit could otherwise
-;;; let the tree oracle (witness 2) agree with MARKDOWN->HTML while both are
-;;; wrong.
+;;; Witness 1: cmark's own expectations. MARKDOWN->HTML, with the example's
+;;; own options plus :UNSAFE-HTML T -- the flags cmark's own test harness
+;;; runs with (vendor/cmark-gfm/test/cmark.py) -- must reproduce the
+;;; expected HTML byte for byte. This guards the tree oracle's weak spot: a
+;;; broken corpus reader or a wrong option bit could otherwise let the tree
+;;; oracle (witness 2) agree with MARKDOWN->HTML while both are wrong.
 
 (defparameter *witness-1-files* '("spec.txt" "regression.txt" "smart_punct.txt" "extensions.txt")
-  "The first four corpus files, the only ones witness 1 runs over (M2 design
-§8.3): extensions-full-info-string.txt and
-extensions-table-prefer-style-attributes.txt test CLI flags with no
-version-1 option.")
+  "The first four corpus files, the only ones witness 1 runs over:
+extensions-full-info-string.txt and
+extensions-table-prefer-style-attributes.txt test CLI flags that no option
+of this library sets.")
 
 (defun witness-1-examples ()
   "The 741 examples witness 1 compares: *WITNESS-1-FILES*' enabled examples,
-but extensions.txt's one <IGNORE> (M2 design §8.3, finding 8), which
-vendor/cmark-gfm/test/spec_tests.py itself never compares."
+but extensions.txt's one <IGNORE>, which vendor/cmark-gfm/test/spec_tests.py
+itself never compares."
   (remove-if (lambda (example)
               (and (string= (corpus-example-file example) "extensions.txt")
                    (= (corpus-example-number example) 20)))
@@ -61,12 +58,12 @@ CMARK-EXPECTATION-MISMATCH-P, as (FILE NUMBER)."
     (is = 741 compared)
     (is equal '() failures)))
 
-;;; Witness 2: the HTML oracle (M2 design §8.3; ADR-0011). For all 747
-;;; enabled examples, under each :SOFTBREAK value, the tree path
-;;; (MARKDOWN->HTML-TREE then HTML-TREE->STRING) must equal MARKDOWN->HTML.
+;;; Witness 2: the HTML oracle. For all 747 enabled examples, under each
+;;; :SOFTBREAK value, the tree path (MARKDOWN->HTML-TREE then
+;;; HTML-TREE->STRING) must equal MARKDOWN->HTML.
 
 (defparameter *softbreak-values* '(:newline :space :br)
-  "Every :SOFTBREAK value the HTML oracle sweeps (M2 design §7.2, §8.3).")
+  "Every :SOFTBREAK value the HTML oracle sweeps.")
 
 (defun html-oracle-mismatch-p (example softbreak)
   "True when the tree path disagrees with MARKDOWN->HTML for EXAMPLE, both
@@ -88,20 +85,19 @@ HTML-ORACLE-MISMATCH-P, as (FILE NUMBER SOFTBREAK)."
                                                     (corpus-example-number example)
                                                     softbreak))))))
 
-;;; The known footnote divergences (ADR-0014, "Known divergences"; M2 design
-;;; §8.3). Both come from information a parsed tree no longer has: cmark
-;;; counts repeat references in source order, the copier in tree order; and
-;;; a definition referenced only from a dropped definition survives in
-;;; cmark, with a dangling backref, but has no reference left in a parsed
-;;; tree. Neither depends on :SOFTBREAK, so a real divergence fails at every
-;;; value of it.
+;;; The known footnote divergences. Both come from information a parsed
+;;; tree no longer has: cmark counts repeat references in source order, the
+;;; copier in tree order; and a definition referenced only from a dropped
+;;; definition survives in cmark, with a dangling backref, but has no
+;;; reference left in a parsed tree. Neither depends on :SOFTBREAK, so a
+;;; real divergence fails at every value of it.
 
 (defparameter *known-divergences* '()
   "Corpus examples HTML-ORACLE-FAILURES is allowed to differ on, each (FILE
-NUMBER REASON). Empty: a scan of the corpus found neither of ADR-0014's two
-divergences there. A fix that makes one of these reproduce again must add it
-back; this test requires the opposite too, so a listed divergence that stops
-reproducing must be removed.")
+NUMBER REASON). Empty: the corpus hits neither known divergence. A change
+that makes one of them reproduce in the corpus must add it; this test
+requires the opposite too, so a listed divergence that stops reproducing
+must be removed.")
 
 (defun known-divergence-triples ()
   "*KNOWN-DIVERGENCES*, expanded over *SOFTBREAK-VALUES*."
@@ -118,17 +114,17 @@ reproducing must be removed.")
     (is equal '() (set-difference (known-divergence-triples) failures :test #'equal)
         "a known divergence that no longer reproduces")))
 
-;;; Direct pins for the known divergences (ADR-0014, "Known divergences").
-;;; The corpus hits neither -- *KNOWN-DIVERGENCES* is empty -- so these two
-;;; minimized inputs pin each one directly against the tree path, confirmed
-;;; against the pinned CLI (`cmark-gfm -e footnotes -e table -e
-;;; strikethrough -e autolink -e tagfilter -e tasklist`). Both trace to
-;;; process_footnotes (vendor/cmark-gfm/src/blocks.c): its first loop
-;;; resolves every :FOOTNOTE-REFERENCE against the tree cmark originally
-;;; parsed, assigning each definition's index and each reference's backref
-;;; index in that walk's order; only its second loop unlinks an unreferenced
-;;; definition (dropping its whole subtree) or appends a referenced one as
-;;; the document's last child (so a kept definition always ends up after the
+;;; Direct pins for the known divergences. The corpus hits neither --
+;;; *KNOWN-DIVERGENCES* is empty -- so these two minimized inputs pin each
+;;; one directly against the tree path, confirmed against the pinned CLI
+;;; (`cmark-gfm -e footnotes -e table -e strikethrough -e autolink -e
+;;; tagfilter -e tasklist`). Both trace to process_footnotes
+;;; (vendor/cmark-gfm/src/blocks.c): its first loop resolves every
+;;; :FOOTNOTE-REFERENCE against the tree cmark originally parsed, assigning
+;;; each definition's index and each reference's backref index in that
+;;; walk's order; only its second loop unlinks an unreferenced definition
+;;; (dropping its whole subtree) or appends a referenced one as the
+;;; document's last child (so a kept definition always ends up after the
 ;;; content, wherever it first sat). The pre-pass sees only the tree that
 ;;; second loop leaves, so it can't recover what the first loop saw.
 
@@ -151,11 +147,11 @@ reproducing must be removed.")
     (isnt string= (markdown->html markdown) (tree-path markdown)
           "the tree path must keep disagreeing with cmark's repeat-reference order")
     ;; ISNT alone passes on any wrong output that merely differs from
-    ;; cmark's, the -K suffix included: a reviewer dropped it from every
-    ;; repeat reference's id and this pin still passed. So the tree path's
-    ;; exact HTML is pinned too, rendered once here: per the comment above,
-    ;; the embedded reference (numbered 2 by the pre-pass) gets the -K
-    ;; suffix on its id, and the body reference (numbered 1) doesn't.
+    ;; cmark's: dropping the -K suffix from every repeat reference's id
+    ;; would still pass it. So the tree path's exact HTML is pinned too,
+    ;; rendered once here: per the comment above, the embedded reference
+    ;; (numbered 2 by the pre-pass) gets the -K suffix on its id, and the
+    ;; body reference (numbered 1) doesn't.
     (is string=
         (concatenate 'string
           "<p><sup class=\"footnote-ref\"><a href=\"#fn-b\" id=\"fnref-b\""
@@ -196,10 +192,9 @@ reproducing must be removed.")
     (is string= "" (tree-path markdown)
         "the pre-pass sees no reference to a left anywhere in the tree")))
 
-;;; :LINK-POLICY :UNSAFE against :UNSAFE-HTML T (M2 design §8.3; ADR-0011),
-;;; only on examples whose AST has no :HTML-BLOCK or :HTML-INLINE node:
-;;; :UNSAFE-HTML also emits raw HTML verbatim, which :LINK-POLICY leaves
-;;; alone.
+;;; :LINK-POLICY :UNSAFE against :UNSAFE-HTML T, only on examples whose AST
+;;; has no :HTML-BLOCK or :HTML-INLINE node: :UNSAFE-HTML also emits raw
+;;; HTML verbatim, which :LINK-POLICY leaves alone.
 
 (defun example-has-raw-html-p (example)
   "True when EXAMPLE's AST, parsed with its own options, holds an
@@ -232,8 +227,8 @@ EXAMPLE's own options."
     (is = 668 compared)
     (is equal '() failures)))
 
-;;; The table-cell bound is sound on every corpus example (M2 design §5.5,
-;;; §8.4): never below the cells the example's own parse actually builds.
+;;; The table-cell bound is sound on every corpus example: never below the
+;;; cells the example's own parse actually builds.
 
 (defun corpus-table-cell-bound-undercounts ()
   "How many examples were checked, and each whose TABLE-CELL-BOUND falls

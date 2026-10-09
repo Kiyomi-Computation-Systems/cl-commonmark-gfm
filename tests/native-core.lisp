@@ -1,15 +1,14 @@
-;;;; Tests for cl-commonmark-gfm.native-core: the header constants (M2
-;;;; design §8.1), CLASSIFY-NODE (§6.2; ADR-0008 "Node classification") and
-;;;; RESOLVE-CMARK-LIBRARIES (ADR-0009).
+;;;; Tests for cl-commonmark-gfm.native-core: the header constants,
+;;;; CLASSIFY-NODE and RESOLVE-CMARK-LIBRARIES.
 
 (in-package #:cl-commonmark-gfm.tests)
 
 ;;; A tiny, test-only evaluator for vendor/cmark-gfm/src/cmark-gfm.h's
 ;;; #defines and enums: hex and decimal literals, | and <<, parentheses,
-;;; names defined earlier, and a plain enum's implicit values (M2b plan,
-;;; Task 2). It is independent of src/native-core/constants.lisp -- it
-;;; shares no code with the file it checks -- so a transcription slip there
-;;; cannot also slip in here.
+;;; names defined earlier, and a plain enum's implicit values. It is
+;;; independent of src/native-core/constants.lisp -- it shares no code with
+;;; the file it checks -- so a transcription slip there cannot also slip in
+;;; here.
 
 (defun identifier-char-p (char)
   "True when CHAR may appear in a C identifier: alphanumeric or underscore."
@@ -223,7 +222,7 @@ for a plain enum)."
 (defparameter *header-path*
   (asdf:system-relative-pathname "cl-commonmark-gfm/tests" "vendor/cmark-gfm/src/cmark-gfm.h")
   "The pinned header CLASSIFY-NODE's and the option bits' constants are
-transcribed from (ADR-0008, ADR-0009, M2 design §8.1).")
+transcribed from.")
 
 (defparameter *header-text* (uiop:read-file-string *header-path* :external-format :utf-8)
   "The pinned cmark-gfm.h, as text.")
@@ -260,7 +259,7 @@ implicit values 0, 1 and 2.")
 (defparameter *header-option-names*
   '("CMARK_OPT_SOURCEPOS" "CMARK_OPT_HARDBREAKS" "CMARK_OPT_NOBREAKS"
     "CMARK_OPT_VALIDATE_UTF8" "CMARK_OPT_SMART" "CMARK_OPT_FOOTNOTES" "CMARK_OPT_UNSAFE")
-  "The seven CMARK_OPT_ names this library transcribes (M2 design §7.3).")
+  "The seven CMARK_OPT_ names this library transcribes.")
 
 (defparameter *header-options*
   (mapcar (lambda (name)
@@ -275,7 +274,7 @@ implicit values 0, 1 and 2.")
 CMARK-HEADER-CONSTANTS-MATCH-THE-PINNED-HEADER checks *CMARK-HEADER-CONSTANTS*
 against this.")
 
-;;; Header constant tests (M2 design §8.1)
+;;; Header constant tests
 
 (define-test cmark-header-constants-match-the-pinned-header
   (dolist (pair *cmark-header-constants*)
@@ -305,7 +304,7 @@ against this.")
         (true (assoc name *cmark-header-constants* :test #'string=)
               "~A has no entry in *CMARK-HEADER-CONSTANTS*" name)))))
 
-;;; CLASSIFY-NODE (M2 design §6.2; ADR-0008 "Node classification")
+;;; CLASSIFY-NODE
 
 (defparameter *core-type-code-kinds*
   (list (cons +cmark-node-document+ :document)
@@ -389,14 +388,13 @@ extension.")
     (is = +cmark-node-custom-inline+ (condition-datum condition))))
 
 (define-test classify-node-custom-block-signals-whatever-extension-is
-  ;; "whatever EXTENSION is" (M2b plan, Task 2): the custom-node check runs
-  ;; first, before EXTENSION is even consulted.
+  ;; The custom-node check runs first, before EXTENSION is even consulted.
   (fail (classify-node +cmark-node-custom-block+ :table "table") 'unsupported-extension-node)
   (fail (classify-node +cmark-node-custom-inline+ :other "x") 'unsupported-extension-node)
   (fail (classify-node +cmark-node-custom-block+ :tasklist "tasklist")
         'unsupported-extension-node))
 
-;;; RESOLVE-CMARK-LIBRARIES (ADR-0009)
+;;; RESOLVE-CMARK-LIBRARIES
 
 (defun regular-file-p-for (paths)
   "A REGULAR-FILE-P function for RESOLVE-CMARK-LIBRARIES: true exactly for
@@ -467,17 +465,17 @@ filesystem."
             :regular-file-p (constantly t))))))
 
 (define-test resolve-cmark-libraries-rejects-a-dotted-pair-special-variable
-  ;; A dotted LIBRARIES isn't a proper list at all: (LENGTH LIBRARIES), on
-  ;; the old LISTP-only check, signalled a raw TYPE-ERROR here instead.
+  ;; A dotted LIBRARIES isn't a proper list at all: past a LISTP check
+  ;; alone, (LENGTH LIBRARIES) would signal a raw TYPE-ERROR here instead.
   (true (native-library-not-found-error
          (lambda ()
            (resolve-cmark-libraries :libraries (cons "/a/core.so" "/a/ext.so")
                                      :regular-file-p (constantly t))))))
 
 (define-test resolve-cmark-libraries-rejects-a-circular-special-variable
-  ;; A circular LIBRARIES hung (LENGTH LIBRARIES) on the old LISTP-only
-  ;; check, under the startup lock. PROPER-LIST-P's Floyd cycle detection
-  ;; rejects it in bounded time instead.
+  ;; Past a LISTP check alone, a circular LIBRARIES would hang (LENGTH
+  ;; LIBRARIES), under the startup lock. PROPER-LIST-P's Floyd cycle
+  ;; detection rejects it in bounded time instead.
   (let ((circular (list "/a/core.so" "/a/ext.so")))
     (setf (cdr (last circular)) circular)
     (true (native-library-not-found-error
@@ -485,9 +483,9 @@ filesystem."
              (resolve-cmark-libraries :libraries circular :regular-file-p (constantly t)))))))
 
 (define-test resolve-cmark-libraries-bad-special-variable-never-falls-back
-  ;; ADR-0009 §1, "No fallback": a malformed *CMARK-GFM-LIBRARIES* must
-  ;; signal, never silently trying CL_COMMONMARK_GFM_LIBS or the directory
-  ;; search instead, even when either would otherwise resolve cleanly.
+  ;; No fallback: a malformed *CMARK-GFM-LIBRARIES* must signal, never
+  ;; silently trying CL_COMMONMARK_GFM_LIBS or the directory search instead,
+  ;; even when either would otherwise resolve cleanly.
   (let ((environment-core "/opt/b/libcmark-gfm.so")
         (environment-extensions "/opt/b/libcmark-gfm-extensions.so")
         (search-core (linux-core-path "/usr/lib"))
@@ -709,11 +707,9 @@ NIL when it signals none."
     (false (condition-override condition))))
 
 (define-test resolve-cmark-libraries-nothing-found-report-is-useful
-  ;; The report used to read "neither *CMARK-GFM-LIBRARIES* nor
-  ;; CL_COMMONMARK_GFM_LIBS is set: NIL" -- a NIL datum, and no mention of
-  ;; how to fix it. It must now say no searched directory holds both pinned
-  ;; libraries, name both override variables, and carry the directories
-  ;; searched as its datum, not NIL.
+  ;; The report must say how to fix it: that no searched directory holds
+  ;; both pinned libraries, and both override variables' names. Its datum is
+  ;; the directories searched, not NIL.
   (let* ((multiarch "x86_64-linux-gnu")
          (condition (native-library-not-found-error
                      (lambda ()
@@ -757,7 +753,7 @@ NIL when it signals none."
     (is eql 'resolve-cmark-libraries (condition-operation condition))))
 
 ;;;; CHECK-OPTIONS, the option bits, DOCUMENT-ATTRIBUTES, the limits and
-;;;; TABLE-CELL-BOUND (M2b plan Task 3; M2 design §5.5, §6.3, §7.2, §7.3).
+;;;; TABLE-CELL-BOUND.
 
 ;;; Helpers
 
@@ -792,7 +788,7 @@ OPTIONS, or NIL."
 (defparameter *ff* (string (code-char 12))
   "A form feed, one of TABLE-CELL-BOUND's candidate characters.")
 
-;;; CHECK-OPTIONS: bad values, per entry point (M2 design §7.2)
+;;; CHECK-OPTIONS: bad values, per entry point
 
 (define-test check-options-parse-rejects-bad-profile
   (dolist (value '(:bogus "gfm" 1 nil))
@@ -839,24 +835,24 @@ OPTIONS, or NIL."
   (true (entry-parse-option-error :html '(:sourcepos :maybe)))
   (false (entry-render-option-error :html '(:sourcepos :maybe))))
 
-;;; CHECK-OPTIONS: which condition, across all four entry points (M2 design
-;;; §7.2, §8.1). The four tests above cover :HTML on its own; this one is
-;;; table-driven over every entry point and every parse-option key it takes.
-;;; The keys come from spec §7.2's table, written out here by hand rather
+;;; CHECK-OPTIONS: which condition, across all four entry points. The four
+;;; tests above cover :HTML on its own; this one is table-driven over every
+;;; entry point and every parse-option key it takes. The keys, as
+;;; docs/options.md's table gives them, are written out here by hand rather
 ;;; than read from PARSE-KEYS: a mutation that drops a key from PARSE-KEYS
 ;;; (dropping :SMART from :PLAINTEXT and :HTML-TREE, say) would otherwise
 ;;; narrow this test's own coverage along with the code under test, and
 ;;; still pass. :PLAINTEXT and :HTML-TREE take no :SOURCEPOS at all, so
-;;; BAD-PARSE-VALUE-FOR has no entry for it.
+;;; *ENTRY-POINT-PARSE-KEYS* lists it for neither.
 
 (defparameter *entry-point-parse-keys*
   '((:parse . (:profile :extensions :footnotes :smart :sourcepos))
     (:html . (:profile :extensions :footnotes :smart :sourcepos))
     (:plaintext . (:profile :extensions :footnotes :smart))
     (:html-tree . (:profile :extensions :footnotes :smart)))
-  "Each entry point's parse-option keys (M2 design §7.2's table), written
-out by hand so CHECK-OPTIONS-SIGNALS-INVALID-PARSE-OPTION-FOR-EVERY-PARSE-KEY
-doesn't take them from PARSE-KEYS, the code under test.")
+  "Each entry point's parse-option keys, written out by hand so
+CHECK-OPTIONS-SIGNALS-INVALID-PARSE-OPTION-FOR-EVERY-PARSE-KEY doesn't take
+them from PARSE-KEYS, the code under test.")
 
 (defun bad-parse-value-for (key)
   "A value CHECK-OPTIONS must reject for KEY, one of
@@ -905,9 +901,9 @@ doesn't take them from PARSE-KEYS, the code under test.")
   (true (entry-render-option-error :plaintext '(:unsafe-html t))))
 
 (define-test check-options-html-tree-accepts-any-tree-option-value
-  ;; Tree-option values aren't checked here; CHECK-TREE-OPTIONS (ADR-0012)
-  ;; validates them. CHECKED-TREE-OPTIONS must still return each pair
-  ;; verbatim, bogus value included.
+  ;; Tree-option values aren't checked here; CHECK-TREE-OPTIONS validates
+  ;; them. CHECKED-TREE-OPTIONS must still return each pair verbatim, bogus
+  ;; value included.
   (false (entry-render-option-error :html-tree '(:softbreak :bogus)))
   (is equal '(:softbreak :bogus) (checked-tree-options (checked :html-tree :softbreak :bogus)))
   (false (entry-render-option-error :html-tree '(:raw-html :nonsense)))
@@ -1024,7 +1020,7 @@ share no tail at all, not even a trailing one."
 
 (define-test check-options-commonmark-with-explicit-footnotes
   ;; :profile :commonmark :footnotes t parses footnotes with no extensions
-  ;; attached (M2 design §7.2): the profile only supplies defaults.
+  ;; attached: the profile only supplies defaults.
   (let ((result (checked :parse :profile :commonmark :footnotes t)))
     (is eql :commonmark (checked-profile result))
     (is equal '() (checked-extensions result))
@@ -1054,7 +1050,7 @@ share no tail at all, not even a trailing one."
   (false (checked-tree-options (checked :html-tree))))
 
 ;;; CHECK-OPTIONS: :SOURCEPOS, and defaults for options an entry point
-;;; doesn't take (M2 design §7.2)
+;;; doesn't take
 
 (define-test check-options-sourcepos-defaults
   (true (checked-sourcepos (checked :parse)))
@@ -1104,7 +1100,7 @@ share no tail at all, not even a trailing one."
 (define-test check-options-returns-a-checked-options
   (true (typep (checked :parse) 'checked-options)))
 
-;;; Option bits (M2 design §7.3)
+;;; Option bits
 
 (define-test parse-option-bits-gfm-defaults
   (is = (logior +cmark-opt-validate-utf8+ +cmark-opt-footnotes+ +cmark-opt-sourcepos+)
@@ -1178,7 +1174,7 @@ share no tail at all, not even a trailing one."
   ;; :PLAINTEXT always parses with :SOURCEPOS NIL internally.
   (false (plusp (logand +cmark-opt-sourcepos+ (plaintext-option-bits (checked :plaintext))))))
 
-;;; DOCUMENT-ATTRIBUTES (M2 design §6.3)
+;;; DOCUMENT-ATTRIBUTES
 
 (define-test document-attributes-gfm-profile
   (is equal (list :profile :gfm :extensions *extension-keywords* :options '(:footnotes))
@@ -1217,7 +1213,7 @@ share no tail at all, not even a trailing one."
                               :attributes (document-attributes (apply #'checked :parse options))))
           "~S should pass the :document schema" options)))
 
-;;; Limits: the three variables (M2 design §5.5)
+;;; Limits: the three variables
 
 (define-test max-input-octets-default
   (is = 1048576 *max-input-octets*))
@@ -1330,7 +1326,7 @@ share no tail at all, not even a trailing one."
     (is = 268435456 (condition-maximum condition))
     (true (search "hard cap" (condition-reason condition)))))
 
-;;; TABLE-CELL-BOUND (M2 design §5.5)
+;;; TABLE-CELL-BOUND
 
 (define-test table-cell-bound-empty-string
   (is = 0 (table-cell-bound "")))
@@ -1411,7 +1407,7 @@ share no tail at all, not even a trailing one."
 (define-test table-cell-bound-a-run-with-no-candidate-line-contributes-nothing
   (is = 0 (table-cell-bound (format nil "hello~%world~%"))))
 
-;;; The output bounds' per-node terms (M2 design §5.5; M2b plan, Task 9)
+;;; The output bounds' per-node terms
 ;;;
 ;;; Every expected value is counted by hand from the C source the term
 ;;; reads (vendor/cmark-gfm), byte by byte, in the comment beside it. Each
@@ -1758,10 +1754,9 @@ request is left pending."
   ;; After the header's last cell: CR, `|`, ` --- |` (6) per column, CR.
   (is equal '(21 t) (plaintext-event-bound :exit :table-header 0 nil :columns 3)))
 
-;;;; FOOTNOTE-ENTITY-INDEX: the input guard's scan (M2 design §5.6; finding
-;;;; 16; M2b plan Task 9b). Every form is confirmed against
-;;;; vendor/cmark-gfm/src/houdini_html_u.c's grammar, not run through cmark
-;;;; itself: this system is pure.
+;;;; FOOTNOTE-ENTITY-INDEX: the input guard's scan. Every form is confirmed
+;;;; against vendor/cmark-gfm/src/houdini_html_u.c's grammar, not run
+;;;; through cmark itself: this system is pure.
 
 ;;; The seven forms that decode to ^ (U+005E, 94)
 
@@ -1796,7 +1791,7 @@ request is left pending."
 ;;; ASCII-only (<ctype.h> semantics, never HOUDINI_USE_LOCALE here);
 ;;; DIGIT-CHAR-P accepts Unicode decimal digits too on SBCL, so these three
 ;;; must still return NIL, or the guard would reject input cmark itself
-;;; parses as ordinary text (M2b review p4).
+;;; parses as ordinary text.
 
 (define-test footnote-entity-index-near-misses-reject-non-ascii-digits
   (false (footnote-entity-index (format nil "[&#~C4;a]" (code-char #x0669)))
@@ -1811,16 +1806,16 @@ request is left pending."
 (define-test footnote-entity-index-returns-the-first-match
   (is = 3 (footnote-entity-index "abc[&#94;x] [&Hat;y]")))
 
-;;;; VERSION-NUMBER and NUMBER-VERSION: the version cross-check's pure half
-;;;; (M3 design §5; M3 plan Task 1). Startup's step 4
-;;;; (tests/native/startup.lisp) uses both to check cmark_version()'s number
-;;;; against *CMARK-GFM-VERSION*, on top of M2's cmark_version_string check.
+;;;; VERSION-NUMBER and NUMBER-VERSION: the version cross-check's pure half.
+;;;; Startup's step 4 (src/native/startup.lisp) uses both to check
+;;;; cmark_version()'s number against *CMARK-GFM-VERSION*, on top of its
+;;;; cmark_version_string check.
 
 (defun version-error-signalled (thunk)
   "Call THUNK. Return the SIMPLE-ERROR it signals, or NIL. Narrower than
-generic ERROR on purpose: before VERSION-NUMBER or NUMBER-VERSION exists,
-calling either signals UNDEFINED-FUNCTION, itself a subtype of ERROR, which
-would otherwise make a bad-input test pass for the wrong reason."
+generic ERROR on purpose: were VERSION-NUMBER or NUMBER-VERSION undefined,
+calling either would signal UNDEFINED-FUNCTION, itself a subtype of ERROR,
+which would make a bad-input test pass for the wrong reason."
   (handler-case (progn (funcall thunk) nil)
     (simple-error (condition) condition)))
 
@@ -1846,12 +1841,12 @@ would otherwise make a bad-input test pass for the wrong reason."
     (true (version-error-signalled (lambda () (number-version number)))
           "~S should signal" number)))
 
-;;; LINKED-METHOD-P: whether CFFI's method makes an ECL program linked (M4
-;;; design §6.1; ADR-0021). Startup skips its steps 1 to 3, the dynamic-FFI
-;;; check, discovery and loading, for :C/C++ alone. Every other method,
-;;; ECL's :DFFI and :DLOPEN, and NIL, as FFI-METHOD returns on SBCL and CCL,
-;;; runs all of startup's steps. The smoke program (tests/static/) covers
-;;; the linked startup itself.
+;;; LINKED-METHOD-P: whether CFFI's method makes an ECL program linked.
+;;; Startup skips its steps 1 to 3, the dynamic-FFI check, discovery and
+;;; loading, for :C/C++ alone. Every other method, ECL's :DFFI and :DLOPEN,
+;;; and NIL, as FFI-METHOD returns on SBCL and CCL, runs all of startup's
+;;; steps. The smoke program (tests/static/) covers the linked startup
+;;; itself.
 
 (define-test linked-method-p-is-true-for-c/c++-alone
   (true (cl-commonmark-gfm.native-core:linked-method-p :c/c++)

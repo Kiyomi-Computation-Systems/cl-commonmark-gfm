@@ -1,6 +1,6 @@
-;;;; Helpers for the native suite (M2b plan, "Test helpers"): redefining an
-;;;; internal wrapper for one test, reading the counters, finding fixtures,
-;;;; and running a function on a live native document.
+;;;; Helpers for the native suite: redefining an internal wrapper for one
+;;;; test, reading the counters, finding fixtures, and running a function
+;;;; on a live native document.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -10,8 +10,8 @@
   "Run BODY with each (NAME FUNCTION) of BINDINGS installed as NAME's global
 function, and restore every original in UNWIND-PROTECT, however BODY exits.
 FUNCTION is evaluated before any NAME changes. This is how a test makes an
-internal wrapper around a cmark call fail or return null (M2 design §8.4):
-the library itself has no test hooks."
+internal wrapper around a cmark call fail or return null: the library
+itself has no test hooks."
   (let ((originals (loop repeat (length bindings) collect (gensym "ORIGINAL")))
         (replacements (loop repeat (length bindings) collect (gensym "REPLACEMENT"))))
     `(let (,@(loop for (name) in bindings
@@ -54,7 +54,7 @@ FORMAT-ARGUMENTS describe both assertions, as in FAIL."
        (is eql ',type (type-of ,condition) ,description ,@format-arguments)
        (and (typep ,condition ',type) ,condition))))
 
-;;; The counters (M2 design §5.4)
+;;; The counters
 
 (defun open-counts-zero-p ()
   "True when no parser, root or buffer is open."
@@ -84,7 +84,8 @@ FORMAT-ARGUMENTS describe both assertions, as in FAIL."
   "Check OPTIONS, a plist, as ENTRY-POINT's options (:PARSE, :HTML,
 :PLAINTEXT or :HTML-TREE), parse STRING with them, and call FUNCTION with
 the live document and the CHECKED-OPTIONS. Returns what FUNCTION returns.
-The native tests use this until the entry points exist."
+The native tests use this to reach a live document, which no entry point
+hands out."
   (let ((checked-options (check-options entry-point 'call-with-native-document options)))
     (with-native-document (document string checked-options)
       (funcall function document checked-options))))
@@ -139,16 +140,12 @@ succeeds."
   (handler-case (progn (native-state) nil)
     (error (condition) condition)))
 
-;;; Test threads, locks and joins with a time limit (M4 design §5.1;
-;;; finding 1). Probed 2026-10-03, before any of this existed: a condition
-;;; that escapes a thread bordeaux-threads started ends CCL's whole batch
-;;; run, exit 255 (scripts/guix-env sh -c 'CL_SOURCE_REGISTRY="$PWD/:$PWD/
-;;; ocicl//" ccl -n -b -l tests/run-native.lisp </dev/null': the first
-;;; test to reach the old HOLDS-READ-ELSEWHERE's (BT2:WITH-LOCK-HELD (...
-;;; :TIMEOUT 2) ...) signalled BT2::KEYARG-NOT-IMPLEMENTED, and the run
-;;; ended there, every result lost). So every test thread goes through
-;;; MAKE-TEST-THREAD, and every lock wait and join with a deadline polls:
-;;; CCL's bordeaux-threads doesn't implement WITH-LOCK-HELD's or
+;;; Test threads, locks and joins with a time limit. A condition that
+;;; escapes a thread bordeaux-threads started ends CCL's whole batch run,
+;;; exit 255, and every result is lost. On CCL, a lock wait with :TIMEOUT
+;;; signals one, BT2::KEYARG-NOT-IMPLEMENTED. So every test thread goes
+;;; through MAKE-TEST-THREAD, and every lock wait and join with a deadline
+;;; polls: CCL's bordeaux-threads doesn't implement WITH-LOCK-HELD's or
 ;;; ACQUIRE-LOCK's :TIMEOUT
 ;;; (ocicl/bordeaux-threads-0.9.4/apiv2/impl-clozure.lisp,
 ;;; BT2::SIGNAL-NOT-IMPLEMENTED, raised only when TIMEOUT is non-NIL: a
@@ -162,10 +159,10 @@ succeeds."
   "Start FUNCTION in a new thread, as BT2:MAKE-THREAD, with no condition
 able to escape it: FUNCTION runs inside a HANDLER-CASE on SERIOUS-
 CONDITION, so a test thread can signal without ending the whole run. On
-CCL, a condition that otherwise escapes a thread ends the whole batch run
-(M4 finding 1). Returns the thread; THREAD-OUTCOME (threads.lisp) gives
-back FUNCTION's value, or (:SIGNALLED CONDITION) for a condition that
-would have escaped it."
+CCL, a condition that otherwise escapes a thread ends the whole batch run.
+Returns the thread; THREAD-OUTCOME (threads.lisp) gives back FUNCTION's
+value, or (:SIGNALLED CONDITION) for a condition that would have escaped
+it."
   (bt2:make-thread (lambda ()
                      (handler-case (funcall function)
                        (serious-condition (condition) (list :signalled condition))))
@@ -231,21 +228,21 @@ WHILE-DEFERRED checks on each Lisp:
          only, not ~A" (lisp-implementation-type)))
 
 (define-test a-signalling-test-thread-gives-signalled-and-the-suite-goes-on
-  ;; On CCL, before MAKE-TEST-THREAD existed, a thread whose function
-  ;; signalled an uncaught condition ended the whole batch run (M4 finding
-  ;; 1): there would be no later test, this one included, to report this.
+  ;; On CCL, a thread whose function signals an uncaught condition ends the
+  ;; whole batch run: without MAKE-TEST-THREAD's handler, there would be no
+  ;; later test, this one included, to report this.
   (destructuring-bind (status condition)
       (thread-outcome (make-test-thread (lambda () (error "a test thread's own error"))
                                         :name "signalling test thread"))
     (is eql :signalled status)
     (is eql 'simple-error (type-of condition))))
 
-;;; A wait that ignored its deadline must fail these tests, not hang them
-;;; (M4 design §7). So what each wait is kept waiting on is freed after 5
-;;; seconds even if the test never frees it: such a wait would return
-;;; then, late and with what it waited for, and fail. No thread is joined
-;;; twice: CCL's JOIN-PROCESS waits on the thread's termination semaphore,
-;;; which the first join takes (CCL 1.13's level-1/l1-processes.lisp).
+;;; A wait that ignored its deadline must fail these tests, not hang them.
+;;; So what each wait is kept waiting on is freed after 5 seconds even if
+;;; the test never frees it: such a wait would return then, late and with
+;;; what it waited for, and fail. No thread is joined twice: CCL's
+;;; JOIN-PROCESS waits on the thread's termination semaphore, which the
+;;; first join takes (CCL 1.13's level-1/l1-processes.lisp).
 
 (define-test join-within-times-out-then-gives-the-outcome-once-released
   (let* ((semaphore (bt2:make-semaphore :name "join-within probe"))

@@ -1,18 +1,17 @@
-;;;; Children on every Lisp (M4 design §5.2; M2 design §8.4, findings 20 and
-;;;; 21). The saved-image tests (image.lisp) and the interrupt race
-;;;; (interrupts.lisp) run in a child of this Lisp, with a time limit, so a
-;;;; child that deadlocks fails its test instead of hanging the suite. A
-;;;; child reports facts back by printing them, and the parent reads them
-;;;; from its output.
+;;;; Children on every Lisp. The saved-image tests (image.lisp) and the
+;;;; interrupt race (interrupts.lisp) run in a child of this Lisp, with a
+;;;; time limit, so a child that deadlocks fails its test instead of
+;;;; hanging the suite. A child reports facts back by printing them, and the
+;;;; parent reads them from its output.
 ;;;;
-;;;; CCL's release binary sometimes hangs before any Lisp code runs (M2
-;;;; finding 20). So a child prints *CHILD-START-LINE* as its first act, and
-;;;; one that hasn't printed it within *CHILD-START-SECONDS* is killed and
-;;;; started again, up to three times on CCL, as scripts/lisp-start-watchdog
-;;;; does for the suites. Only a child that never started is started again:
-;;;; once it has started, its outcome counts. That hang never happened in
-;;;; the Guix container's CCL, so the tests below show the retry with fake
-;;;; children, through RUN-CHILD's COMMAND.
+;;;; CCL's release binary sometimes hangs before any Lisp code runs. So a
+;;;; child prints *CHILD-START-LINE* as its first act, and one that hasn't
+;;;; printed it within *CHILD-START-SECONDS* is killed and started again, up
+;;;; to three times on CCL, as scripts/lisp-start-watchdog does for the
+;;;; suites. Only a child that never started is started again: once it has
+;;;; started, its outcome counts. That hang never happened in the Guix
+;;;; container's CCL, so the tests below show the retry with fake children,
+;;;; through RUN-CHILD's COMMAND.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -83,13 +82,13 @@ everything in it however FUNCTION exits."
 
 (defparameter *child-start-seconds* 30
   "How long a child may take to print *CHILD-START-LINE* before it is
-killed and, while it has tries left, started again (M2 finding 20).")
+killed and, while it has tries left, started again.")
 
 (defparameter *child-start-tries* #+ccl 3 #-ccl 1
   "How many times RUN-CHILD starts a child that never prints its start
 line: three times on CCL, whose release binary sometimes hangs before any
-Lisp code runs (M2 finding 20), as scripts/lisp-start-watchdog does for
-the suites; once elsewhere.")
+Lisp code runs, as scripts/lisp-start-watchdog does for the suites; once
+elsewhere.")
 
 (defparameter *child-start-line* ";; child started"
   "The line a child prints, and flushes, as its first act. Output written
@@ -192,10 +191,10 @@ the null device as its input, and this process's environment. A child
 still running after SECONDS is killed with SIGKILL, so one that deadlocks
 fails its test instead of hanging the suite. A child that hasn't printed
 its start line within *CHILD-START-SECONDS* is killed and started again,
-up to START-TRIES times (M2 finding 20). COMMAND, a list of strings,
-replaces this Lisp's command line, for testing the runner with fake
-children; FORMS and IMAGE are then unused. Return a plist, of the last try
-when there were several:
+up to START-TRIES times. COMMAND, a list of strings, replaces this Lisp's
+command line, for testing the runner with fake children; FORMS and IMAGE
+are then unused. Return a plist, of the last try when there were
+several:
 - :KILLED, whether the child was killed;
 - :EXIT-CODE, NIL when it was;
 - :REPORTS, CHILD-REPORTS of its output;
@@ -228,13 +227,13 @@ which runs no cleanup. SBCL's EXIT with :ABORT calls it (EXIT's
 docstring); CCL and ECL call it through CFFI, which the child has loaded
 with this suite. A report is flushed before (REPORT-TO-PARENT).
 
-M4 finding 21: a child that loaded this suite and left threads that never
-end -- spinning, sleeping in C, waiting on a semaphore, and deadlocked,
-some with interrupts deferred -- was gone within 17 ms of each form below.
-The other exits fall short. Without :ABORT, SBCL's EXIT waited its 60-
-second *EXIT-TIMEOUT* for those threads. ECL's EXT:QUIT hung for good on a
-thread whose interrupts were deferred, and its EXT:EXIT passed but hung
-after a race. CCL's QUIT took up to 162 ms, and runs cleanup first.
+A child that loaded this suite and left threads that never end --
+spinning, sleeping in C, waiting on a semaphore, and deadlocked, some with
+interrupts deferred -- is gone within milliseconds of each form below. The
+other exits fall short. Without :ABORT, SBCL's EXIT waits its 60-second
+*EXIT-TIMEOUT* for those threads. ECL's EXT:QUIT hangs for good on a thread
+whose interrupts are deferred, and its EXT:EXIT can hang after a race.
+CCL's QUIT is slower, and runs cleanup first.
 A-CHILD-OF-THIS-LISP-REPORTS-BACK-AND-EXITS-PAST-A-RUNNING-THREAD holds each
 form to that: it ends a child past a thread spinning with interrupts
 deferred, within its 30-second limit."
@@ -274,9 +273,9 @@ order."
                collect (parse-integer line)))))
 
 (define-test a-child-that-never-starts-is-killed-and-started-again
-  ;; M2 finding 20: CCL's release binary can hang before any Lisp code
-  ;; runs. This fake never prints the start line: each try is killed at
-  ;; the end of its start window, and the runner gives up after three.
+  ;; CCL's release binary can hang before any Lisp code runs. This fake
+  ;; never prints the start line: each try is killed at the end of its
+  ;; start window, and the runner gives up after three.
   (call-with-temporary-directory
    (lambda (directory)
      (let ((pids (merge-pathnames "pids.txt" directory)))

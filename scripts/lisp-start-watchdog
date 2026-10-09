@@ -6,9 +6,9 @@
 # that output: tests/run.lisp and tests/run-native.lisp print one fixed
 # marker line, flushed, as their first act. CCL 1.13's release binary
 # sometimes hangs inside its own startup, before any Lisp code runs, and
-# is deaf to SIGTERM (finding 20, M2 design §8.5; ADR-0013). On silence
-# this kills the run with SIGKILL and starts it again, up to TRIES times,
-# reporting each attempt on standard error.
+# is deaf to SIGTERM. On silence this kills the run with SIGKILL and
+# starts it again, up to TRIES times, reporting each attempt on standard
+# error.
 #
 # Once the marker appears, or CMD exits on its own (a load error, say,
 # before it ever reaches the marker), the run is never retried past that
@@ -64,9 +64,8 @@ trap 'rm -rf "$workdir"' EXIT
 
 # A run in progress when INT or TERM lands: SIGKILL it -- a hung CCL
 # ignores SIGTERM too -- show what it wrote, and exit with the signal's
-# usual status. Without this, INT or TERM only removed the work
-# directory: a hung run was left waiting forever, and a finished one was
-# orphaned.
+# usual status. Without this, INT or TERM would end the watchdog and leave
+# the run going on its own, a hung one forever.
 #
 # The wrapper records CMD's pid a moment after it starts. A signal in
 # that moment would find no pid file, kill nothing, and leave the run
@@ -119,8 +118,8 @@ while :; do
 
   # The window's last second counts too: one more check, right at the
   # edge, before anything is killed. Without it, a marker written after
-  # the last poll but before the window closed (at 1.6s of a 2s window,
-  # say) was missed, and a perfectly good run was killed and retried.
+  # the last poll but before the window closes (at 1.6s of a 2s window,
+  # say) would be missed, and a perfectly good run killed and retried.
   if [ "$started" -ne 1 ]; then
     if grep -qF -- "$marker" "$out" 2>/dev/null || [ -f "$exitfile" ]; then
       started=1

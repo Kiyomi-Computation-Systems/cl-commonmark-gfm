@@ -4,8 +4,7 @@
 #
 # Blank lines and lines starting with # are ignored. Every case renders with
 # cmark's GFM flag set (-e footnotes -e table -e strikethrough -e autolink
-# -e tagfilter -e tasklist), plus whatever flags are listed here (M1
-# design §7.3).
+# -e tagfilter -e tasklist), plus whatever flags are listed here.
 
 paragraphs paragraphs.md
 headings headings.md

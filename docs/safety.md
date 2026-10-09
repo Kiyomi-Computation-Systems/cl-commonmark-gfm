@@ -73,7 +73,7 @@ Read the three size limits from their variables:
 |----------|----------------|---------|----------|
 | [`*max-input-octets*`](reference.md#max-input-octets) | the Markdown, in UTF-8 octets | 1 MiB | 256 MiB |
 | [`*max-nodes*`](reference.md#max-nodes) | the nodes a parse builds | 1,000,000 | none |
-| [`*max-output-octets*`](reference.md#max-output-octets) | the HTML or text, in UTF-8 octets | 64 MiB | 512 MiB |
+| [`*max-output-octets*`](reference.md#max-output-octets) | the HTML or text cmark-gfm writes, in octets | 64 MiB | 512 MiB |
 
 A call past a limit signals
 [`resource-limit-exceeded`](reference.md#resource-limit-exceeded) before

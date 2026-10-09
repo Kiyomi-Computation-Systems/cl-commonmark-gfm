@@ -1,17 +1,17 @@
-;;;; Witness 3, the XML oracle (M2 design §8.3; ADR-0018; chez-cmark-gfm
-;;;; ADR-0010). A test-only writer prints a copied AST in cmark's XML, as
-;;;; cmark_render_xml prints the tree the AST was copied from. On every
-;;;; enabled corpus example, its output must equal cmark_render_xml's for
-;;;; the same native document, byte for byte. The expectation comes from
-;;;; cmark, so the writer can't be tuned to hide a copier bug.
+;;;; Witness 3, the XML oracle. A test-only writer prints a copied AST in
+;;;; cmark's XML, as cmark_render_xml prints the tree the AST was copied
+;;;; from. On every enabled corpus example, its output must equal
+;;;; cmark_render_xml's for the same native document, byte for byte. The
+;;;; expectation comes from cmark, so the writer can't be tuned to hide a
+;;;; copier bug.
 ;;;;
 ;;;; The writer follows vendor/cmark-gfm's C, not its output: src/xml.c
 ;;;; (cmark_render_xml_with_mem, S_render_node, indent, escape_xml and
 ;;;; MAX_INDENT), src/node.c (cmark_node_get_type_string) and the
 ;;;; extensions' get_type_string and xml_attr functions. cmark's XML hides
-;;;; or adds three things (M2 design finding 13): footnote nodes print as
-;;;; <<unknown>, without their label; align appears on header-row cells
-;;;; only; task items carry completed.
+;;;; or adds three things: footnote nodes print as <<unknown>, without their
+;;;; label; align appears on header-row cells only; task items carry
+;;;; completed.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -29,8 +29,8 @@ first. Each extension's get_type_string gives its own: \"tasklist\"
 is_header is set, \"table_row\" and \"table_cell\" (extensions/table.c);
 \"strikethrough\" (extensions/strikethrough.c). Footnote nodes have no
 extension and no case in cmark_node_get_type_string, which ends in
-\"<unknown>\". :EXTENSION, which can't occur under the pin (M2 design
-§6.2), has no entry: its extension's xml_attr is out of this writer's
+\"<unknown>\". :EXTENSION, which can't occur under the pin (CLASSIFY-NODE
+says why), has no entry: its extension's xml_attr is out of this writer's
 reach."
   (ecase kind
     (:document "document")
@@ -90,7 +90,7 @@ document: two a level, and never more than +XML-MAX-INDENT+."
   "Write NODE's sourcepos attribute, or nothing when NODE has none.
 S_render_node (src/xml.c) writes it only under CMARK_OPT_SOURCEPOS, without
 which the copy holds no positions, and only for a start line other than
-0, which the copy holds as NIL (M2 design §6.4)."
+0, which the copy holds as NIL."
   (let ((sourcepos (node-sourcepos node)))
     (when sourcepos
       (destructuring-bind ((start-line . start-column) . (end-line . end-column)) sourcepos
@@ -210,8 +210,7 @@ children. Any other element closed when it opened."
 (defun ast->cmark-xml (ast)
   "AST in cmark's XML, as cmark_render_xml_with_mem (src/xml.c) prints the
 tree AST was copied from: the XML declaration and doctype, then each node
-as S_render_node writes it. One WALK-AST, so depth costs no stack
-(ADR-0015)."
+as S_render_node writes it. One WALK-AST, so depth costs no stack."
   (with-output-to-string (stream)
     (write-line "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" stream)
     (write-line "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">" stream)
@@ -261,9 +260,9 @@ and CHANGE, as (FILE NUMBER)."
     (is equal '() failures))
   (true (open-counts-zero-p)))
 
-;;; The guard (M2 design §8.3): a comparison that always said "equal" would
-;;; pass the corpus test whatever the copier did. Changing one attribute of
-;;; a copied AST must make the same comparison fail.
+;;; The guard: a comparison that always said "equal" would pass the corpus
+;;; test whatever the copier did. Changing one attribute of a copied AST
+;;; must make the same comparison fail.
 
 (defun mirrored-heading-levels (ast)
   "AST with each heading's level mirrored, 6 for 1, 5 for 2 and so on,
@@ -287,9 +286,9 @@ through COPY-NODE: never the level it had."
       (guard-example-failures #'mirrored-heading-levels)
       "with its heading's level changed, it fails"))
 
-;;; The second witness: tests/fixtures/vocabulary.xml is the pinned CLI's
-;;; `--sourcepos` XML for vocabulary.md under the GFM flags (make
-;;; check-vocabulary), so it doesn't come through this process's
+;;; A second check on the writer: tests/fixtures/vocabulary.xml is the
+;;; pinned CLI's `--sourcepos` XML for vocabulary.md under the GFM flags
+;;; (make check-vocabulary), so it doesn't come through this process's
 ;;; RENDER-XML. vocabulary.md holds every kind but :EXTENSION.
 
 (define-test the-xml-writer-reproduces-the-vocabulary-fixture
@@ -298,8 +297,8 @@ through COPY-NODE: never the level it had."
 
 ;;; The indentation cap. MAX_INDENT (src/xml.c) stops indentation at 40
 ;;; spaces, the 20th level's, so a writer without the cap agrees on every
-;;; shallower tree (chez-cmark-gfm .plans/traps.md). 25 nested block quotes
-;;; put the quotes from the 21st on, their paragraph and its text past it.
+;;; shallower tree. 25 nested block quotes put the quotes from the 21st
+;;; on, their paragraph and its text past it.
 
 (defun nested-quotes (depth)
   "DEPTH block quote markers, then ` deep`: DEPTH nested block quotes
@@ -309,10 +308,9 @@ around one paragraph."
 (define-test the-xml-writer-caps-indentation-at-40-spaces
   (true (xml-oracle-match-p (nested-quotes 25) '() #'identity)))
 
-;;; M3 finding 7: the table extension can rebuild a paragraph with no
-;;; position, giving an inline inside it a negative column. The writer must
-;;; still match cmark's XML once the AST accepts a negative column
-;;; (ADR-0005).
+;;; The table extension can rebuild a paragraph with no position, giving
+;;; an inline inside it a negative column. The AST keeps the column as
+;;; cmark reports it, and the writer must still match cmark's XML.
 
 (define-test the-xml-writer-matches-cmark-for-an-autolink-with-a-negative-column
   (true (xml-oracle-match-p (format nil "a~%www.g~%b~%|-") '() #'identity))

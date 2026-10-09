@@ -1,7 +1,6 @@
 ;;;; Tests for PROPER-LIST-P: proper, dotted, circular, non-list and huge
-;;;; inputs (M2 design §4.6); for the UTF-8 encoder, CHAR-UTF8-OCTETS,
-;;;; UTF8-LENGTH and ENCODE-UTF8; and for the decoder, DECODE-UTF8 (M2
-;;;; design §6.5).
+;;;; inputs; for the UTF-8 encoder, CHAR-UTF8-OCTETS, UTF8-LENGTH and
+;;;; ENCODE-UTF8; and for the decoder, DECODE-UTF8.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -66,9 +65,8 @@
 (define-test proper-list-p-true-for-a-3-000-000-element-list
   (true (proper-list-p (make-list 3000000))))
 
-;;; CHAR-UTF8-OCTETS: encoding-length boundaries (M2 design §6.5). The
-;;; function moved here from the URL helpers; tests/url.lisp keeps
-;;; HREF-ENCODE's own tests, unchanged, plus one new surrogate test.
+;;; CHAR-UTF8-OCTETS: encoding-length boundaries. HREF-ENCODE's own tests,
+;;; its lone surrogate among them, are in tests/url.lisp.
 
 (define-test char-utf8-octets-one-byte-boundary
   (is equal '(#x7F) (char-utf8-octets (code-char #x7F)))
@@ -88,10 +86,9 @@
 (define-test char-utf8-octets-nul-is-one-zero-octet
   (is equal '(0) (char-utf8-octets #\Nul)))
 
-;;; Lone surrogates encode as U+FFFD, EF BF BD, everywhere (M2 design §6.5,
-;;; finding 11). On SBCL and ECL, (CODE-CHAR #xD800) is a character; on CCL
-;;; it is NIL, so CCL asserts that fact instead, so every Lisp still asserts
-;;; something real.
+;;; Lone surrogates encode as U+FFFD, EF BF BD, everywhere. On SBCL and ECL,
+;;; (CODE-CHAR #xD800) is a character; on CCL it is NIL, so CCL asserts that
+;;; fact instead, so every Lisp still asserts something real.
 
 #-ccl
 (define-test char-utf8-octets-lone-surrogate-is-the-replacement-character
@@ -127,9 +124,10 @@
   (false (code-char #xD800)))
 
 ;;; ENCODE-UTF8: the count it returns, and the octets it writes. These build
-;;; their vectors inside a small local helper, never around an assertion
-;;; (M2b plan: large values stay out of assertions; these are tiny, but the
-;;; habit is the same one that matters for the native tests).
+;;; their vectors inside a small local helper, never around an assertion:
+;;; Parachute keeps each assertion's closure, and whatever it captures, until
+;;; the run ends. These vectors are tiny, but the native tests' large values
+;;; need the same habit.
 
 (defun encode-utf8-into-fresh-vector (string)
   "Encode STRING with ENCODE-UTF8 into a freshly made vector sized by
@@ -172,11 +170,11 @@ UTF8-LENGTH, and return (VALUES OCTETS COUNT)."
 (define-test encode-utf8-writes-a-lone-surrogate-as-the-replacement-character
   (false (code-char #xD800)))
 
-;;; DECODE-UTF8 (M2 design §6.5, finding 19): octets to a string, with one
-;;; U+FFFD for each maximal subpart of an ill-formed sequence, as the Unicode
-;;; Standard recommends (§3.9, "U+FFFD Substitution of Maximal Subparts";
-;;; Table 3-7 lists the well-formed byte sequences). DECODE-UTF8 is reached
-;;; through its package: tests/package.lisp doesn't import it.
+;;; DECODE-UTF8: octets to a string, with one U+FFFD for each maximal
+;;; subpart of an ill-formed sequence, as the Unicode Standard recommends
+;;; (§3.9, "U+FFFD Substitution of Maximal Subparts"; Table 3-7 lists the
+;;; well-formed byte sequences). cmark can hand back ill-formed UTF-8, as
+;;; when it cuts a dangling footnote label inside a character.
 
 (defun octets (&rest values)
   "A fresh (UNSIGNED-BYTE 8) vector holding VALUES."
@@ -319,14 +317,14 @@ octets, as a list of (FIRST SECOND)."
                       collect (list first second))))
 
 (define-test decode-utf8-is-never-shorter-in-utf-8-than-its-octets
-  ;; A maximal subpart is 1 to 3 octets and U+FFFD is 3 (M2 design §6.5).
+  ;; A maximal subpart is 1 to 3 octets and U+FFFD is 3.
   (is equal '() (shorter-decodings)))
 
 ;;; DECODE-UTF8's bounds: START and END must satisfy (<= 0 START END
 ;;; (LENGTH OCTETS)), checked before any octet is read, so a bad index
 ;;; signals the same SIMPLE-TYPE-ERROR, naming it, on every Lisp. Unchecked,
-;;; a start past the end decoded nothing, and an index outside the vector
-;;; was left to AREF, which each Lisp reports its own way.
+;;; a start past the end would decode nothing, and an index outside the
+;;; vector would reach AREF, which each Lisp reports its own way.
 
 (defun decode-utf8-bounds-error (start end)
   "What DECODE-UTF8 signals for START and END over four octets, as the list

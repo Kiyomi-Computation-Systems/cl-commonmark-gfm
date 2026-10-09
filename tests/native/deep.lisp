@@ -1,4 +1,4 @@
-;;;; Deep documents through the entry points (M2 design §8.4): the tree path
+;;;; Deep documents through the entry points: the tree path
 ;;;; (MARKDOWN->HTML-TREE then HTML-TREE->STRING) gives the same bytes as
 ;;;; MARKDOWN->HTML, on cmark's own stress inputs -- NESTED-BLOCK-QUOTES,
 ;;;; NESTED-EMPHASIS and NESTED-LISTS, built in tests/native/copier.lisp --
@@ -6,9 +6,9 @@
 ;;;; CMARKS-STRESS-INPUTS-COPY-TO-THEIR-FULL-DEPTH).
 ;;;;
 ;;;; Each comparison is built inside its own TRUE, never bound in a LET
-;;;; around it, so no megabyte-sized string outlives the assertion (M2b
-;;;; plan, "Large values"; .plans/progress.md's global constraint "Tests
-;;;; keep large values out of assertions").
+;;;; around it, so no megabyte-sized string outlives the assertion:
+;;;; Parachute keeps each assertion's closure, and the values it compared,
+;;;; until the run ends.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 

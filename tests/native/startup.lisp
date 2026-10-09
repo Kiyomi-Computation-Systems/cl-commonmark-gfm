@@ -1,5 +1,5 @@
-;;;; Startup (M2 design §5.2, §8.4; ADR-0009): where the libraries come
-;;;; from, what the published state holds, and every startup condition.
+;;;; Startup: where the libraries come from, what the published state
+;;;; holds, and every startup condition.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -13,9 +13,9 @@
         (progn (reset-native-state) ,@body)
      (reset-native-state)))
 
-;;; Discovery, both ways (M2 design §8.4). In the Guix container,
-;;; CL_COMMONMARK_GFM_LIBS names the profile's pair; in CI it is unset and
-;;; the directory search finds Debian's. The test asserts whichever applies.
+;;; Discovery, both ways. In the Guix container, CL_COMMONMARK_GFM_LIBS
+;;; names the profile's pair; in CI it is unset and the directory search
+;;; finds Debian's. The test asserts whichever applies.
 
 (defun environment-override-paths (value)
   "CL_COMMONMARK_GFM_LIBS's VALUE, \"core:extensions\", as (CORE EXTENSIONS)."
@@ -24,14 +24,14 @@
 
 (defun multiarch-directories ()
   "The Linux multiarch directory for this machine's architecture, as a list
-of none or one (ADR-0009)."
+of none or one."
   (case (uiop:architecture)
     (:x64 (list "/usr/lib/x86_64-linux-gnu"))
     (:arm64 (list "/usr/lib/aarch64-linux-gnu"))
     (t '())))
 
 (defun searched-pair ()
-  "The pair ADR-0009's directory search must find on this machine: in the
+  "The pair the directory search must find on this machine: in the
 first of its directories that holds both pinned files, by its table of
 directories and filenames, written out here independently of
 RESOLVE-CMARK-LIBRARIES. NIL when no directory holds both."
@@ -87,21 +87,23 @@ RESOLVE-CMARK-LIBRARIES. NIL when no directory holds both."
       (is = (1+ before) (native-startup-count)))
     (true (native-state-published-p))))
 
-;;; Every startup condition (M2 design §8.4). After each: nothing is
-;;; published, CFFI lists neither library as loaded, nothing is left open,
-;;; and the next ordinary call starts up. On Linux, the loader holds no
-;;; libcmark-gfm, but on CCL exactly the recorded pair (M4 design §5.3).
+;;; Every startup condition. After each: nothing is published, CFFI lists
+;;; neither library as loaded, nothing is left open, and the next ordinary
+;;; call starts up. On Linux, the loader holds no libcmark-gfm, but on CCL
+;;; exactly the recorded pair.
 
-;;; Whether the loader really unloaded cmark-gfm (finding 15): CFFI's own
-;;; books say only what CFFI closed. On Linux, /proc/self/maps lists every
-;;; file the process has mapped, by its real path, so it shows what the
-;;; loader still holds.
+;;; Whether the loader really unloaded cmark-gfm, as starting again in one
+;;; process needs: a core left loaded keeps its registry's entries for an
+;;; extensions library that unloaded, and a later startup can find one
+;;; whose code is gone. CFFI's own books say only what CFFI closed. On
+;;; Linux, /proc/self/maps lists every file the process has mapped, by its
+;;; real path, so it shows what the loader still holds.
 ;;;
-;;; CCL never unloads a library it has called into (M4 finding 2): once
-;;; any startup has called into the pair, both stay mapped for good. So a
-;;; CCL process keeps the first pair it loads, and records its truenames
+;;; CCL never unloads a library it has called into: once any startup has
+;;; called into the pair, both stay mapped for good. So a CCL process keeps
+;;; the first pair it loads, and records its truenames
 ;;; (NATIVE::LOADED-PAIR); on CCL, the mapping checks expect exactly that
-;;; pair, and SBCL's and ECL's still expect nothing.
+;;; pair, and SBCL's and ECL's expect nothing.
 
 #+linux
 (defun mapped-cmark-libraries ()
@@ -163,9 +165,10 @@ and that the next ordinary call starts up."
 
 #+(and linux ccl)
 (define-test a-reset-leaves-exactly-the-recorded-pair-mapped
-  ;; M4 finding 2: the reset closes both, but CCL keeps them mapped. The
-  ;; control first: while a state is published, the recorded pair is two
-  ;; files, and they are what is mapped.
+  ;; The reset closes both, but CCL keeps them mapped, since it never
+  ;; unloads a library it has called into. The control first: while a
+  ;; state is published, the recorded pair is two files, and they are what
+  ;; is mapped.
   (native-state)
   (let ((recorded (sorted-paths (native::loaded-pair))))
     (is = 2 (length recorded) "the recorded pair's files")
@@ -236,9 +239,9 @@ and that the next ordinary call starts up."
         (is equal paths (condition-paths condition)))
       (check-nothing-left-behind paths))))
 
-;;; Step 4, the number cross-check (M3 design §5): once the string check
-;;; passes, cmark_version()'s number must also match
-;;; (VERSION-NUMBER *CMARK-GFM-VERSION*).
+;;; Step 4, the number cross-check: once the string check passes,
+;;; cmark_version()'s number must also match (VERSION-NUMBER
+;;; *CMARK-GFM-VERSION*).
 
 (define-test another-version-number-signals-native-abi-mismatch
   ;; Through the version-number wrapper, once the string check passes.
@@ -318,11 +321,10 @@ and that the next ordinary call starts up."
             "the datum lists the kinds the smoke parse didn't find"))
       (check-nothing-left-behind paths))))
 
-;;; An error from the loaded libraries is a NATIVE-ERROR too (M2 design
-;;; §5.2): one that isn't the project's own, in steps 4 to 8, becomes
-;;; NATIVE-ABI-MISMATCH in step 4 and NATIVE-INITIALIZATION-ERROR in steps
-;;; 5 to 8, its datum the original condition. So does any failure of the
-;;; smoke parse.
+;;; An error from the loaded libraries is a NATIVE-ERROR too: one that
+;;; isn't the project's own, in steps 4 to 8, becomes NATIVE-ABI-MISMATCH
+;;; in step 4 and NATIVE-INITIALIZATION-ERROR in steps 5 to 8, its datum
+;;; the original condition. So does any failure of the smoke parse.
 
 (define-test an-error-reading-the-version-signals-native-abi-mismatch
   ;; Step 4, through the version wrapper: an error that isn't the
@@ -338,9 +340,9 @@ and that the next ordinary call starts up."
           (is equal paths (condition-paths condition))))
       (check-nothing-left-behind paths))))
 
-;;; Not in the suite's process on CCL (M4 design §5.3): there the core
-;;; named twice is another pair than the suite's, which is recorded, so
-;;; startup refuses it before step 4. A fresh child CCL runs it below.
+;;; Not in the suite's process on CCL: there the core named twice is
+;;; another pair than the suite's, which is recorded, so startup refuses it
+;;; before step 4. A fresh child CCL runs it below.
 #-ccl
 (define-test an-override-naming-the-core-twice-signals-native-initialization-error
   ;; The core loads twice and reports the pinned version, so steps 3 and 4
@@ -402,9 +404,10 @@ call, with no override. Return a plist, readable by the parent:
 #+ccl
 (define-test an-override-naming-the-core-twice-signals-native-initialization-error-in-a-child
   ;; As on SBCL and ECL, but in a child CCL, which has loaded no pair, so
-  ;; nothing it holds can answer step 5's call (M4 finding 3). The core
-  ;; named twice is then the child's first pair, so it is recorded, and
-  ;; the next ordinary call names another pair: CCL refuses it.
+  ;; no earlier pair's extensions, still mapped, can answer step 5's call.
+  ;; The core named twice is then the child's first pair, so it is
+  ;; recorded, and the next ordinary call names another pair: CCL refuses
+  ;; it.
   (let* ((core (first (state-paths)))
          (core-truename (native-truename core))
          (ordinary (mapcar #'native-truename (state-paths))))
@@ -437,7 +440,7 @@ call, with no override. Return a plist, readable by the parent:
 
 (define-test a-null-root-in-the-smoke-parse-signals-native-initialization-error
   ;; Step 8's parse runs through WITH-NATIVE-DOCUMENT, whose null root
-  ;; signals NATIVE-PARSE-ERROR (M2 design §5.4 step 4).
+  ;; signals NATIVE-PARSE-ERROR.
   (let ((paths (state-paths)))
     (with-startup-reset
       (let ((condition (with-redefined ((native::%parser-finish (lambda (parser)
@@ -449,13 +452,13 @@ call, with no override. Return a plist, readable by the parent:
               "the datum is the smoke parse's error")))
       (check-nothing-left-behind paths))))
 
-;;; Where a failed startup's condition reaches its caller (M2 design §11):
-;;; after the startup lock is released, with interrupts as the caller had
-;;; them. Signalled under the lock, with interrupts deferred, a caller's
-;;; handler or the debugger would run there: no timeout could land in it,
-;;; and every other thread's call would wait until it was done. Startup is
-;;; reached two ways: by NATIVE-STATE, and by an entry point, which holds
-;;; the state by WITH-NATIVE-STATE.
+;;; Where a failed startup's condition reaches its caller: after the startup
+;;; lock is released, with interrupts as the caller had them. Signalled
+;;; under the lock, with interrupts deferred, a caller's handler or the
+;;; debugger would run there: no timeout could land in it, and every other
+;;; thread's call would wait until it was done. Startup is reached two ways:
+;;; by NATIVE-STATE, and by an entry point, which holds the state by
+;;; WITH-NATIVE-STATE.
 
 (defparameter *failing-calls*
   (list (list 'native-state (lambda () (native-state)))
@@ -475,7 +478,7 @@ startup lock, or :LOCK-HELD when that thread can't have the lock within 2
 seconds. Another thread, so that a caller holding the lock gets
 :LOCK-HELD rather than a recursive lock error. Polls, by CALL-WITH-LOCK-
 WITHIN, since CCL's bordeaux-threads doesn't implement WITH-LOCK-HELD's
-:TIMEOUT (M4 finding 1)."
+:TIMEOUT."
   (thread-outcome
    (make-test-thread
     (lambda ()
@@ -489,8 +492,7 @@ WITHIN, since CCL's bordeaux-threads doesn't implement WITH-LOCK-HELD's
   "Call CALL, a function of no arguments, with MISSING-PAIR as the override.
 Return what a HANDLER-BIND handler of the NATIVE-LIBRARY-NOT-FOUND it
 signals saw, as a plist, or NIL when no handler ran:
-- :INTERRUPTS-ENABLED, INTERRUPTS-ENABLED-P, read on every Lisp (M4
-  finding 1);
+- :INTERRUPTS-ENABLED, INTERRUPTS-ENABLED-P;
 - :HOLDS, HOLDS-READ-ELSEWHERE."
   (let ((seen nil))
     (handler-case
@@ -587,9 +589,9 @@ however this exits. Return a plist:
                    "~(~A~): the other call's own startup was published" name)
                (true (open-counts-zero-p) "~(~A~): nothing open" name)))))
 
-;;; A pathname override (ADR-0009). SBCL's NAMESTRING escapes a * in a
-;;; pathname as \*, so the override must be read as a native namestring:
-;;; the file at that path is the one to load.
+;;; A pathname override. SBCL's NAMESTRING escapes a * in a pathname as
+;;; \*, so the override must be read as a native namestring: the file at
+;;; that path is the one to load.
 
 (defun library-copy-namestrings ()
   "Two native namestrings in the temporary directory, for copies of the
@@ -602,8 +604,8 @@ core and extensions libraries, each name holding a *."
 (defun call-with-library-copies (function)
   "Copy the published pair to LIBRARY-COPY-NAMESTRINGS, with the system's
 cp, through UIOP:RUN-PROGRAM, on native namestrings throughout, so no
-pathname is ever parsed from a name holding a * (M4 finding 4: on ECL, a *
-in a pathname is a wildcard, and UIOP:COPY-FILE on such a path signals
+pathname is ever parsed from a name holding a * (on ECL, a * in a
+pathname is a wildcard, and UIOP:COPY-FILE on such a path signals
 FILE-ERROR before anything is loaded). Call FUNCTION with the copies'
 native namestrings, CORE and EXTENSIONS. Both copies are deleted however
 FUNCTION exits, again by an external command (rm), so cleanup never parses
@@ -619,14 +621,14 @@ one of these paths as a pathname either."
       (dolist (copy copies)
         (uiop:run-program (list "rm" "-f" copy) :ignore-error-status t)))))
 
-;;; Not on ECL (M4 finding 12): ECL parses a * in a pathname as a
-;;; wildcard, so PROBE-FILE finds no file at the copy's pathname though cp
-;;; made it, and discovery signals NATIVE-LIBRARY-NOT-FOUND before anything
-;;; loads. On ECL, an override path holding a * is reported as not found,
-;;; as A-PATHNAME-OVERRIDE-HOLDING-A-STAR-IS-NOT-FOUND-ON-ECL checks.
-;;; Not in the suite's process on CCL (M4 design §5.3): the copies are
-;;; another pair than the suite's, which is recorded, so startup refuses
-;;; them. A fresh child CCL runs it below.
+;;; Not on ECL: ECL parses a * in a pathname as a wildcard, so PROBE-FILE
+;;; finds no file at the copy's pathname though cp made it, and discovery
+;;; signals NATIVE-LIBRARY-NOT-FOUND before anything loads. On ECL, an
+;;; override path holding a * is reported as not found, as
+;;; A-PATHNAME-OVERRIDE-HOLDING-A-STAR-IS-NOT-FOUND-ON-ECL checks.
+;;; Not in the suite's process on CCL: the copies are another pair than
+;;; the suite's, which is recorded, so startup refuses them. A fresh child
+;;; CCL runs it below.
 #-(or ecl ccl)
 (define-test a-pathname-override-holding-a-star-loads-its-native-namestring
   (call-with-library-copies
@@ -685,8 +687,8 @@ which holds a * and is no symbolic link."
 
 #+ecl
 (define-test a-pathname-override-holding-a-star-is-not-found-on-ecl
-  ;; M4 finding 12: the copies exist, but ECL parses each path as wild, so
-  ;; discovery finds no file at the first, the core's, and nothing loads.
+  ;; The copies exist, but ECL parses each path as wild, so discovery finds
+  ;; no file at the first, the core's, and nothing loads.
   (call-with-library-copies
    (lambda (core extensions)
      (with-startup-reset
@@ -698,14 +700,13 @@ which holds a * and is no symbolic link."
            (is equal core (condition-datum condition) "the path not found: the core's copy")))
        (check-nothing-left-behind (list core extensions))))))
 
-;;; CCL: one pair per process (M4 design §5.3; M4 findings 2 and 3). CCL
-;;; never unloads a library it has called into, and CFFI's CCL backend
-;;; looks a foreign name up in whichever library holds it
-;;; (src/cffi-openmcl.lisp), so a later pair could run an earlier pair's
-;;; code. So once both libraries of a pair have loaded, and before any call
-;;; into them, a CCL process records the pair's truenames, the first time,
-;;; and refuses a later pair whose truenames differ. SBCL and ECL unload
-;;; both libraries on close, and keep no record.
+;;; CCL: one pair per process. CCL never unloads a library it has called
+;;; into, and CFFI's CCL backend looks a foreign name up in whichever
+;;; library holds it (src/cffi-openmcl.lisp), so a later pair could run an
+;;; earlier pair's code. So once both libraries of a pair have loaded, and
+;;; before any call into them, a CCL process records the pair's truenames,
+;;; the first time, and refuses a later pair whose truenames differ. SBCL
+;;; and ECL unload both libraries on close, and keep no record.
 
 (define-test ccl-alone-records-the-truenames-of-the-pair-it-loaded
   ;; After a startup: STATE-PATHS starts up when nothing is published.
@@ -720,9 +721,9 @@ which holds a * and is no symbolic link."
 #+ccl
 (define-test a-copy-of-the-pair-at-another-path-is-refused
   ;; The copies are the same files' bytes at other paths: another pair,
-  ;; which this process would run the recorded pair's code for (M4 finding
-  ;; 3). Refused once both have loaded, before any call into them, and
-  ;; closed again, so the loader drops both (M4 finding 2).
+  ;; which this process would run the recorded pair's code for. Refused
+  ;; once both have loaded, before any call into them, and closed again,
+  ;; so the loader drops both.
   (let ((recorded (progn (state-paths) (native::loaded-pair))))
     (true (and (= 2 (length recorded)) (every #'stringp recorded))
           "the control: the suite's pair is recorded: ~S" recorded)
@@ -786,9 +787,9 @@ startup lock, as the library writes it."
 #+ccl
 (define-test the-restore-hook-forgets-the-recorded-pair
   ;; A saved image whose pair CCL didn't reopen forgets the record as it
-  ;; starts: the restore hook clears it with the published state (M4 design
-  ;; §5.3). Called here in the suite's own process, after a reset, which
-  ;; made CCL forget both records, and the record put back.
+  ;; starts: the restore hook clears it with the published state. Called
+  ;; here in the suite's own process, after a reset, which made CCL forget
+  ;; both records, and the record put back.
   (let ((record (progn (state-paths) (pair-record))))
     (true (native::loaded-pair) "the control: a pair is recorded")
     (with-startup-reset
@@ -812,10 +813,11 @@ record it left."
 (define-test the-restore-hook-records-the-pair-ccl-lists-and-maps
   ;; As a saved image starts, CCL reopens by soname every record it lists,
   ;; before the restore hook runs; when it has reopened the pair, the hook
-  ;; records the files it maps (M4 design §5.3; M4 finding 22). Here, in the
-  ;; suite's own process after a reset, a CFFI load of the pair's files
-  ;; lists and maps both records as that reopening does. The record the
-  ;; hook is given names other files, as one saved elsewhere would.
+  ;; records the files it maps, so the image refuses another pair, as any
+  ;; CCL process does. Here, in the suite's own process after a reset, a
+  ;; CFFI load of the pair's files lists and maps both records as that
+  ;; reopening does. The record the hook is given names other files, as
+  ;; one saved elsewhere would.
   (let* ((paths (state-paths))
          (record (pair-record))
          (elsewhere (list :truenames (list "/saved/elsewhere/libcmark-gfm.so"

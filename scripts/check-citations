@@ -1,0 +1,71 @@
+#!/bin/sh
+# scripts/check-citations [DIR]
+#
+# Refuses references to the project's plans outside them. Comments,
+# docstrings and pages describe the code as it is, and say why in their own
+# words (AGENTS.md, "Formatting"), so a reader never needs a document the
+# reference points at. This finds the clearest forms: a decision record's
+# number, a path into the plans' directory, a design's or plan's section, a
+# numbered finding or task, and a milestone's name before design, plan,
+# spec, finding, review, slice, close-out or milestone. It can't find
+# history, a reference in other words, or one a line break splits.
+#
+# DIR is the repository, by default the one this script is in. The check
+# searches the files git tracks or would track, so an ignored file such as
+# one under build/ is skipped, and so is the cmark-gfm submodule. It skips
+# the plans themselves, AGENTS.md and CHANGELOG.md, where references belong,
+# and the legal texts: LICENSE, and NOTICE, which reproduces cmark-gfm's
+# COPYING. The Makefile's PIN_ADR line passes: it is code, naming the
+# decision record check-pins reads.
+#
+# Prints each reference as FILE:LINE:TEXT, then a count, and exits 1. With
+# none, prints how many files it searched and exits 0. Exits 2, after git's
+# own message, when git can't search DIR.
+set -u
+
+dir=${1:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
+
+# Each pattern is assembled from pieces, so this file matches none of them.
+# A possessive's apostrophe is straight or curly; in the C locale, `.` is
+# one byte, and a curly one is three.
+start='(^|[^[:alnum:]_])'
+plans=.pla''ns
+section=$(printf '\302\247')
+possessive="(’s|.s)?"
+pattern="${start}ADR""-[0-9]"
+pattern="$pattern|\\$plans/"
+pattern="$pattern|${start}(design|plan)$possessive $section"
+pattern="$pattern|${start}[Ff]""indings? [0-9]"
+pattern="$pattern|${start}[Tt]""ask [0-9]"
+pattern="$pattern|${start}M""[0-9][ab]?$possessive (design|plan|spec|finding|review|slice|close-out|milestone)"
+
+set -- . ":(exclude)$plans" ':(exclude)AGENTS.md' ':(exclude)CHANGELOG.md' \
+  ':(exclude)LICENSE' ':(exclude)NOTICE' ':(exclude)vendor/cmark-gfm'
+
+if ! files=$(git -C "$dir" ls-files --cached --others --exclude-standard -- "$@"); then
+  echo "check-citations: git can't list the files of $dir" >&2
+  exit 2
+fi
+count=$(printf '%s\n' "$files" | grep -c .)
+
+hits=$(git -C "$dir" grep --untracked -n -I -E -e "$pattern" -- "$@")
+case $? in
+  0) ;;
+  1) hits= ;;
+  *) echo "check-citations: git grep failed in $dir" >&2
+     exit 2 ;;
+esac
+hits=$(printf '%s\n' "$hits" | grep -v -E "^Makefile:[0-9]+:PIN_ADR := \\$plans/decisions/[^ ]+\$" | grep .)
+
+if [ -z "$hits" ]; then
+  if [ "$count" -eq 1 ]; then noun=file; else noun=files; fi
+  echo "check-citations: no references to the plans in $count $noun"
+  exit 0
+fi
+
+printf '%s\n' "$hits"
+n=$(printf '%s\n' "$hits" | grep -c .)
+if [ "$n" -eq 1 ]; then noun=reference; else noun=references; fi
+echo "check-citations: $n $noun to the plans; write out the reason instead" \
+  "(AGENTS.md, \"Formatting\")"
+exit 1

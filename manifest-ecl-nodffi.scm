@@ -1,5 +1,7 @@
-;;; The same toolchain as manifest.scm (ADR-0004), with ECL alone built
-;;; without dynamic FFI (M4 design §6.4; finding 8).
+;;; The same toolchain as manifest.scm, with ECL alone built without
+;;; dynamic FFI. The transformation is applied here, in a manifest of its
+;;; own, since `guix shell`'s --with-configure-flag option leaves a
+;;; manifest's ECL alone.
 ;;;
 ;;; manifest.scm's packages are read from that file -- loaded, not copied,
 ;;; so the two can't drift apart -- and only the "ecl" entry is rewritten,

@@ -34,7 +34,7 @@ jobs:
     steps:
       # actions/checkout needs git and HTTPS certs already in the container:
       # without git, a checkout with submodules: true FAILS outright (it
-      # cannot fall back to the REST API download for submodules) (ADR-0013).
+      # cannot fall back to the REST API download for submodules).
       # ci/install-toolchain.sh runs later, after checkout, and installs the
       # rest of the toolchain (it re-installs these two harmlessly).
       - name: Install git for checkout

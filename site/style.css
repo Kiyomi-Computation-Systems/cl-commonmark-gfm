@@ -1,37 +1,13 @@
-/* chez-cmark-gfm docs site.
+/* cl-commonmark-gfm docs site.
  *
- * Ported from the approved preview artifact (docs-preview.html's <style>
- * block). That mock staged the design inside a fake browser window -- a
- * `.frame` with rounded corners, window dots, and a `.url` bar -- so it
- * could sit centered on a page by itself. The real site IS the window: no
- * frame, no dots, no url bar. `body` carries the Flexoki ground color that
- * used to show through around the frame; `.topbar`/`.main`/`.toc` carry the
- * `--surface`/`--bg` tones the frame used to supply.
+ * site/template.lisp emits the page's frame: .topbar, with its .toggle and
+ * .knob; then .layout, holding .side, with its .mark; .main, with its .col
+ * and .pagenav; and .toc. site/render.lisp wraps each warning blockquote in
+ * a callout div. The Flexoki tokens and font stacks are on :root.
  *
- * Every Flexoki token and font stack below is copied verbatim from the
- * preview's spec (design spec S5). The preview's mock content used a
- * hand-added `.ln` class on prose links and a hand-added `.anchor` permalink
- * glyph on every h2 -- neither exists in the real generator output (see
- * site/template.sls and site/transform.sls), so real content links are
- * styled via `.col a` instead, and no `.anchor` rule is defined. Likewise
- * dropped, because nothing in site/*.sls emits them: `.frame`, `.dot`,
- * `.url`, `.ver`, `.ey`, and the `pre .c`/`pre .k` hand-highlighted spans
- * (cmark's fenced code blocks are one flat text node -- see docs/sxml.md's
- * code-block row -- there is no per-token markup to hook). The preview's
- * `.toggle .knob` (mode-switch icon) and `.pagenav` (prev/next footer) ARE
- * kept -- site/template.sls emits both.
- *
- * Two additions beyond the preview, both using only tokens already defined
- * below (no new colors, no new fonts):
- *   - `ul`/`ol`/`li`: docs/*.md leans on lists throughout; the preview's one
- *     mock page never used one.
- *   - a plain `blockquote` rule: transform.sls only rewraps a blockquote
- *     into `.callout` when it is LED BY the warning glyph (U+26A0); docs/
- *     sxml.md has one blockquote that isn't (line 381), so it renders bare.
- *     `.callout blockquote` cancels this rule's border/padding back out --
- *     transform.sls wraps the SAME blockquote node inside `div.callout`,
- *     so without the override a warning callout would show two nested
- *     left borders.
+ * .callout blockquote cancels the plain blockquote rule's border and
+ * padding: a callout wraps the same blockquote, so it would otherwise show
+ * two nested left borders.
  */
 
 :root{

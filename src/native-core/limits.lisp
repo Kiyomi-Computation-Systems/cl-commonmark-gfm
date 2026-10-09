@@ -39,16 +39,20 @@ non-negative integer, it makes every function that takes Markdown signal a
 TYPE-ERROR.")
 
 (defvar *max-output-octets* 67108864
-  "The most UTF-8 octets MARKDOWN->HTML and MARKDOWN->PLAINTEXT may produce.
-Default 67,108,864 (64 MiB). After parsing and before rendering, each works
-out an upper bound on its output, and signals RESOURCE-LIMIT-EXCEEDED when
-that is above the limit. The bound takes the worst case, such as every
-octet of text escaped as `&quot;` in HTML, so a document can be rejected
-whose output would have fit. Bind it higher for larger documents, up to a
-hard cap of 536,870,912 (512 MiB), half the 1,073,741,823 bytes past which
-a cmark-gfm buffer aborts the process; a higher binding is held to the cap.
-Bound to anything but a non-negative integer, it makes every function that
-takes Markdown signal a TYPE-ERROR, PARSE and MARKDOWN->HTML-TREE included.")
+  "The most octets cmark-gfm may write for MARKDOWN->HTML and
+MARKDOWN->PLAINTEXT. Default 67,108,864 (64 MiB). After parsing and before
+rendering, each works out an upper bound on that output, and signals
+RESOURCE-LIMIT-EXCEEDED when that is above the limit. The bound takes the
+worst case, such as every octet of text escaped as `&quot;` in HTML, so a
+document can be rejected whose output would have fit. Bind it higher for
+larger documents, up to a hard cap of 536,870,912 (512 MiB), half the
+1,073,741,823 bytes past which a cmark-gfm buffer aborts the process; a
+higher binding is held to the cap. Each returns cmark-gfm's output decoded
+as UTF-8, where any ill-formed sequence, which cmark-gfm rarely writes,
+becomes U+FFFD, so the string can be longer in UTF-8 than the octets this
+limits. Bound to anything but a non-negative integer, it makes every
+function that takes Markdown signal a TYPE-ERROR, PARSE and
+MARKDOWN->HTML-TREE included.")
 
 (defconstant +max-output-octets-hard-cap+ 536870912
   "The hard cap on *MAX-OUTPUT-OCTETS*, 536,870,912 (512 MiB), half cmark's

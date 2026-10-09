@@ -1,4 +1,4 @@
-;;;; Tests for AST->HTML-TREE and the footnote pre-pass (M1 design §5).
+;;;; Tests for AST->HTML-TREE and the footnote pre-pass.
 ;;;;
 ;;;; Expected trees are written out whole and compared with EQUAL. Their
 ;;;; strings go through FORMAT first (see TREE), so "~%" is a newline.
@@ -42,7 +42,7 @@ through FORMAT, so that \"~%\" stands for a newline."
 
 (defun expected-ref (label number &optional (k 1))
   "The expected tree for the K-th reference to the footnote labelled LABEL,
-numbered NUMBER (M1 design §5.4)."
+numbered NUMBER."
   (list :sup (list (list :class "footnote-ref"))
         (list :a (list (list :href (format nil "#fn-~A" label))
                        (list :id (if (= k 1)
@@ -53,7 +53,7 @@ numbered NUMBER (M1 design §5.4)."
 
 (defun expected-backref (label number &optional (k 1))
   "The expected backref anchor to the K-th reference to the footnote labelled
-LABEL, numbered NUMBER (M1 design §5.4)."
+LABEL, numbered NUMBER."
   (let ((index (if (= k 1) (format nil "~D" number) (format nil "~D-~D" number k))))
     (list* :a (list (list :href (if (= k 1)
                                     (format nil "#fnref-~A" label)
@@ -154,7 +154,7 @@ signals, or NIL."
           (n :table-row nil (n :table-cell (list :align :left) (txt "r"))))
        (fn-def "note" (para (txt "Note.")))))
 
-;;; The document and its layout (M1 design §5.2)
+;;; The document and its layout
 
 (define-test ast->html-tree-empty-document-is-an-empty-list
   (is equal '() (ast->html-tree (doc))))
@@ -179,7 +179,7 @@ signals, or NIL."
       (ast->html-tree (doc (txt "a") (txt "") (txt "b")))
       "at the top level"))
 
-;;; Block rows of the §5.3 table
+;;; Block kinds
 
 (define-test ast->html-tree-block-quote
   (is equal (tree '((:blockquote nil "~%" (:p nil "a") "~%") "~%"))
@@ -383,7 +383,7 @@ signals, or NIL."
                                 (apply #'n :table-header nil (cells))
                                 (apply #'n :table-row nil (cells))))))))
 
-;;; Inline rows of the §5.3 table
+;;; Inline kinds
 
 (define-test ast->html-tree-text-stays-unescaped-in-the-tree
   (is equal (tree '((:p nil "a & <b> \"c\"") "~%"))
@@ -485,7 +485,7 @@ signals, or NIL."
           (apply #'ast->html-tree ast options)
           "options ~S" options))))
 
-;;; Options (M1 design §5.1)
+;;; Options
 
 (define-test ast->html-tree-rejects-an-odd-length-option-list
   (dolist (options '((:softbreak) (:softbreak :space :raw-html)))
@@ -554,7 +554,7 @@ signals, or NIL."
                         :document-wrapper :section)
         "the footnote section goes inside the wrapper")))
 
-;;; Roots that aren't documents (M1 design §5.1)
+;;; Roots that aren't documents
 
 (define-test ast->html-tree-converts-a-root-as-a-documents-only-child
   (is equal (tree '((:p nil "a") "~%")) (ast->html-tree (para (txt "a"))))
@@ -579,7 +579,7 @@ signals, or NIL."
                     "~%"))
       (ast->html-tree (fn-def "a" (para (txt "see ") (fn-ref "a"))))))
 
-;;; Footnotes (M1 design §5.4)
+;;; Footnotes
 
 (define-test ast->html-tree-footnote-reference-and-section
   (is equal
@@ -699,8 +699,8 @@ signals, or NIL."
       (ast->html-tree (doc (para (txt "x") (fn-ref "A"))
                            (fn-def "a" (para (txt "lower")))))))
 
-;;; The label table (M4 design §5.7): labels are found by LABEL-HASH, and
-;;; the labels that share a hash are told apart with STRING=.
+;;; The label table: labels are found by LABEL-HASH, and the labels that
+;;; share a hash are told apart with STRING=.
 
 (define-test ast->html-tree-footnote-labels-sharing-a-hash-stay-apart
   ;; costarring and liquid share a LABEL-HASH, and so do altarage and zinke.
@@ -893,7 +893,7 @@ take, as (COUNT DISTINCT)."
   ;; first (fnref-b), though the body renders before the section; the body's
   ;; b is the second (fnref-b-2). Keys counted per owner, the body or a
   ;; definition place, agree between the pre-pass and the converter, which
-  ;; meet the references in different orders (M2 design §4.4).
+  ;; meet the references in different orders.
   (is equal
       (tree `((:p nil ,(expected-ref "b" 2 2) ,(expected-ref "a" 1)) "~%"
               ,@(expected-section
@@ -914,7 +914,7 @@ take, as (COUNT DISTINCT)."
       (ast->html-tree (doc (para (txt "x") (fn-ref "café"))
                            (fn-def "café" (para (txt "C")))))))
 
-;;; Extension nodes (M1 design D10)
+;;; Extension nodes
 
 (define-test ast->html-tree-signals-unsupported-extension-node-anywhere
   (let ((extension (n :extension (list :type-name "x"))))

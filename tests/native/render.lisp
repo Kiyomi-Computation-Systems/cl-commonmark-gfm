@@ -1,6 +1,5 @@
-;;;; Rendering (M2 design §5.4, §8.4): cmark's three renderers through a
-;;;; live document, against the pinned CLI's output, and under forced
-;;;; collections.
+;;;; Rendering: cmark's three renderers through a live document, against
+;;;; the pinned CLI's output, and under forced collections.
 
 (in-package #:cl-commonmark-gfm.native-tests)
 
@@ -109,8 +108,8 @@ its own flags as :HTML options."
     (is = (+ buffers 3) (created-buffers))
     (true (open-counts-zero-p))))
 
-;;; Forced collections (M2 design §8.4): the same result every time, with a
-;;; full collection between parses, and between a parse and its render.
+;;; Forced collections: the same result every time, with a full collection
+;;; between parses, and between a parse and its render.
 
 (defun vocabulary-html (&key collect-inside)
   "vocabulary.md rendered to HTML under :gfm, with a full collection between
@@ -138,12 +137,12 @@ with a full collection before each."
         "renders with a collection inside the document's scope")
   (true (open-counts-zero-p)))
 
-;;; The octets cmark wrote (M2 design §5.5, §6.5). Each renderer returns
-;;; them as a second value: what the output bounds bound. A decoded string
-;;; can be longer in UTF-8, by 2 octets for each one-octet maximal subpart
-;;; turned into U+FFFD. The pinned CLI, with the GFM flags, writes
-;;; <p>x [^a, C3, ]</p> and a newline for x [^aé, a line break and
-;;; bbbbbb]: 15 octets (tests/native/renderers.lisp, SPLIT-LABEL-INPUTS).
+;;; The octets cmark wrote. Each renderer returns them as a second value:
+;;; what the output bounds bound. A decoded string can be longer in UTF-8,
+;;; by 2 octets for each one-octet maximal subpart turned into U+FFFD. The
+;;; pinned CLI, with the GFM flags, writes <p>x [^a, C3, ]</p> and a newline
+;;; for x [^aé, a line break and bbbbbb]: 15 octets
+;;; (tests/native/renderers.lisp, SPLIT-LABEL-INPUTS).
 
 (defun render-octets (markdown render entry-point)
   "MARKDOWN rendered by RENDER, a function of a document and checked

@@ -12,8 +12,7 @@
 # Prints one "make GOAL: TOOL not found." line per missing TOOL, to
 # stderr, then one hint line and exits 2:
 #   - guix on PATH, outside any Guix environment: run it in the project's
-#     container, scripts/guix-env, which holds the full toolchain
-#     (ADR-0004);
+#     container, scripts/guix-env, which holds the full toolchain;
 #   - otherwise: install the toolchain, as ci/install-toolchain.sh does on
 #     Debian.
 # Silent, and exits 0, when every TOOL is found.

@@ -16,8 +16,9 @@ output), so no printer variable needs binding here."
 
 (define-test href-encode-every-ascii-code-passes-through-or-is-percent-encoded
   (let ((safe-ascii-characters
-          ;; Alphanumerics, plus -_.+!*(),%#@?=;:/$~, plus & and ' (M1 design
-          ;; §5.5). Written out by hand from the spec, not derived from
+          ;; Alphanumerics, plus -_.+!*(),%#@?=;:/$~, plus & and ': the
+          ;; HREF_SAFE set of vendor/cmark-gfm/src/houdini_href_e.c, with & and
+          ;; ' added. Written out by hand, not derived from
           ;; *HREF-SAFE-PUNCTUATION* or HREF-SAFE-OCTET-P.
           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.+!*(),%#@?=;:/$~&'"))
     (dotimes (code 128)
@@ -59,8 +60,9 @@ output), so no printer variable needs binding here."
   (is string= "%F0%9D%84%9E"
       (cl-commonmark-gfm.html-tree::href-encode (string (code-char #x1D11E)))))
 
-;;; UTF-8 encoding-length boundaries: one below and one at the top of each
-;;; multi-byte range (S5).
+;;; UTF-8 encoding-length boundaries: the smallest and the largest code
+;;; point of the two- and three-byte ranges, and the smallest of the
+;;; four-byte range.
 
 (define-test href-encode-utf8-boundary-two-byte-range-lower
   ;; U+0080 is the smallest code point needing two UTF-8 bytes.
@@ -119,9 +121,9 @@ output), so no printer variable needs binding here."
   (false (cl-commonmark-gfm.html-tree::dangerous-url-p "http://x.org"))
   (false (cl-commonmark-gfm.html-tree::dangerous-url-p "")))
 
-;;; HREF-ENCODE: a lone surrogate (M2 design §6.5, finding 11). On SBCL and
-;;; ECL, (CODE-CHAR #xD800) is a character; on CCL it is NIL, so CCL asserts
-;;; that fact instead, so every Lisp still asserts something real.
+;;; HREF-ENCODE: a lone surrogate. On SBCL and ECL, (CODE-CHAR #xD800) is a
+;;; character; on CCL it is NIL, so CCL asserts that fact instead, so every
+;;; Lisp still asserts something real.
 
 #-ccl
 (define-test href-encode-percent-encodes-a-lone-surrogate-as-the-replacement-character

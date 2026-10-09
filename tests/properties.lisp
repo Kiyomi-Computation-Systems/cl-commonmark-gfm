@@ -1,14 +1,13 @@
-;;;; Property 5, UTF-8 (ADR-0020; M3 design §6.3), and the self tests of
-;;;; tests/property-harness.lisp: splitmix64's known answers, the
-;;;; generators' cross-Lisp checksums and bounds, the shrinker, the harness
-;;;; and the CL_COMMONMARK_GFM_SEED/CL_COMMONMARK_GFM_CASES settings. Pure:
-;;;; runs on SBCL, CCL and ECL.
+;;;; The :UTF8 property, and the self tests of tests/property-harness.lisp:
+;;;; splitmix64's known answers, the generators' cross-Lisp checksums and
+;;;; bounds, the shrinker, the harness and the
+;;;; CL_COMMONMARK_GFM_SEED/CL_COMMONMARK_GFM_CASES settings. Pure: runs on
+;;;; SBCL, CCL and ECL.
 ;;;;
 ;;;; Parachute keeps every assertion's closure, and the values it compared,
-;;;; until the run ends (progress.md's global constraints). So each helper
-;;;; here makes its own cases and returns a small summary: a checksum, a
-;;;; count, or a short list of reasons. No assertion holds a generated
-;;;; input.
+;;;; until the run ends. So each helper here makes its own cases and returns
+;;;; a small summary: a checksum, a count, or a short list of reasons. No
+;;;; assertion holds a generated input.
 
 (in-package #:cl-commonmark-gfm.tests)
 
@@ -239,7 +238,7 @@ for octets."
   (is = 33 (length (oracle-option-sets))))
 
 (defun corpus-oracle-option-sets ()
-  "The option sets M2b's HTML oracle compares, read from the corpus as
+  "The option sets the HTML oracle compares, read from the corpus as
 HTML-ORACLE-MISMATCH-P builds them (tests/native/oracles.lisp): each
 distinct example options plist, in the corpus's order, under each
 :SOFTBREAK value of the oracle's *SOFTBREAK-VALUES*."
@@ -756,8 +755,7 @@ lines, and whether it is the settings line for the seed it set."
   ;; Not only a random seed: a report must say what to replay, every time.
   (is equal '(:lines 1 :names-the-seed t) (printed-settings)))
 
-;;; Property 5: UTF-8 (M3 design §6.3; ADR-0020), over the octet generator's
-;;; vectors:
+;;; The :UTF8 property, over the octet generator's vectors:
 ;;; - DECODE-UTF8 returns on every vector;
 ;;; - decoding, encoding the result and decoding again gives the first
 ;;;   decoding's string;
@@ -816,8 +814,8 @@ of ~D (~D after)"
                        what index (length string) (length again)))))))
 
 (defun utf8-property (input options)
-  "Property 5 on INPUT, an octet vector; OPTIONS are ignored. :PASS when
-DECODE-UTF8 returns a string, that string survives ENCODE-UTF8 then
+  "The :UTF8 property on INPUT, an octet vector; OPTIONS are ignored. :PASS
+when DECODE-UTF8 returns a string, that string survives ENCODE-UTF8 then
 DECODE-UTF8 unchanged, and so does INPUT's SCALAR-STRING; otherwise :FAIL,
 with a detail saying which and where."
   (declare (ignore options))
@@ -851,8 +849,8 @@ lone continuations and octets no sequence starts with."
             (#xCF #xFF #xFF) (#xFF #xFF #xFF))))
 
 (defun crafted-utf8-outcomes ()
-  "Property 5's outcome on each CRAFTED-OCTET-VECTORS vector that didn't
-pass, as (INDEX OUTCOME DETAIL)."
+  "The :UTF8 property's outcome on each CRAFTED-OCTET-VECTORS vector that
+didn't pass, as (INDEX OUTCOME DETAIL)."
   (loop for octets in (crafted-octet-vectors)
         for index from 0
         for (outcome detail) = (multiple-value-list (run-case 'utf8-property octets '()))
@@ -915,8 +913,8 @@ pads with zeros to the length UTF8-LENGTH counts."
     (length octets)))
 
 (defun broken-encoder-run ()
-  "Property 5 over 200 cases from seed 1, with ENCODE-UTF8 replaced by
-QUESTION-MARK-ENCODER: how many failed, and the shrunk input's length."
+  "The :UTF8 property over 200 cases from seed 1, with ENCODE-UTF8 replaced
+by QUESTION-MARK-ENCODER: how many failed, and the shrunk input's length."
   (let ((summary (call-with-redefined 'encode-utf8 #'question-mark-encoder
                                       (lambda ()
                                         (run-property :utf8 :generator :octets :seed 1
@@ -931,11 +929,11 @@ QUESTION-MARK-ENCODER: how many failed, and the shrunk input's length."
     (true (plusp failed) "~D of 200 cases failed" failed)
     (is = 1 shrunk-length)))
 
-;;; The real property test (M3 plan, Task 9): one Parachute test, one
-;;; assertion over its summary's problems (SUMMARY-PROBLEMS), so a run that
-;;; failed a case, or passed none, fails. The description is SUMMARY-REPORT,
-;;; with all a replay needs, made before the assertion runs: the closure
-;;; keeps only the short list of problems, no generated input.
+;;; The real property test: one Parachute test, one assertion over its
+;;; summary's problems (SUMMARY-PROBLEMS), so a run that failed a case, or
+;;; passed none, fails. The description is SUMMARY-REPORT, with all a
+;;; replay needs, made before the assertion runs: the closure keeps only the
+;;; short list of problems, no generated input.
 
 (defparameter *property-tests* '(utf8-property-holds)
   "The property tests' names, properties only, for `make fuzz` to run alone

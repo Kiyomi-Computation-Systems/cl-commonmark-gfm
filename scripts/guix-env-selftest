@@ -2,7 +2,7 @@
 # Runs INSIDE the pinned container, as `make check-guix-inside`. Not a
 # launcher: `make check-guix` runs tests/guix-env-launcher.sh on the host,
 # then this through scripts/guix-env. Asserts what the environment exists
-# for (ADR-0004). Each failure names its assertion.
+# for. Each failure names its assertion.
 set -u
 
 if [ -z "${GUIX_ENVIRONMENT:-}" ]; then
@@ -44,7 +44,7 @@ for mode in -lc -lic; do
   done
 done
 
-# Assertion 3: the cmark-gfm in the profile is the pinned release (ADR-0002),
+# Assertion 3: the cmark-gfm in the profile is the pinned release,
 # from the store, core and extensions both.
 want=${CMARK_GFM_VERSION:?CMARK_GFM_VERSION unset: run through make check-guix-inside}
 got=$(pkg-config --modversion libcmark-gfm 2>/dev/null)
@@ -61,12 +61,11 @@ for lib in libcmark-gfm libcmark-gfm-extensions; do
   esac
 done
 
-# Assertion 4: CL_COMMONMARK_GFM_LIBS, which guix-env-enter exports
-# (ADR-0009), is exactly the pinned pair by absolute path: two
-# colon-separated entries, each an existing regular file whose basename
-# exactly matches the pinned core or extensions filename (so order
-# matters: core first, extensions second), each resolving under
-# /gnu/store.
+# Assertion 4: CL_COMMONMARK_GFM_LIBS, which guix-env-enter exports, is
+# exactly the pinned pair by absolute path: two colon-separated entries,
+# each an existing regular file whose basename exactly matches the pinned
+# core or extensions filename (so order matters: core first, extensions
+# second), each resolving under /gnu/store.
 check_override_entry() {
   # $1 = label ("core"/"ext"), $2 = path, $3 = expected basename
   label=$1; path=$2; expected_base=$3
@@ -114,7 +113,7 @@ for v in XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME OCICL_PREFIX; do
 done
 
 # Assertion 6: ocicl is the pinned release, built by `make ocicl`, and it is
-# the one on PATH (ADR-0003).
+# the one on PATH.
 want=${OCICL_TAG:?OCICL_TAG unset: run through make check-guix-inside}
 p=$(command -v ocicl)
 if [ "$p" = "$PWD/.guix-env/bin/ocicl" ]; then
@@ -131,7 +130,7 @@ fi
 
 # Assertion 7: a CFFI-style load by bare name finds the profile's
 # libraries. cmark-gfm itself is loaded by absolute path only, never by
-# bare name (ADR-0009, cmark-override above); what this dlopen-by-name
+# bare name (cmark-override above); what this dlopen-by-name
 # check guards is LD_LIBRARY_PATH staying set for ocicl's own libcrypto,
 # whose TLS depends on it.
 if sbcl --non-interactive --no-userinit \
