@@ -20,4 +20,4 @@
    ;; What the Makefile and scripts shell out to. The container has nothing
    ;; else.
    "bash" "coreutils" "make" "git" "grep" "sed" "gawk" "findutils"
-   "diffutils" "nss-certs"))
+   "diffutils" "tar" "nss-certs"))

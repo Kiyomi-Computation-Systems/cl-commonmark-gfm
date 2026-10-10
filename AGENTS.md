@@ -91,6 +91,10 @@
   * In an exported docstring, put backquotes around typed text that
     names no symbol, such as a file name or `data-sourcepos`: the
     reference shows it as code, as written.
+* `.gitattributes` keeps developer-only files out of a release's archive,
+  which ocicl packages: users get `src/`, `docs/`, the system file,
+  README.org, LICENSE, NOTICE and CHANGELOG.md. Mark a new developer-only
+  file or directory `export-ignore`; `make check-package` checks the list.
 * `Makefile` should have a `help` command which lists all of its commands
 
 ### Testing & mutation discipline

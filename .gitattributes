@@ -1,0 +1,22 @@
+# What a release leaves out. GitHub's archive of a tag skips each
+# export-ignore path, and ocicl packages that archive, so users get only
+# the library's sources, its system file, its pages, README.org, LICENSE,
+# NOTICE and CHANGELOG.md. `make check-package` checks the list.
+/.gitattributes export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.gitmodules export-ignore
+/.plans export-ignore
+/AGENTS.md export-ignore
+/channels.scm export-ignore
+/ci export-ignore
+/CONTRIBUTING.md export-ignore
+/Makefile export-ignore
+/manifest-ecl-nodffi.scm export-ignore
+/manifest.scm export-ignore
+/ocicl.csv export-ignore
+/scripts export-ignore
+/SECURITY.md export-ignore
+/site export-ignore
+/tests export-ignore
+/vendor export-ignore

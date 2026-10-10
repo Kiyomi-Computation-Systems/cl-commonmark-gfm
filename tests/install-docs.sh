@@ -23,14 +23,15 @@
 #
 # ocicl can't install cl-commonmark-gfm until the library is published. So
 # unless STAND_IN=0, the test stands in for the page's one line `ocicl
-# install cl-commonmark-gfm`: it unpacks the working tree's tracked files
-# where ocicl puts a system, ocicl/cl-commonmark-gfm-0.0.0/, and writes the
-# ocicl.csv row ocicl would. The files are made into an archive on the
-# host, by `git stash create` and `git archive`, and passed in on stdin,
-# so the container needs no git of its own, a page whose steps forget git
-# can't pass, and the host keeps no copy of the archive. ocicl's
-# runtime then fetches the library's dependencies at its first load, as it
-# would after the real step.
+# install cl-commonmark-gfm`: it unpacks the files a release ships, the
+# working tree's tracked files less those .gitattributes leaves out of an
+# archive, where ocicl puts a system, ocicl/cl-commonmark-gfm-0.0.0/, and
+# writes the ocicl.csv row ocicl would. The files are made into an archive
+# on the host, by `git stash create` and `git archive`, and passed in on
+# stdin, so the container needs no git of its own, a page whose steps
+# forget git can't pass, and the host keeps no copy of the archive.
+# ocicl's runtime then fetches the library's dependencies at its first
+# load, as it would after the real step.
 #
 # Environment:
 #   STAND_IN=0       run the page's `ocicl install cl-commonmark-gfm`

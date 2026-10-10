@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/Kiyomi-Computation-Systems/cl-commonmark-gfm/security/advisories/new
+    about: Please report security issues privately, as SECURITY.md says.

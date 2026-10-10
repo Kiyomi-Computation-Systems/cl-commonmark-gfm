@@ -1,13 +1,14 @@
 #!/bin/sh
 # Tests the Makefile's fail-fast tool checks (scripts/require-tools, wired
 # into deps, check-vocabulary, check-fixtures, fixtures-html, run-suite,
-# check-ecl-static, check-citations, and the site's check-site, site,
-# reference, check-reference and check-docs), check-ecl-static's search for
-# cmark-gfm's static archives, check-ecl-nodffi-inside's hint on a Guix
-# host, and the native runners' own library check (tests/run-native.lisp,
-# tests/run-native-fuzz.lisp). `make check-preflight` runs this; it is
-# mostly shell and fast, but case (h) below runs one real Lisp. Checks name
-# themselves, and the exit status is non-zero if any failed.
+# check-ecl-static, check-citations, check-package, and the site's
+# check-site, site, reference, check-reference and check-docs),
+# check-ecl-static's search for cmark-gfm's static archives,
+# check-ecl-nodffi-inside's hint on a Guix host, and the native runners'
+# own library check (tests/run-native.lisp, tests/run-native-fuzz.lisp).
+# `make check-preflight` runs this; it is mostly shell and fast, but case
+# (h) below runs one real Lisp. Checks name themselves, and the exit
+# status is non-zero if any failed.
 #
 # make exits 2 whenever a recipe fails, whatever the recipe's own status.
 # So a case that pins a recipe's exit status checks make's report of it,
@@ -396,6 +397,16 @@ run_make check-citations
 check "w check-citations, no git: its recipe exits 2" recipe_failed_with check-citations 2
 check "w check-citations: names git" has "git not found"
 check "w check-citations: hints make check-citations" has "make check-citations"
+
+# (x) make check-package, no git or tar: fails, naming both, before the
+# check runs.
+fresh_case
+guix_environment=
+run_make check-package
+check "x check-package, no git or tar: its recipe exits 2" recipe_failed_with check-package 2
+check "x check-package: names git" has "git not found"
+check "x check-package: names tar" has "tar not found"
+check "x check-package: hints make check-package" has "make check-package"
 
 # (h) the native library check: only with a real sbcl and ocicl/'s
 # dependencies in place, since it runs make for real, on the real PATH,
