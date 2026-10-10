@@ -170,23 +170,58 @@ and isn't a directory. A probe that fails counts as no file."
 
 (defun library-designator (path)
   "PATH, an absolute native namestring, in the form
-CFFI:LOAD-FOREIGN-LIBRARY must be given to open that very file. CFFI hands
-a string to the Lisp's own loader as it is. SBCL's LOAD-SHARED-OBJECT
-parses it as a Lisp namestring (SBCL's src/code/foreign-load.lisp), where
-* and ? are wildcards, so SBCL gets a pathname parsed from the native
-namestring, which CFFI writes back escaped and SBCL reads back exactly.
-CCL's OPEN-SHARED-LIBRARY opens the string itself."
+CFFI:LOAD-FOREIGN-LIBRARY, or SBCL's LOAD-SHARED-OBJECT, must be given to
+open that very file. CFFI hands a string to the Lisp's own loader as it
+is. SBCL's LOAD-SHARED-OBJECT parses a string as a Lisp namestring (SBCL's
+src/code/foreign-load.lisp), where * and ? are wildcards, so SBCL gets a
+pathname parsed from the native namestring, which CFFI writes back
+escaped and SBCL reads back exactly. CCL's OPEN-SHARED-LIBRARY opens the
+string itself."
   #+sbcl (uiop:parse-native-namestring path)
   #-sbcl path)
 
+#+sbcl
+(defun load-shared-library (path)
+  "Load the shared library at PATH, an absolute native namestring, with
+SBCL's LOAD-SHARED-OBJECT, in this thread, and return a CFFI object for it,
+recorded as CFFI:LOAD-FOREIGN-LIBRARY records one: registered under a new
+name, its handle what SBCL returned, and its load state :EXTERNAL (CFFI's
+src/libraries.lisp, %DO-LOAD-FOREIGN-LIBRARY). So CFFI closes and lists it
+as any other.
+
+Not CFFI's own load: on macOS, CFFI's SBCL backend hands every load to the
+initial thread, by interrupting it, and waits for the load (CFFI's
+src/cffi-sbcl.lisp, CALL-WITHIN-INITIAL-THREAD). Startup loads holding
+*STARTUP-LOCK*, and a thread waiting for that lock defers interrupts, so a
+startup in another thread would wait for good while the initial thread
+waited for the lock, or ran any other code that defers interrupts. CFFI
+does that for Apple's frameworks, such as CoreFoundation, which crashed
+when loaded from another thread; cmark-gfm's libraries need nothing from
+the initial thread. Every SBCL loads this way, so Linux runs the code
+macOS does."
+  (let* ((designator (library-designator path))
+         (handle (sb-alien:load-shared-object designator))
+         (name (gensym (format nil "~:@(~A~)-" (file-namestring designator))))
+         (library (make-instance 'cffi:foreign-library
+                                 :type :system
+                                 :name name
+                                 :spec `((t ,(namestring designator)))
+                                 :handle handle
+                                 :load-state :external)))
+    (setf (slot-value library 'cffi::pathname) designator
+          (cffi::get-foreign-library name) library)
+    library))
+
 (defun load-library (path override override-name)
   "Load the shared library at PATH, an absolute native namestring, and
-return CFFI's object for it. Any load error signals
+return CFFI's object for it: on SBCL, by LOAD-SHARED-LIBRARY, in this
+thread; elsewhere, by CFFI:LOAD-FOREIGN-LIBRARY. Any load error signals
 NATIVE-LIBRARY-NOT-FOUND, naming PATH and carrying the loader's message,
 with OVERRIDE, the override in effect, kept. Its reason says where PATH
 came from: OVERRIDE-NAME, the name of the override that gave it, or the
 directory search when OVERRIDE-NAME is NIL."
-  (handler-case (cffi:load-foreign-library (library-designator path))
+  (handler-case #+sbcl (load-shared-library path)
+                #-sbcl (cffi:load-foreign-library (library-designator path))
     (error (condition)
       (error 'native-library-not-found
              :operation 'start-native-layer
