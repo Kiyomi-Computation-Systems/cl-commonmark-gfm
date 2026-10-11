@@ -469,3 +469,42 @@ condition a reset signalled."
     (is equal '() other "what the resets signalled, but NATIVE-STATE-HELD")
     (true (plusp held) "resets that signalled: ~D, resets that closed: ~D" held closed))
   (true (open-counts-zero-p)))
+
+;;; A startup in another thread while the initial thread defers interrupts.
+;;; On macOS, CFFI's SBCL backend hands every library load to the initial
+;;; thread, by interrupting it, and waits for the load (CFFI's
+;;; src/cffi-sbcl.lisp, CALL-WITHIN-INITIAL-THREAD). A thread waiting for
+;;; *STARTUP-LOCK* defers interrupts, so a startup that loaded that way
+;;; would wait for good while the initial thread waited for the lock. Here
+;;; the initial thread waits for the startup with interrupts deferred, and
+;;; a timeout, so a load that needs the initial thread fails the test
+;;; instead of hanging the run: once the wait ends, the interrupt runs, and
+;;; the worker finishes.
+
+(defparameter *initial-thread-wait* 30
+  "Seconds the initial thread waits, with interrupts deferred, for a
+startup in another thread.")
+
+(defun start-up-while-the-initial-thread-waits ()
+  "Reset, then start a thread whose first call starts the native layer, and
+wait for it with interrupts deferred. Return (IN-TIME OUTCOME): whether
+the thread finished its call within *INITIAL-THREAD-WAIT*, and what it
+returned, or (:SIGNALLED CONDITION)."
+  (with-startup-reset
+    (let* ((finished (bt2:make-semaphore :name "startup worker finished"))
+           (worker (make-test-thread (lambda ()
+                                       (unwind-protect (markdown->html "*started*")
+                                         (bt2:signal-semaphore finished)))
+                                     :name "startup worker"))
+           (in-time (native::with-interrupts-deferred
+                      (and (bt2:wait-on-semaphore finished :timeout *initial-thread-wait*) t))))
+      (list in-time (thread-outcome worker)))))
+
+(define-test a-startup-in-another-thread-needs-nothing-from-the-initial-thread
+  #+sbcl
+  (true (eq sb-thread:*current-thread* sb-thread::*initial-thread*)
+        "the control: the test runs in the initial thread")
+  (destructuring-bind (in-time outcome) (start-up-while-the-initial-thread-waits)
+    (true in-time "the worker started up while the initial thread deferred interrupts")
+    (is equal (format nil "<p><em>started</em></p>~%") outcome))
+  (true (open-counts-zero-p)))

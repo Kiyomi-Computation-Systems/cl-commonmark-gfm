@@ -15,7 +15,10 @@
   search and loading, and its state's paths are `:linked`;
   `dynamic-ffi-unavailable` is signalled only on an ECL without `:dffi`
   whose native layer isn't linked, with datum `:dffi` and a reason saying
-  how to link cmark-gfm in instead
+  how to link cmark-gfm in instead; amended 2026-10-10 by ADR-0023: SBCL
+  loads each library with its own `load-shared-object`, in the calling
+  thread, and records it as CFFI would, since CFFI on macOS runs every
+  SBCL load in the initial thread
 - **Date:** 2026-09-27
 - **Scope:** native library discovery, loading, initialization
 - **Spec:** [M0 close design](../2026-09-27-m0-close-design.md) §3.2
