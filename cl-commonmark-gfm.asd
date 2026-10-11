@@ -15,6 +15,7 @@
 
 (asdf:defsystem "cl-commonmark-gfm"
   :description "cmark-gfm bindings for Common Lisp"
+  :version "0.1.0"
   :license "BSD-3-Clause"
   :depends-on ("cl-commonmark-gfm/native" "cl-commonmark-gfm/html-tree")
   :serial t

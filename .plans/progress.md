@@ -423,18 +423,33 @@ sweep's "for later" items 3 and 6:
 
 **For the release,** a later M5 step:
 
-- [ ] Check what the release's ocicl step packages. If ocicl packages the
+- [x] Check what the release's ocicl step packages. If ocicl packages the
   whole repository, `site/cl-commonmark-gfm-site.asd` ships in it, and a
-  recursive source registry would find it (M5a's first review)
+  recursive source registry would find it (M5a's first review). It did;
+  `.gitattributes` now keeps every developer-only path out (PR #18)
+- [ ] Ask ocicl to add the library in release mode: the package's source
+  is `file:` the GitHub archive of the tag, with `| version |`. ocicl
+  watches the latest GitHub Release, so publish a Release for each
+  `vX.Y.Z` tag, not only the tag
+- [x] Private vulnerability reporting, the Pages source (GitHub Actions)
+  and the `github-pages` environment's `v*` tag rule: set 2026-10-11,
+  once the repository was public. A Pages run by hand on `main`
+  (`23a5fae`) built 11 pages and skipped the deploy
+- [ ] CHANGELOG.md's 0.1.0 entry, and `:version "0.1.0"` (branch
+  `release/0.1.0`)
+- [ ] Tag `v0.1.0`, and publish its GitHub Release
 - [ ] Rerun M5b's exit test with the real `ocicl install
   cl-commonmark-gfm`, in both modes: `STAND_IN=0 tests/install-docs.sh
   debian`, then `source` (M5 design D10)
-- [ ] In the manual macOS run, try the two paths `docs/` gives but no one
+- [x] In the manual macOS run, try the two paths `docs/` gives but no one
   has run (M5 finding 47), and update `installing.md` and `ecl.md`:
-  - CCL on Apple silicon, with an Intel Homebrew's cmark-gfm under
-    Rosetta, named with `CL_COMMONMARK_GFM_LIBS`;
-  - Homebrew's ECL (26.5.5): `(find :dffi *features*)`, and `ecl.md`'s
-    linked recipe
+  - CCL on Apple silicon: not tried. The maintainer chose not to install
+    Rosetta on the test Mac, so `support.md` marks CCL on Apple silicon
+    "Untested" for 0.1.0, and `installing.md`'s steps still say they
+    haven't been tried;
+  - Homebrew's ECL 26.5.5: its dynamic FFI works, since the native suite
+    passed on it. `ecl.md`'s linked recipe wasn't run, and the page still
+    says it hasn't been tried on macOS
 - [ ] Link the site from README.org's Documentation section once it is
   live
 
@@ -476,9 +491,97 @@ The record:
 Record each run: date, macOS and chip, Lisp versions, cmark-gfm version,
 result.
 
-_None yet._
+### 2026-10-10/11 — before 0.1.0
+
+- **Machine:** Apple silicon (`arm64`); macOS version not recorded.
+- **Toolchain** (`make info`): SBCL 2.6.5, ECL 26.5.5, cmark-gfm
+  0.29.0.gfm.13 from Homebrew, ocicl 2.16.13. No CCL: the maintainer
+  chose not to install Rosetta, so CCL on Apple silicon stays
+  "Untested".
+- **First run, on `main` at `9a8ec5c`:**
+  - `make test` stopped at `check-purity`, which needs CCL by default.
+    The clone had no submodule, so the native suites failed on a missing
+    `vendor/cmark-gfm/src/cmark-gfm.h`, and so did preflight case (h).
+    With `git submodule update --init`, case (h) passed.
+  - `make test LISPS="sbcl ecl"`: the pure suite (584 tests) and the
+    fixtures passed. SBCL's native suite then hung, in
+    `closing-while-a-worker-renders-never-harms-it`, at 0% CPU, with
+    Ctrl-C ignored.
+  - **The cause:** CFFI's SBCL backend runs every library load on macOS
+    in the initial thread (`call-within-initial-thread`). A worker
+    restarting cmark-gfm under `*startup-lock*` waited for that load,
+    while the initial thread waited for the lock with interrupts
+    deferred. Found with `sample`, a watchdog thread reporting each
+    thread's wait and each lock's owner, and `trace` of the startup
+    steps. ADR-0023 records the fix.
+- **With the fix** (branch `fix/sbcl-macos-library-load`, `cd2f141`,
+  PR #19):
+  - the new test, `a-startup-in-another-thread-needs-nothing-from-the-initial-thread`,
+    failed without the fix, on its timeout, and passed with it, in
+    0.027 s;
+  - the reset race test ran 5 times under the watchdog, all finished;
+  - ECL's native suite passed: 190 tests, 1450 assertions, in 4 min 42 s.
+    Linux runs one more, `a-reset-unmaps-both-libraries`, which reads
+    `/proc/self/maps`.
+- **Not run:** `make check-ecl-static` and `ecl.md`'s linked recipe on
+  macOS. The last lines of `make test LISPS="sbcl ecl"` with the fix
+  weren't reported.
 
 ## Close-outs
+
+### 2026-10-11 — The SBCL loading fix (PR #19, `23a5fae`)
+
+- **Done:** on SBCL, `load-library` loads each library with
+  `sb-alien:load-shared-object` in the calling thread
+  (`load-shared-library`), and records it as CFFI's own loader does.
+  ADR-0023 records why: on macOS, CFFI's SBCL backend runs every load in
+  the initial thread, so a startup in another thread deadlocked with an
+  initial thread waiting for `*startup-lock*`. The manual macOS run
+  found it (see Manual macOS runs).
+- **Test:** `a-startup-in-another-thread-needs-nothing-from-the-initial-thread`
+  waits, with interrupts deferred and a 30 s timeout, for a worker's
+  first call. It failed on the Mac without the fix and on Linux with
+  `load-library` handing its load to the initial thread; it passes
+  otherwise.
+- **Evidence:** Linux, in the container: `make test`, and the native
+  suites on SBCL (200), CCL (210) and ECL (191). The Mac: the new test,
+  and ECL's native suite (190). `main`'s run on the merge (38141738804):
+  green, 25 min 34 s.
+- **For later:**
+  - under SBCL's `trace`, each restart showed `load-library` "exited
+    non-locally", on Linux before the fix too; a wrapper without `trace`
+    saw no early exit and no condition;
+  - nothing on macOS checks that a reset unmaps both libraries, as the
+    Linux-only `a-reset-unmaps-both-libraries` does with
+    `/proc/self/maps`; `vmmap` could.
+
+### 2026-10-10 — Release packaging and contributor guides (PR #18, `9be708f`)
+
+- **Done:**
+  - `.gitattributes` marks every developer-only path `export-ignore`, so
+    GitHub's archive of a tag, which ocicl packages in release mode,
+    holds only `src/`, `docs/`, the system file, README.org, LICENSE,
+    NOTICE and CHANGELOG.md: 49 files, 125 KB, one `.asd`.
+    `make check-package`, in `make test`, checks the list; the Guix
+    container gained `tar` for it, and the preflight case (x).
+  - CONTRIBUTING.md, SECURITY.md, a pull request template, bug and
+    feature issue templates with a private-report link, and a README
+    for potential users. The maintainer chose Conventional Commits for
+    titles from here on.
+- **The ocicl check:** ocicl's own build image (`ocicl-sandbox`, SBCL
+  2.5.3), run locally on its own script, built the library in git mode,
+  in release mode and on the filtered archive; a broken archive failed
+  it. In git mode ocicl tracks the default branch's HEAD every 6 hours;
+  release mode tracks the latest GitHub Release.
+- **Evidence:** the exit test's stand-in, both modes; `make test` in the
+  container; `main`'s steps and the Pages build in `debian:trixie`; the
+  Debian setup in CONTRIBUTING.md as a non-root sudo user. An Opus
+  review of the guides (about 99k tokens, 2.5 min) found one must-fix
+  and 18 smaller items, all fixed.
+- **For later:** `tests/install-docs.sh` falls back to `HEAD` silently
+  when `git stash create` fails, as it does with intent-to-add files;
+  `make test` should say to run `git submodule update --init` when
+  `vendor/cmark-gfm` is empty.
 
 ### 2026-10-09 — The citation cleanup (branch `m5-cleanup-citations`)
 
