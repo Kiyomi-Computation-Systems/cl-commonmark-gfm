@@ -50,7 +50,7 @@ FIXTURES_FLAGS := -e footnotes -e table -e strikethrough -e autolink \
                   -e tagfilter -e tasklist
 
 # MUST stay on one physical line: check-help reads it with awk, one line only.
-.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight check-citations test fuzz check-site site reference check-reference check-docs check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
+.PHONY: help check-help info deps ocicl check-vocabulary check-pins check-notice check-purity check-native check-fixtures fixtures-html check-watchdog check-preflight check-citations check-package test fuzz check-site site reference check-reference check-docs check-guix check-guix-inside check-ecl-static check-ecl-nodffi check-ecl-nodffi-inside clean
 
 # The name column is as wide as the longest target's name.
 help: ## Show this help message
@@ -332,7 +332,13 @@ check-citations: ## Test scripts/check-citations, then refuse references to the 
 	@scripts/require-tools "$(GOAL)" git
 	@sh tests/check-citations.sh && sh scripts/check-citations
 
-test: check-watchdog check-preflight check-purity check-fixtures check-native check-site check-reference check-docs check-citations ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
+# .gitattributes leaves developer-only files out of the archive a release
+# ships, which ocicl packages.
+check-package: ## Check that an archive of the tree holds only the files users need
+	@scripts/require-tools "$(GOAL)" git tar
+	@sh tests/package-contents.sh
+
+test: check-watchdog check-preflight check-purity check-fixtures check-native check-site check-reference check-docs check-citations check-package ## Run the test suite a pull request runs (native suite on NATIVE_LISPS)
 
 # The property tests' own CI case counts give `make test` about 30 s in the
 # container. `make fuzz` replaces every property's own count with the flat

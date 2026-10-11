@@ -8,13 +8,66 @@ GitHub Flavored Markdown for Common Lisp (via =cmark-gfm=)
 ✨ *AI Disclosure:* LLMs are used extensively in the planning and development of this project.
 #+end_quote
 
+* What it is
+
+A binding of cmark-gfm, GitHub's Markdown parser, for SBCL, CCL and ECL.
+It turns Markdown into HTML, an HTML tree or plain text, and parses it
+into an AST you can read and walk.
+
+#+begin_src lisp
+(cl-commonmark-gfm:markdown->html "Meet at ~~two~~ three.")
+;; => "<p>Meet at <del>two</del> three.</p>\n"
+
+(cl-commonmark-gfm:markdown->html-tree "Meet at ~~two~~ three.")
+;; => ((:p nil "Meet at " (:del nil "two") " three.") "\n")
+#+end_src
+
+Its HTML is safe by default: raw HTML in the Markdown becomes a
+comment, and dangerous URLs are blanked. Size limits guard against
+documents built to make cmark-gfm crash your Lisp: see [[file:docs/safety.md][Safety]].
+
+* Install
+
+First install cmark-gfm 0.29.0.gfm.13. It must be exactly that version.
+
+#+begin_src sh
+# Debian 13 or Ubuntu 26.04 LTS
+sudo apt install libcmark-gfm0.29.0.gfm.13 libcmark-gfm-extensions0.29.0.gfm.13
+
+# macOS
+brew install cmark-gfm
+#+end_src
+
+Then install the library with [[https://github.com/ocicl/ocicl][ocicl]], and load it:
+
+#+begin_src sh
+ocicl install cl-commonmark-gfm
+#+end_src
+
+#+begin_src lisp
+(asdf:load-system "cl-commonmark-gfm")
+#+end_src
+
+[[file:docs/installing.md][Installing]] has the details, and what to do on other systems.
+
+* Where it runs
+
+- SBCL, CCL and ECL, on Linux and macOS. Windows isn't supported.
+- amd64 and arm64. CCL has no arm64 build: on Apple silicon, it runs
+  under Rosetta.
+- [[file:docs/support.md][Support]] says how each Lisp and system is tested.
+
 * Documentation
 
 Start at [[file:docs/README.md][docs/]]: installing, usage, the options, the AST, the HTML
 tree, safety, errors, ECL, support, and the API reference.
 
+* Contributing
+
+Issues and pull requests are welcome: see [[file:CONTRIBUTING.md][CONTRIBUTING.md]]. Please
+report a security issue privately, as [[file:SECURITY.md][SECURITY.md]] says.
+
 * License
 
 © [[https://kiyomicomputation.systems/][Kiyomi Computation Systems LLC]]. Licensed under BSD 3-Clause — see
 [[file:LICENSE][LICENSE]], and [[file:NOTICE][NOTICE]] for cmark-gfm's own licenses.
-
