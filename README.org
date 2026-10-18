@@ -59,8 +59,9 @@ ocicl install cl-commonmark-gfm
 
 * Documentation
 
-Start at [[file:docs/README.md][docs/]]: installing, usage, the options, the AST, the HTML
-tree, safety, errors, ECL, support, and the API reference.
+Read it on the site, [[https://kiyomi-computation-systems.github.io/cl-commonmark-gfm/][kiyomi-computation-systems.github.io/cl-commonmark-gfm]], or start at
+[[file:docs/README.md][docs/]]: installing, usage, the options, the AST, the HTML tree, safety,
+errors, ECL, support, and the API reference.
 
 * Contributing
 
