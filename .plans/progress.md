@@ -102,7 +102,7 @@ Every task brief is bound by these, on top of `AGENTS.md`.
 | M2 stack-safe walks and the native layer | closed 2026-10-01: M2a merged 2026-09-30 (PR #4, `246eb51`), M2b merged 2026-10-02 (PR #5, `89fabeb`) |
 | M3 unknown extensions and version probes | closed 2026-10-02, with its close-out (PR #8): property-based testing adopted (ADR-0020) |
 | M4 CCL and ECL | closed 2026-10-04, with M4b's close-out: M4a merged 2026-10-03 (PR #9, `163077a`), M4b merged 2026-10-04 (PR #10, `06d3b7f`) |
-| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), merged 2026-10-05 (PR #15, `e124fc4`); M5b, the pages, merged 2026-10-06 (PR #16, `12df186`); the citation cleanup, on branch `m5-cleanup-citations` |
+| M5 release candidate | in progress: the comment sweep (PR #11, `db20638`), TRANSFORM-AST on WALK-AST (PR #12, `dc11436`), the override's name in reports (PR #13, `e933679`) and a plain UNWIND-PROTECT on CCL (PR #14, `650855c`), all merged 2026-10-04; M5a, the documentation machinery ([spec](2026-10-04-m5-documentation-design.md)), merged 2026-10-05 (PR #15, `e124fc4`); M5b, the pages, merged 2026-10-06 (PR #16, `12df186`); the citation cleanup (PR #17, `9a8ec5c`); release packaging and contributor guides (PR #18, `9be708f`); the SBCL loading fix (PR #19, `23a5fae`); **0.1.0 released 2026-10-11** (PR #20, `0fa6fb5`, tag `v0.1.0`), on ocicl 2026-10-18 |
 
 ### M0 checklist
 
@@ -427,20 +427,21 @@ sweep's "for later" items 3 and 6:
   whole repository, `site/cl-commonmark-gfm-site.asd` ships in it, and a
   recursive source registry would find it (M5a's first review). It did;
   `.gitattributes` now keeps every developer-only path out (PR #18)
-- [ ] Ask ocicl to add the library in release mode: the package's source
+- [x] Ask ocicl to add the library in release mode: the package's source
   is `file:` the GitHub archive of the tag, with `| version |`. ocicl
   watches the latest GitHub Release, so publish a Release for each
-  `vX.Y.Z` tag, not only the tag
+  `vX.Y.Z` tag, not only the tag. Requested 2026-10-11
+  (ocicl/request-system-additions-here#75), published 2026-10-18 as
+  `ghcr.io/ocicl/cl-commonmark-gfm` 0.1.0, from ocicl/cl-commonmark-gfm
 - [x] Private vulnerability reporting, the Pages source (GitHub Actions)
   and the `github-pages` environment's `v*` tag rule: set 2026-10-11,
   once the repository was public. A Pages run by hand on `main`
   (`23a5fae`) built 11 pages and skipped the deploy
-- [ ] CHANGELOG.md's 0.1.0 entry, and `:version "0.1.0"` (branch
-  `release/0.1.0`)
-- [ ] Tag `v0.1.0`, and publish its GitHub Release
-- [ ] Rerun M5b's exit test with the real `ocicl install
+- [x] CHANGELOG.md's 0.1.0 entry, and `:version "0.1.0"` (PR #20)
+- [x] Tag `v0.1.0`, and publish its GitHub Release (2026-10-11)
+- [x] Rerun M5b's exit test with the real `ocicl install
   cl-commonmark-gfm`, in both modes: `STAND_IN=0 tests/install-docs.sh
-  debian`, then `source` (M5 design D10)
+  debian`, then `source` (M5 design D10). Both passed, 2026-10-18
 - [x] In the manual macOS run, try the two paths `docs/` gives but no one
   has run (M5 finding 47), and update `installing.md` and `ecl.md`:
   - CCL on Apple silicon: not tried. The maintainer chose not to install
@@ -450,8 +451,8 @@ sweep's "for later" items 3 and 6:
   - Homebrew's ECL 26.5.5: its dynamic FFI works, since the native suite
     passed on it. `ecl.md`'s linked recipe wasn't run, and the page still
     says it hasn't been tried on macOS
-- [ ] Link the site from README.org's Documentation section once it is
-  live
+- [x] Link the site from README.org's Documentation section once it is
+  live (branch `docs/link-site`)
 
 ### October: CI follow-up
 
@@ -528,6 +529,31 @@ result.
   weren't reported.
 
 ## Close-outs
+
+### 2026-10-18 — Release 0.1.0
+
+- **Released:**
+  - PR #20 (`0fa6fb5`) added CHANGELOG.md's first entry and
+    `:version "0.1.0"`;
+  - the annotated tag `v0.1.0` on `0fa6fb5`, pushed 2026-10-11;
+  - the GitHub Release "cl-commonmark-gfm 0.1.0", published 2026-10-11,
+    marked latest. Its notes carried a line saying the ocicl package
+    was on its way, removed once it was published.
+- **The site:** the tag's Pages run (38144353330) built and deployed
+  it to https://kiyomi-computation-systems.github.io/cl-commonmark-gfm/,
+  which shows `v0.1.0`. README.org links it.
+- **ocicl:** requested 2026-10-11 in release mode
+  (ocicl/request-system-additions-here#75). The maintainer published it
+  2026-10-18, from ocicl/cl-commonmark-gfm: source `file:` the
+  `v0.1.0` archive, version `0.1.0`, system `cl-commonmark-gfm`,
+  tracking GitHub Releases within six hours. GitHub's archive of the
+  tag holds 49 files, as `make check-package` requires.
+- **The exit test, real:** `STAND_IN=0 tests/install-docs.sh debian`
+  (Debian 13) and `source` (Ubuntu 24.04) both passed: the page's
+  `ocicl install cl-commonmark-gfm` downloaded `latest` (0.1.0), and
+  the first call gave what the page shows.
+- **For later:** see the close-outs below, and the macOS run's "Not
+  run" items.
 
 ### 2026-10-11 — The SBCL loading fix (PR #19, `23a5fae`)
 
